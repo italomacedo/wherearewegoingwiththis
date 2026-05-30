@@ -10,3 +10,8 @@ coverage/
 Thumbs.db
 *.suo
 *.user
+
+# TypeScript build artifacts (vite.config compiled output, incremental info)
+*.tsbuildinfo
+vite.config.js
+vite.config.d.ts
