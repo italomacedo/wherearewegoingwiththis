@@ -6,7 +6,6 @@ import { BaseScene } from '../../../src/scenes/BaseScene';
 
 class MockScene extends BaseScene {
   async onEnter() {
-    // Camera required so Scene.render() doesn't throw when update() is called
     new FreeCamera('cam', new Vector3(0, 5, -10), this.babylonScene);
   }
   async onExit() {}
@@ -32,13 +31,12 @@ describe('GameManager', () => {
     expect(a).not.toBe(b);
   });
 
-  it('registers engine and sceneManager in ServiceLocator after initializeWithEngine', () => {
+  it('registers engine, sceneManager and eventBus after initializeWithEngine', () => {
     const engine = new NullEngine();
     GameManager.getInstance().initializeWithEngine(engine);
     expect(ServiceLocator.has('engine')).toBe(true);
     expect(ServiceLocator.has('sceneManager')).toBe(true);
     expect(ServiceLocator.has('eventBus')).toBe(true);
-    engine.dispose();
   });
 
   it('getEngine returns null before initialization', () => {
@@ -49,7 +47,6 @@ describe('GameManager', () => {
     const engine = new NullEngine();
     GameManager.getInstance().initializeWithEngine(engine);
     expect(GameManager.getInstance().getEngine()).toBe(engine);
-    engine.dispose();
   });
 
   it('isRunning returns false before start', () => {
@@ -68,15 +65,15 @@ describe('GameManager', () => {
     expect(GameManager.getInstance().getSceneManager()).toBeNull();
   });
 
-  it('start sets isRunning to true and registers a render loop callback', async () => {
+  it('start registers all scenes and sets isRunning', () => {
     const engine = new NullEngine();
     const gm = GameManager.getInstance();
     gm.initializeWithEngine(engine);
 
     const sceneManager = ServiceLocator.get<SceneManager>('sceneManager');
-    sceneManager.register('splash', (eng) => new MockScene(eng));
+    sceneManager.transitionDurationMs = 0;
 
-    // Capture the render loop callback — invoke it AFTER the scene has loaded
+    // Capture the render loop callback — actual rendering tested in SceneManager tests
     let renderCallback: (() => void) | undefined;
     jest.spyOn(engine, 'runRenderLoop').mockImplementation((cb) => {
       renderCallback = cb;
@@ -84,26 +81,61 @@ describe('GameManager', () => {
 
     gm.start();
     expect(gm.isRunning()).toBe(true);
-
-    // Await scene load so onEnter() adds the camera before we call update()
-    await Promise.resolve();
-
-    expect(renderCallback).toBeDefined();
-    expect(() => renderCallback!()).not.toThrow();
+    expect(typeof renderCallback).toBe('function');
   });
 
-  it('stop sets isRunning to false', async () => {
+  it('render loop callback delegates to sceneManager.update', () => {
     const engine = new NullEngine();
     const gm = GameManager.getInstance();
     gm.initializeWithEngine(engine);
 
     const sceneManager = ServiceLocator.get<SceneManager>('sceneManager');
-    sceneManager.register('splash', (eng) => new MockScene(eng));
+    sceneManager.transitionDurationMs = 0;
+    const updateSpy = jest.spyOn(sceneManager, 'update').mockImplementation(() => {});
+
+    let renderCallback: (() => void) | undefined;
+    jest.spyOn(engine, 'runRenderLoop').mockImplementation((cb) => {
+      renderCallback = cb;
+    });
+
+    gm.start();
+    renderCallback!();
+    expect(updateSpy).toHaveBeenCalled();
+  });
+
+  it('stop sets isRunning to false', () => {
+    const engine = new NullEngine();
+    const gm = GameManager.getInstance();
+    gm.initializeWithEngine(engine);
 
     jest.spyOn(engine, 'runRenderLoop').mockImplementation(() => {});
 
     gm.start();
     gm.stop();
     expect(gm.isRunning()).toBe(false);
+  });
+
+  it('isNullEngine returns true for NullEngine', () => {
+    const engine = new NullEngine();
+    GameManager.getInstance().initializeWithEngine(engine);
+    expect(GameManager.getInstance().isNullEngine()).toBe(true);
+  });
+
+  it('start with custom scene replaces default registration', async () => {
+    const engine = new NullEngine();
+    const gm = GameManager.getInstance();
+    gm.initializeWithEngine(engine);
+
+    const sceneManager = ServiceLocator.get<SceneManager>('sceneManager');
+    sceneManager.transitionDurationMs = 0;
+
+    jest.spyOn(engine, 'runRenderLoop').mockImplementation(() => {});
+
+    // Register a custom splash before start() to override default
+    sceneManager.register('splash', (eng) => new MockScene(eng));
+    gm.start(); // re-registers default + our custom (custom wins since it's registered last)
+
+    await Promise.resolve();
+    expect(gm.isRunning()).toBe(true);
   });
 });

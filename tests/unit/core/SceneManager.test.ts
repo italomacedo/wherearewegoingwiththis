@@ -1,6 +1,7 @@
 import { NullEngine, FreeCamera, Vector3 } from '@babylonjs/core';
 import { SceneManager } from '../../../src/core/SceneManager';
 import { ServiceLocator } from '../../../src/core/ServiceLocator';
+import { EventBus } from '../../../src/core/EventBus';
 import { BaseScene } from '../../../src/scenes/BaseScene';
 
 class MockScene extends BaseScene {
@@ -10,7 +11,6 @@ class MockScene extends BaseScene {
 
   async onEnter(): Promise<void> {
     this.onEnterCalled = true;
-    // Camera required so Scene.render() doesn't throw
     new FreeCamera('cam', new Vector3(0, 5, -10), this.babylonScene);
   }
 
@@ -27,10 +27,14 @@ class MockScene extends BaseScene {
 describe('SceneManager', () => {
   let engine: NullEngine;
   let manager: SceneManager;
+  let eventBus: EventBus;
 
   beforeEach(() => {
     engine = new NullEngine();
+    eventBus = new EventBus();
+    ServiceLocator.register('eventBus', eventBus);
     manager = new SceneManager(engine);
+    manager.transitionDurationMs = 0; // skip animation in tests
     ServiceLocator.register('sceneManager', manager);
   });
 
@@ -89,6 +93,49 @@ describe('SceneManager', () => {
     expect(manager.getCurrentScene()).toBeNull();
   });
 
+  it('emits scene:transition-start event with from/to names', async () => {
+    manager.register('splash', (eng) => new MockScene(eng));
+    manager.register('main-menu', (eng) => new MockScene(eng));
+
+    await manager.loadScene('splash');
+
+    const handler = jest.fn();
+    eventBus.on('scene:transition-start', handler);
+    await manager.loadScene('main-menu');
+
+    expect(handler).toHaveBeenCalledWith({ from: 'splash', to: 'main-menu' });
+  });
+
+  it('emits scene:transition-start with empty from when no previous scene', async () => {
+    manager.register('splash', (eng) => new MockScene(eng));
+
+    const handler = jest.fn();
+    eventBus.on('scene:transition-start', handler);
+    await manager.loadScene('splash');
+
+    expect(handler).toHaveBeenCalledWith({ from: '', to: 'splash' });
+  });
+
+  it('emits scene:transition-end after scene is loaded', async () => {
+    manager.register('splash', (eng) => new MockScene(eng));
+
+    const handler = jest.fn();
+    eventBus.on('scene:transition-end', handler);
+    await manager.loadScene('splash');
+
+    expect(handler).toHaveBeenCalledWith({ sceneName: 'splash' });
+  });
+
+  it('emits scene:loaded after scene is loaded', async () => {
+    manager.register('main-menu', (eng) => new MockScene(eng));
+
+    const handler = jest.fn();
+    eventBus.on('scene:loaded', handler);
+    await manager.loadScene('main-menu');
+
+    expect(handler).toHaveBeenCalledWith({ sceneName: 'main-menu' });
+  });
+
   it('ignores concurrent loadScene call while transitioning', async () => {
     let resolveEnter!: () => void;
     const slowScene = new (class extends BaseScene {
@@ -101,25 +148,23 @@ describe('SceneManager', () => {
     manager.register('splash', () => slowScene);
     manager.register('main-menu', (eng) => new MockScene(eng));
 
-    // Start loading splash (will hang in onEnter until resolveEnter is called)
     const firstLoad = manager.loadScene('splash');
     expect(manager.isTransitioning()).toBe(true);
 
-    // currentSceneName is set before onEnter() in SceneManager
+    // currentSceneName is set before onEnter() completes
     expect(manager.getCurrentSceneName()).toBe('splash');
 
     // Second load is ignored while transitioning
     await manager.loadScene('main-menu');
-    expect(manager.isTransitioning()).toBe(true); // still in first transition
+    expect(manager.isTransitioning()).toBe(true);
 
-    // Complete the first load
     resolveEnter();
     await firstLoad;
     expect(manager.getCurrentSceneName()).toBe('splash');
     expect(manager.isTransitioning()).toBe(false);
   });
 
-  it('update renders current scene', async () => {
+  it('update renders current scene without error', async () => {
     manager.register('splash', (eng) => new MockScene(eng));
     await manager.loadScene('splash');
     expect(() => manager.update()).not.toThrow();
@@ -127,5 +172,11 @@ describe('SceneManager', () => {
 
   it('update does nothing when no scene loaded', () => {
     expect(() => manager.update()).not.toThrow();
+  });
+
+  it('works without eventBus registered in ServiceLocator', async () => {
+    ServiceLocator.unregister('eventBus');
+    manager.register('splash', (eng) => new MockScene(eng));
+    await expect(manager.loadScene('splash')).resolves.toBeUndefined();
   });
 });
