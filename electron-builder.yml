@@ -1,0 +1,30 @@
+appId: com.beiiriogames.wherearewegoingwiththis
+productName: Where Are We Going With This
+copyright: Copyright © 2024-2025 BeiraRio Games
+
+directories:
+  output: release
+  buildResources: build
+
+files:
+  - dist/**/*
+  - dist-electron/**/*
+  - "!**/{.eslintrc.js,.eslintignore,.gitignore}"
+  - "!**/*.{map,ts}"
+
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  icon: public/icon.ico
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+
+publish:
+  provider: github
+  releaseType: draft

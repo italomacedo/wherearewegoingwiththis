@@ -1,0 +1,12 @@
+node_modules/
+dist/
+dist-electron/
+release/
+coverage/
+*.log
+.env
+.env.local
+.DS_Store
+Thumbs.db
+*.suo
+*.user
