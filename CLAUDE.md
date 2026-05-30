@@ -192,3 +192,4 @@ Read these before making structural changes:
 - [ADR-0005](docs/ADR/0005-asset-pipeline.md) — Asset pipeline: Sketchfab MCP + Poly Haven
 - [ADR-0006](docs/ADR/0006-save-system.md) — Save system: JSON files
 - [ADR-0007](docs/ADR/0007-testing-strategy.md) — Testing: Jest + NullEngine + 95% coverage
+- [ADR-0008](docs/ADR/0008-world-zones.md) — World architecture: zone/chunk system
