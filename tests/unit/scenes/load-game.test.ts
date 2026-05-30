@@ -1,6 +1,7 @@
 import { NullEngine } from '@babylonjs/core';
 import { LoadGameScene } from '../../../src/scenes/LoadGameScene';
 import { ServiceLocator } from '../../../src/core/ServiceLocator';
+import { GameSession } from '../../../src/core/GameSession';
 import { SaveService } from '../../../src/systems/SaveService';
 import { DEFAULT_APPEARANCE } from '../../../src/entities/CharacterData';
 
@@ -67,6 +68,16 @@ describe('LoadGameScene', () => {
     await scene.onEnter();
     await scene.onLoadSave(save.saveId);
     expect(mockSceneManager.loadScene).toHaveBeenCalledWith('game-world');
+  });
+
+  it('onLoadSave registers a GameSession built from the save', async () => {
+    const save = SaveService.createNewSave(testCharacter);
+    SaveService.save(save);
+    await scene.onEnter();
+    await scene.onLoadSave(save.saveId);
+    const session = ServiceLocator.get<GameSession>('gameSession');
+    expect(session.saveId).toBe(save.saveId);
+    expect(session.character.name).toBe('Kai');
   });
 
   it('onLoadSave with invalid ID does not navigate', async () => {

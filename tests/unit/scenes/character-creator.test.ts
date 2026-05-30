@@ -1,6 +1,8 @@
 import { NullEngine } from '@babylonjs/core';
 import { CharacterCreatorScene } from '../../../src/scenes/CharacterCreatorScene';
 import { ServiceLocator } from '../../../src/core/ServiceLocator';
+import { GameSession } from '../../../src/core/GameSession';
+import { SaveService } from '../../../src/systems/SaveService';
 import { DEFAULT_APPEARANCE } from '../../../src/entities/CharacterData';
 
 const mockSceneManager = {
@@ -23,6 +25,7 @@ describe('CharacterCreatorScene', () => {
     scene.dispose();
     engine.dispose();
     ServiceLocator.clear();
+    SaveService.reset();
   });
 
   it('constructs without error', () => {
@@ -142,6 +145,17 @@ describe('CharacterCreatorScene', () => {
     await scene.onEnter();
     await scene.onBegin('Kai');
     expect(mockSceneManager.loadScene).toHaveBeenCalledWith('game-world');
+  });
+
+  it('onBegin creates a save and registers a GameSession', async () => {
+    await scene.onEnter();
+    await scene.setSkinTone('#ABCDEF');
+    await scene.onBegin('Kai');
+    expect(SaveService.listMeta()).toHaveLength(1);
+    const session = ServiceLocator.get<GameSession>('gameSession');
+    expect(session.character.name).toBe('Kai');
+    expect(session.character.appearance.skinTone).toBe('#ABCDEF');
+    expect(session.saveId).toBe(SaveService.listMeta()[0]!.saveId);
   });
 
   it('onBegin trims whitespace-only names', async () => {

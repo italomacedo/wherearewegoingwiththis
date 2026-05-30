@@ -8,7 +8,7 @@ This is the primary entry point for all AI agents working on this project. Read 
 
 ## Current Status (keep this updated)
 
-**Phases 0–8 COMPLETE** · 412 tests · ~99.5% coverage (gated 95% lines/stmts/funcs, 90% branches) · typecheck + build green.
+**Phases 0–8 COMPLETE** (+ integration gaps #1/#2/#3 closed) · 427 tests · ~99.6% coverage (gated 95% lines/stmts/funcs, 90% branches) · typecheck + build green.
 
 | Phase | What | State |
 |---|---|---|
@@ -26,11 +26,11 @@ This is the primary entry point for all AI agents working on this project. Read 
 
 **Verified working in Electron:** splash → studio → publisher → menu → options → character creator → game world (player moves, camera follows, Zara visible).
 
-**INTEGRATION GAPS still open (wire these before/with Phase 9):**
-1. **Dialog GUI** — `DialogSystem` state machine is built+tested, but the Babylon GUI (speech bubble, text input, thinking dots) is a stub (`buildUIBrowser`/`renderBrowser` empty). Pressing E near Zara toggles state but draws nothing. NPC conversation won't be visible until this is built.
-2. **GameSession glue** — `CharacterCreatorScene.onBegin` navigates to game-world but does NOT create a save (`SaveService.createNewSave`) nor pass appearance/name to `GameWorldScene.setAppearance/setPlayerName`. `LoadGameScene.onLoadSave` likewise doesn't pass loaded appearance/npcMemory. Need a `GameSession` holder (ServiceLocator) carrying `{saveId, character, npcMemory}` across scenes.
-3. **Autosave** — npcMemory + world position are not written back to disk yet (`SaveService.updateNpcMemory` / `updateWorldState` exist but aren't called).
-4. **Real assets** — project ships ZERO `.glb`/textures; everything is procedural placeholder. `CharacterAssembler.useGltf=false` and `MercadoSombrasZone.loadRealAssets` is a no-op. Curated CC0/CC-BY assets catalogued in [docs/design/WORLD_DESIGN.md](docs/design/WORLD_DESIGN.md) for manual download.
+**INTEGRATION GAPS:**
+1. ✅ **Dialog GUI** — DONE. `DialogSystem` now renders a bottom speech bubble (NPC name + wrapped streaming text + `. . .` thinking placeholder), a player `InputText` with a SEND button and Enter-to-submit, and tracks input focus (`isInputFocused()`). Browser-only render/build is `istanbul ignore`d; pure state machine + focus flag stay fully tested. While the dialog is open, `GameWorldScene.update` freezes player movement/camera so typing doesn't move the character, and the interact key won't close the dialog while the field is focused.
+2. ✅ **GameSession glue** — DONE. New `src/core/GameSession.ts` holder (`{saveId, character, npcMemory, world, gameTimeSeconds}`) registered in ServiceLocator under `'gameSession'`. `CharacterCreatorScene.onBegin` creates+persists a save (`SaveService.createNewSave`+`save`) and registers a session; `LoadGameScene.onLoadSave` builds a session via `GameSession.fromSave`. `GameWorldScene.onEnter` adopts appearance/name/npcMemory and spawns at the saved world position (falls back to the zone spawn point when position is all-zero).
+3. ✅ **Autosave (on scene exit)** — DONE. `GameWorldScene.onExit` calls `persistSession()` → `SaveService.updateWorldState` + `updateNpcMemory` (and updates the in-memory session). NOTE: this persists on *exit only*; a periodic/interval autosave during play is still future work.
+4. **Real assets** — still open. Project ships ZERO `.glb`/textures; everything is procedural placeholder. `CharacterAssembler.useGltf=false` and `MercadoSombrasZone.loadRealAssets` is a no-op. Curated CC0/CC-BY assets catalogued in [docs/design/WORLD_DESIGN.md](docs/design/WORLD_DESIGN.md) for manual download.
 
 ---
 

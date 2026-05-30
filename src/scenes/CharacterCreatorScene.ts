@@ -6,8 +6,10 @@ import { AdvancedDynamicTexture, TextBlock, Button, StackPanel, InputText } from
 import { BaseScene } from './BaseScene';
 import { SceneManager } from '@core/SceneManager';
 import { ServiceLocator } from '@core/ServiceLocator';
+import { GameSession } from '@core/GameSession';
 import { CharacterData, CharacterAppearance, DEFAULT_APPEARANCE, BODY_BASES } from '@entities/CharacterData';
 import { CharacterAssembler, AssembledCharacter } from '@systems/CharacterAssembler';
+import { SaveService } from '@systems/SaveService';
 
 export class CharacterCreatorScene extends BaseScene {
   private characterData: CharacterData = {
@@ -45,7 +47,14 @@ export class CharacterCreatorScene extends BaseScene {
   async onBegin(playerName: string): Promise<void> {
     if (!playerName.trim()) return;
     this.characterData.name = playerName.trim();
-    // SaveSystem.createNewGame() called in Phase 5
+
+    // Persist a fresh save and hand the GameWorldScene a session carrying the
+    // chosen appearance/name (and an empty NPC memory) via the ServiceLocator.
+    const character = this.getCharacterData();
+    const save = SaveService.createNewSave(character, character.name);
+    SaveService.save(save);
+    ServiceLocator.register('gameSession', GameSession.fromSave(save));
+
     const sm = ServiceLocator.get<SceneManager>('sceneManager');
     await sm.loadScene('game-world');
   }

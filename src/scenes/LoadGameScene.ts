@@ -3,6 +3,7 @@ import { AdvancedDynamicTexture, TextBlock, Button, StackPanel, Rectangle } from
 import { BaseScene } from './BaseScene';
 import { SceneManager } from '@core/SceneManager';
 import { ServiceLocator } from '@core/ServiceLocator';
+import { GameSession } from '@core/GameSession';
 import { SaveService, SaveMeta } from '@systems/SaveService';
 
 export class LoadGameScene extends BaseScene {
@@ -34,7 +35,8 @@ export class LoadGameScene extends BaseScene {
   async onLoadSave(saveId: string): Promise<void> {
     const save = SaveService.load(saveId);
     if (!save) return;
-    // SaveService.currentSaveId will be set in Phase 6
+    // Carry the loaded appearance + NPC memory + world position into the world.
+    ServiceLocator.register('gameSession', GameSession.fromSave(save));
     const sm = ServiceLocator.get<SceneManager>('sceneManager');
     await sm.loadScene('game-world');
   }

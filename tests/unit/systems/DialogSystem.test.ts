@@ -100,6 +100,28 @@ describe('DialogSystem', () => {
     expect(dialog.getState().npcText).toBe('');
   });
 
+  it('input is not focused by default', () => {
+    expect(dialog.isInputFocused()).toBe(false);
+  });
+
+  it('close resets the input-focused flag', () => {
+    dialog.open('Zara');
+    dialog.close();
+    expect(dialog.isInputFocused()).toBe(false);
+  });
+
+  it('dispose clears the submit handler', () => {
+    const handler = jest.fn();
+    dialog.onSubmit(handler);
+    dialog.dispose();
+    dialog.open('Zara');
+    dialog.submit('hi');
+    expect(handler).not.toHaveBeenCalled();
+  });
+});
+toBe(false);
+  });
+
   it('dispose clears the submit handler', () => {
     const handler = jest.fn();
     dialog.onSubmit(handler);

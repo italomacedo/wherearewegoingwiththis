@@ -1,8 +1,10 @@
 import { NullEngine } from '@babylonjs/core';
 import { GameWorldScene } from '../../../src/scenes/GameWorldScene';
 import { ServiceLocator } from '../../../src/core/ServiceLocator';
+import { GameSession } from '../../../src/core/GameSession';
 import { EventBus } from '../../../src/core/EventBus';
 import { SettingsService } from '../../../src/systems/SettingsService';
+import { SaveService } from '../../../src/systems/SaveService';
 import { DEFAULT_APPEARANCE } from '../../../src/entities/CharacterData';
 
 describe('GameWorldScene', () => {
@@ -23,6 +25,7 @@ describe('GameWorldScene', () => {
     ServiceLocator.clear();
     SettingsService.reset();
     SettingsService.clearMemoryStore();
+    SaveService.reset();
   });
 
   it('constructs without error', () => {
@@ -203,6 +206,92 @@ describe('GameWorldScene', () => {
   it('getNpcManager and getDialog return null before onEnter', () => {
     expect(scene.getNpcManager()).toBeNull();
     expect(scene.getDialog()).toBeNull();
+  });
+
+  // ─── GameSession glue (Phase 8 integration) ───────────────────────────────
+
+  function makeSession(): GameSession {
+    const character = { name: 'Nyx', appearance: { ...DEFAULT_APPEARANCE, skinTone: '#123456' } };
+    const save = SaveService.createNewSave(character, 'Nyx');
+    SaveService.save(save);
+    return GameSession.fromSave(save);
+  }
+
+  it('adopts appearance, name and npc memory from a registered GameSession', async () => {
+    const session = makeSession();
+    session.npcMemory = {
+      npc_zara_vendor_01: { mode: 'stateless', sessionId: null, history: [{ player: 'hi', npc: 'yo' }] },
+    };
+    ServiceLocator.register('gameSession', session);
+    await scene.onEnter();
+    const zara = scene.getNpcManager()!.getAgent('npc_zara_vendor_01')!;
+    expect(zara.conversation.getHistoryCount()).toBe(1);
+    expect(scene.getPlayer()).not.toBeNull();
+  });
+
+  it('spawns the player at the saved world position when non-zero', async () => {
+    const session = makeSession();
+    session.world = { zone: 'mercado_sombras', position: [7, 0, 9], rotation: 0 };
+    ServiceLocator.register('gameSession', session);
+    await scene.onEnter();
+    const pos = scene.getPlayer()!.getPosition();
+    expect(pos.x).toBeCloseTo(7);
+    expect(pos.z).toBeCloseTo(9);
+  });
+
+  it('uses the zone spawn point when the saved position is all-zero', async () => {
+    const session = makeSession(); // default world position is [0,0,0]
+    ServiceLocator.register('gameSession', session);
+    await scene.onEnter();
+    // spawn point is not the origin in the Mercado zone
+    expect(scene.getPlayer()).not.toBeNull();
+  });
+
+  it('persists world position and npc memory back to the save on exit', async () => {
+    const session = makeSession();
+    ServiceLocator.register('gameSession', session);
+    await scene.onEnter();
+    scene.getPlayer()!.getRoot().position.set(3, 0, 4);
+    await scene.onExit();
+    const reloaded = SaveService.load(session.saveId)!;
+    expect(reloaded.world.position[0]).toBeCloseTo(3);
+    expect(reloaded.world.position[2]).toBeCloseTo(4);
+    // session object is updated in place as well
+    expect(session.world.position[0]).toBeCloseTo(3);
+  });
+
+  it('does not persist anything when there is no session (no saveId)', async () => {
+    await scene.onEnter();
+    await scene.onExit();
+    expect(SaveService.listMeta()).toHaveLength(0);
+  });
+
+  it('freezes player movement while the dialog is open', async () => {
+    await scene.onEnter();
+    scene.getPlayer()!.getRoot().position.set(4, 0, 3);
+    scene.getInputSystem()!.handleKeyDown('KeyE');
+    scene.update(); // opens dialog
+    expect(scene.getDialog()!.isOpen()).toBe(true);
+    const z = scene.getPlayer()!.getPosition().z;
+    scene.getInputSystem()!.handleKeyDown('KeyW');
+    scene.update();
+    scene.update();
+    expect(scene.getPlayer()!.getPosition().z).toBeCloseTo(z);
+  });
+
+  it('does not close the dialog on interact while the input is focused', async () => {
+    await scene.onEnter();
+    const dialog = scene.getDialog()!;
+    scene.getPlayer()!.getRoot().position.set(4, 0, 3);
+    scene.getInputSystem()!.handleKeyDown('KeyE');
+    scene.update();
+    expect(dialog.isOpen()).toBe(true);
+    jest.spyOn(dialog, 'isInputFocused').mockReturnValue(true);
+    const input = scene.getInputSystem()!;
+    input.handleKeyUp('KeyE');
+    input.handleKeyDown('KeyE');
+    scene.update();
+    expect(dialog.isOpen()).toBe(true); // still open — E went to the text field
   });
 
   it('setPlayerName flows into the world snapshot prompt', async () => {

@@ -3,6 +3,8 @@ import {
 } from '@babylonjs/core';
 import { BaseScene } from './BaseScene';
 import { ServiceLocator } from '@core/ServiceLocator';
+import { GameSession } from '@core/GameSession';
+import { SaveService } from '@systems/SaveService';
 import { ZoneManager } from '@systems/ZoneManager';
 import { CameraSystem } from '@systems/CameraSystem';
 import { InputSystem } from '@systems/InputSystem';
@@ -34,6 +36,8 @@ export class GameWorldScene extends BaseScene {
   private npcMemory: NPCMemoryMap = {};
   private playerName = 'Operative';
   private gameTimeSeconds = 0;
+  private saveId = '';
+  private spawnOverride: Vector3 | null = null;
 
   constructor(engine: Engine) {
     super(engine);
@@ -52,7 +56,48 @@ export class GameWorldScene extends BaseScene {
     this.playerName = name;
   }
 
+  /** Adopts saveId/appearance/name/memory/position from a session, if present. */
+  private adoptSession(session: GameSession | null): void {
+    if (!session) return;
+    this.saveId = session.saveId;
+    this.appearance = session.character.appearance;
+    this.playerName = session.character.name;
+    this.npcMemory = session.npcMemory ?? {};
+    this.gameTimeSeconds = session.gameTimeSeconds;
+    if (session.world?.zone) this.startZoneId = session.world.zone;
+    const [x, y, z] = session.world?.position ?? [0, 0, 0];
+    // Treat an all-zero saved position as "use the zone's spawn point".
+    if (x !== 0 || y !== 0 || z !== 0) {
+      this.spawnOverride = new Vector3(x, y, z);
+    }
+  }
+
+  /** Writes current world position + NPC memory back to the session and disk. */
+  private persistSession(): void {
+    if (!this.saveId) return;
+    const memory = this.npcManager?.serializeMemory() ?? {};
+    const pos = this.player?.getPosition();
+    const world = {
+      zone: this.startZoneId,
+      position: (pos ? [pos.x, pos.y, pos.z] : [0, 0, 0]) as [number, number, number],
+      rotation: 0,
+    };
+    SaveService.updateWorldState(this.saveId, world, this.gameTimeSeconds);
+    SaveService.updateNpcMemory(this.saveId, memory);
+
+    const session = ServiceLocator.tryGet<GameSession>('gameSession');
+    if (session) {
+      session.world = world;
+      session.npcMemory = memory;
+      session.gameTimeSeconds = this.gameTimeSeconds;
+    }
+  }
+
   async onEnter(): Promise<void> {
+    // Pull the active session (set by Character Creator / Load Game). Direct
+    // setters still win if a test injected them before onEnter.
+    this.adoptSession(ServiceLocator.tryGet<GameSession>('gameSession'));
+
     // Camera FIRST — guarantees the scene always has an active camera so it
     // renders even if a later async step (physics WASM, asset load) is slow.
     this.cameraSystem = new CameraSystem(this.babylonScene);
@@ -69,7 +114,7 @@ export class GameWorldScene extends BaseScene {
     const zone = await this.zoneManager.loadZone(this.startZoneId, this.babylonScene);
 
     this.player = new PlayerController(this.babylonScene, this.inputSystem);
-    await this.player.spawn(zone.getSpawnPoint(), this.appearance);
+    await this.player.spawn(this.spawnOverride ?? zone.getSpawnPoint(), this.appearance);
     ServiceLocator.register('player', this.player);
     this.cameraSystem.setTarget(this.player.getRoot());
 
@@ -89,6 +134,8 @@ export class GameWorldScene extends BaseScene {
   }
 
   async onExit(): Promise<void> {
+    // Autosave before tearing anything down (npcManager is disposed below).
+    this.persistSession();
     this.detachInput?.();
     this.player?.dispose();
     this.zoneManager?.dispose();
@@ -112,11 +159,16 @@ export class GameWorldScene extends BaseScene {
 
   update(): void {
     const dt = this.engine.getDeltaTime() / 1000;
-    this.handleCameraInput();
-    if (this.cameraSystem && this.player) {
-      this.player.setCameraYaw(this.cameraSystem.getYaw());
+    // While the dialog is open the keyboard belongs to the text input — freeze
+    // player movement and camera rotation so typing doesn't move the character.
+    const dialogOpen = this.dialog?.isOpen() ?? false;
+    if (!dialogOpen) {
+      this.handleCameraInput();
+      if (this.cameraSystem && this.player) {
+        this.player.setCameraYaw(this.cameraSystem.getYaw());
+      }
+      this.player?.update(dt);
     }
-    this.player?.update(dt);
     this.cameraSystem?.update();
     this.updateNPCs(dt);
     this.handleInteractInput();
@@ -183,7 +235,8 @@ export class GameWorldScene extends BaseScene {
     if (!this.inputSystem.wasJustPressed('interact')) return;
 
     if (this.dialog.isOpen()) {
-      this.dialog.close();
+      // Don't close while the player is typing — the 'E' belongs to the field.
+      if (!this.dialog.isInputFocused()) this.dialog.close();
       return;
     }
     const agent = this.npcManager.getConversableAgent(this.player.getPosition());
