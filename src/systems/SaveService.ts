@@ -1,4 +1,7 @@
 import { CharacterData, DEFAULT_APPEARANCE } from '@entities/CharacterData';
+import { ConversationState } from '@systems/npc/ConversationContext';
+
+export type NPCMemory = Record<string, ConversationState>;
 
 export interface SaveGame {
   saveId: string;
@@ -13,6 +16,7 @@ export interface SaveGame {
     rotation: number;
   };
   flags: Record<string, boolean | number | string>;
+  npcMemory: NPCMemory;
 }
 
 export interface SaveMeta {
@@ -47,7 +51,14 @@ export class SaveService {
         rotation: 0,
       },
       flags: {},
+      npcMemory: {},
     };
+  }
+
+  static updateNpcMemory(saveId: string, npcMemory: NPCMemory): void {
+    const save = SaveService.load(saveId);
+    if (!save) return;
+    SaveService.save({ ...save, npcMemory });
   }
 
   static save(saveGame: SaveGame): void {
@@ -66,7 +77,10 @@ export class SaveService {
 
   static load(saveId: string): SaveGame | null {
     if (SaveService.memoryStore.has(saveId)) {
-      return JSON.parse(JSON.stringify(SaveService.memoryStore.get(saveId)!)) as SaveGame;
+      const copy = JSON.parse(JSON.stringify(SaveService.memoryStore.get(saveId)!)) as SaveGame;
+      // Backwards-compat: saves created before npcMemory existed
+      if (!copy.npcMemory) copy.npcMemory = {};
+      return copy;
     }
     /* istanbul ignore next */
     if (typeof localStorage !== 'undefined') {

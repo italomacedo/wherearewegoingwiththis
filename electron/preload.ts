@@ -2,9 +2,10 @@ import { contextBridge, ipcRenderer } from 'electron';
 
 export interface ClaudeQueryParams {
   npcId: string;
-  context: string;
-  message: string;
+  prompt: string;
   claudePath: string;
+  sessionId?: string;
+  useSession?: boolean;
 }
 
 export interface ElectronAPI {

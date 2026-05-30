@@ -194,3 +194,4 @@ Read these before making structural changes:
 - [ADR-0007](docs/ADR/0007-testing-strategy.md) — Testing: Jest + NullEngine + 95% coverage
 - [ADR-0008](docs/ADR/0008-world-zones.md) — World architecture: zone/chunk system
 - [ADR-0009](docs/ADR/0009-physics-havok.md) — Physics: Havok (isolated from tests)
+- [ADR-0010](docs/ADR/0010-npc-conversation-context.md) — NPC conversation: hybrid stateless→session + save persistence

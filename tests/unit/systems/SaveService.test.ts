@@ -168,4 +168,38 @@ describe('SaveService', () => {
     expect(EMPTY_CHARACTER.name).toBe('Operative');
     expect(EMPTY_CHARACTER.appearance).toEqual(DEFAULT_APPEARANCE);
   });
+
+  // ─── npcMemory ──────────────────────────────────────────────────────────────
+
+  it('createNewSave starts with empty npcMemory', () => {
+    const save = SaveService.createNewSave(testCharacter);
+    expect(save.npcMemory).toEqual({});
+  });
+
+  it('updateNpcMemory persists NPC conversation state', () => {
+    const save = SaveService.createNewSave(testCharacter);
+    SaveService.save(save);
+    SaveService.updateNpcMemory(save.saveId, {
+      npc_zara_vendor_01: {
+        mode: 'stateless',
+        sessionId: null,
+        history: [{ player: 'hi', npc: 'what do you want' }],
+      },
+    });
+    const loaded = SaveService.load(save.saveId)!;
+    expect(loaded.npcMemory.npc_zara_vendor_01.history).toHaveLength(1);
+  });
+
+  it('updateNpcMemory does nothing for nonexistent save', () => {
+    expect(() => SaveService.updateNpcMemory('bad-id', {})).not.toThrow();
+  });
+
+  it('load backfills npcMemory for saves created without it', () => {
+    const save = SaveService.createNewSave(testCharacter);
+    // Simulate a legacy save missing npcMemory
+    delete (save as Partial<SaveGame>).npcMemory;
+    SaveService.save(save);
+    const loaded = SaveService.load(save.saveId)!;
+    expect(loaded.npcMemory).toEqual({});
+  });
 });

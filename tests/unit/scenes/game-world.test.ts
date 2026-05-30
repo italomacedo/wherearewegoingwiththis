@@ -114,4 +114,143 @@ describe('GameWorldScene', () => {
     expect(scene.getPlayer()).toBeNull();
     expect(scene.getInputSystem()).toBeNull();
   });
+
+  // ─── NPC integration (Phase 8) ─────────────────────────────────────────────
+
+  it('onEnter spawns the NPC manager with Zara', async () => {
+    await scene.onEnter();
+    const npc = scene.getNpcManager();
+    expect(npc).not.toBeNull();
+    expect(npc!.getAgent('npc_zara_vendor_01')).not.toBeNull();
+  });
+
+  it('onEnter creates a dialog system', async () => {
+    await scene.onEnter();
+    expect(scene.getDialog()).not.toBeNull();
+    expect(scene.getDialog()!.isOpen()).toBe(false);
+  });
+
+  it('restores NPC memory passed via setNpcMemory', async () => {
+    scene.setNpcMemory({
+      npc_zara_vendor_01: {
+        mode: 'stateless', sessionId: null, history: [{ player: 'hi', npc: 'hello' }],
+      },
+    });
+    await scene.onEnter();
+    const zara = scene.getNpcManager()!.getAgent('npc_zara_vendor_01')!;
+    expect(zara.conversation.getHistoryCount()).toBe(1);
+  });
+
+  it('derivePlayerAction returns idle when not moving', async () => {
+    await scene.onEnter();
+    expect(scene.derivePlayerAction()).toBe('idle');
+  });
+
+  it('derivePlayerAction returns walking when moving', async () => {
+    await scene.onEnter();
+    scene.getInputSystem()!.handleKeyDown('KeyW');
+    expect(scene.derivePlayerAction()).toBe('walking');
+  });
+
+  it('derivePlayerAction returns running when sprinting and moving', async () => {
+    await scene.onEnter();
+    scene.getInputSystem()!.handleKeyDown('KeyW');
+    scene.getInputSystem()!.handleKeyDown('ShiftLeft');
+    expect(scene.derivePlayerAction()).toBe('running');
+  });
+
+  it('pressing interact near an NPC opens the dialog', async () => {
+    await scene.onEnter();
+    // Move player next to Zara (at [4,0,4])
+    scene.getPlayer()!.getRoot().position.set(4, 0, 3);
+    scene.getInputSystem()!.handleKeyDown('KeyE');
+    scene.update();
+    expect(scene.getDialog()!.isOpen()).toBe(true);
+  });
+
+  it('pressing interact while dialog open closes it', async () => {
+    await scene.onEnter();
+    const input = scene.getInputSystem()!;
+    scene.getPlayer()!.getRoot().position.set(4, 0, 3);
+    input.handleKeyDown('KeyE');
+    scene.update();
+    expect(scene.getDialog()!.isOpen()).toBe(true);
+    // release and press again (held key does not retrigger just-pressed)
+    input.handleKeyUp('KeyE');
+    input.handleKeyDown('KeyE');
+    scene.update();
+    expect(scene.getDialog()!.isOpen()).toBe(false);
+  });
+
+  it('interact far from any NPC does not open dialog', async () => {
+    await scene.onEnter();
+    scene.getPlayer()!.getRoot().position.set(-20, 0, -20);
+    scene.getInputSystem()!.handleKeyDown('KeyE');
+    scene.update();
+    expect(scene.getDialog()!.isOpen()).toBe(false);
+  });
+
+  it('sendToActiveNPC is a no-op with no Claude service (Node)', async () => {
+    await scene.onEnter();
+    scene.getPlayer()!.getRoot().position.set(4, 0, 3);
+    // No window.electronAPI in Node → npcManager has null service → sendMessage throws,
+    // caught internally and dialog shows "..."
+    await scene.sendToActiveNPC('hello');
+    // dialog not opened by sendToActiveNPC directly; just verify no throw
+    expect(scene.getNpcManager()).not.toBeNull();
+  });
+
+  it('getNpcManager and getDialog return null before onEnter', () => {
+    expect(scene.getNpcManager()).toBeNull();
+    expect(scene.getDialog()).toBeNull();
+  });
+
+  it('setPlayerName flows into the world snapshot prompt', async () => {
+    scene.setPlayerName('Rei');
+    const { service, prompts } = makeInjectedService('Hey.');
+    scene.setClaudeService(service);
+    await scene.onEnter();
+    scene.getPlayer()!.getRoot().position.set(4, 0, 3);
+    await scene.sendToActiveNPC('hi');
+    expect(prompts[0]).toContain('Rei');
+  });
+
+  it('sendToActiveNPC streams the reply into the dialog via injected service', async () => {
+    const { service } = makeInjectedService('Hello there.');
+    scene.setClaudeService(service);
+    await scene.onEnter();
+    scene.getPlayer()!.getRoot().position.set(4, 0, 3);
+    await scene.sendToActiveNPC('got chips?');
+    expect(scene.getDialog()!.getState().npcText).toBe('Hello there.');
+  });
+
+  it('sendToActiveNPC does nothing when no NPC is in range', async () => {
+    const { service } = makeInjectedService('x');
+    scene.setClaudeService(service);
+    await scene.onEnter();
+    scene.getPlayer()!.getRoot().position.set(-20, 0, -20);
+    await scene.sendToActiveNPC('hi');
+    expect(scene.getDialog()!.getState().npcText).toBe('');
+  });
 });
+
+// Builds a ClaudeNPCService backed by a mock bridge for injection into the scene.
+function makeInjectedService(reply: string) {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { ClaudeNPCService } = require('../../../src/systems/ClaudeNPCService');
+  const prompts: string[] = [];
+  let chunkCb: ((d: { npcId: string; chunk: string }) => void) | null = null;
+  const bridge = {
+    claudeQuery: jest.fn(async (params: { npcId: string; prompt: string }) => {
+      prompts.push(params.prompt);
+      chunkCb?.({ npcId: params.npcId, chunk: reply });
+    }),
+    claudeCancel: jest.fn(async () => {}),
+    onClaudeResponseChunk: jest.fn((cb: (d: { npcId: string; chunk: string }) => void) => {
+      chunkCb = cb;
+      return () => {};
+    }),
+    onClaudeResponseDone: jest.fn(() => () => {}),
+  };
+  return { service: new ClaudeNPCService({ claudePath: 'claude', bridge }), prompts };
+}

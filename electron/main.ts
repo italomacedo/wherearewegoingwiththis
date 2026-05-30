@@ -47,21 +47,25 @@ function createWindow() {
 // Claude CLI NPC integration
 ipcMain.handle(
   'claude-query',
-  async (event, { npcId, context, message, claudePath }: {
+  async (event, { npcId, prompt, claudePath, sessionId, useSession }: {
     npcId: string;
-    context: string;
-    message: string;
+    prompt: string;
     claudePath: string;
+    sessionId?: string;
+    useSession?: boolean;
   }) => {
     return new Promise<void>((resolve, reject) => {
-      const fullPrompt = `${context}\n\nPlayer: ${message}`;
-      const proc = spawn(claudePath, ['--print', '--no-markdown'], {
+      const args = ['--print', '--no-markdown'];
+      if (useSession && sessionId) {
+        args.unshift('--session-id', sessionId);
+      }
+      const proc = spawn(claudePath, args, {
         env: { ...process.env },
       });
 
       claudeProcesses.set(npcId, proc);
 
-      proc.stdin.write(fullPrompt);
+      proc.stdin.write(prompt);
       proc.stdin.end();
 
       proc.stdout.on('data', (chunk: Buffer) => {
