@@ -1,6 +1,8 @@
 # Phase 8 — NPC + Claude CLI (MVP)
 
-**Status:** Pending  
+**Status:** ✅ Complete (logic) — commit 99b9cc9. Conversation context per
+ADR-0010. GAP: dialog GUI rendering is a stub, so conversation isn't yet
+visible on screen (see CLAUDE.md gap #1).  
 **Goal:** 1 NPC (Zara) powered by Claude CLI subprocess. Natural conversation + reaction to player actions.
 
 ---

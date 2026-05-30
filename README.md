@@ -8,9 +8,16 @@
 
 ## Current Status
 
-**Phase 0 — Foundation & Documentation** ✅
+**Phases 0–8 complete** — playable from splash → menu → character creator → world.
+The MVP NPC (Zara, Claude-CLI-driven) logic is in place; its on-screen dialog UI
+and the character→save→world session glue are the next integration steps.
 
-See [docs/phases/](docs/phases/) for the full roadmap.
+- 412 tests, ~99.5% coverage
+- Verified in Electron through to the game world (player movement, camera, NPC present)
+- See [CLAUDE.md](CLAUDE.md) for current status, open integration gaps, and hard-won lessons
+- See [docs/phases/](docs/phases/) for the full roadmap
+
+**Dev command:** `npm run dev` (single Electron instance via vite-plugin-electron)
 
 ---
 

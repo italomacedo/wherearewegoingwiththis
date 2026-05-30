@@ -1,6 +1,7 @@
 # Phase 4 — Character Creator
 
-**Status:** Pending  
+**Status:** ✅ Complete (commit 0903856). NOTE: ships procedural placeholder
+(CharacterAssembler.useGltf=false); real GLBs not yet downloaded.  
 **Goal:** Modular GLTF character customization from nude base to fully equipped operative.
 
 ---

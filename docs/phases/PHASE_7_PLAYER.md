@@ -1,6 +1,7 @@
 # Phase 7 — Player Controller
 
-**Status:** Pending  
+**Status:** ✅ Complete (commit 5b5d002). Havok per ADR-0009. Animations
+deferred (placeholders have no rig); movement only for now.  
 **Goal:** Player character in the world with movement, animations, and camera follow.
 
 ---

@@ -1,6 +1,6 @@
 # Phase 3 — Options Menu
 
-**Status:** Pending  
+**Status:** ✅ Complete (commit 9b14139)  
 **Goal:** Full settings UI with tabs and persistence.
 
 ---

@@ -1,6 +1,7 @@
 # Phase 5 — Save System
 
-**Status:** Pending  
+**Status:** ✅ Complete (commit fdca3e6; npcMemory added in Phase 8). GAP:
+autosave + new-game save creation not yet wired (see CLAUDE.md gaps).  
 **Goal:** Full save/load/delete system with UI.
 
 ---

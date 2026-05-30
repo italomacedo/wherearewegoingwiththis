@@ -1,6 +1,6 @@
 # Phase 1 — Scene Flow & Core Architecture
 
-**Status:** Pending  
+**Status:** ✅ Complete (commit 79a1b02)  
 **Goal:** Scene navigation infrastructure with fade transitions. No visual content yet.
 
 ---

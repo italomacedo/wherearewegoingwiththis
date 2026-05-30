@@ -1,6 +1,6 @@
 # Phase 2 — UI Shell (Splash + Menus)
 
-**Status:** Pending  
+**Status:** ✅ Complete (commit 89d0eb9; splash deadlock + layout fixed in edd30ff)  
 **Goal:** All visible UI screens before entering the game.
 
 ---

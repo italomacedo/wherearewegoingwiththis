@@ -1,6 +1,6 @@
 # Phase 6 — World Foundation
 
-**Status:** Pending  
+**Status:** ✅ Complete (commit f918196). Zone system per ADR-0008.  
 **Goal:** Isometric camera + first playable environment (Mercado das Sombras street scene).
 
 ---

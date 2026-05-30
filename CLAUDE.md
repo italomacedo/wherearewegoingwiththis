@@ -6,6 +6,48 @@ This is the primary entry point for all AI agents working on this project. Read 
 
 ---
 
+## Current Status (keep this updated)
+
+**Phases 0–8 COMPLETE** · 412 tests · ~99.5% coverage (gated 95% lines/stmts/funcs, 90% branches) · typecheck + build green.
+
+| Phase | What | State |
+|---|---|---|
+| 0 | Docs + scaffolding | ✅ |
+| 1 | Scene flow + fade transitions | ✅ |
+| 2 | Splash/Studio/Publisher + Main Menu (neon, procedural cityscape) | ✅ |
+| 3 | Options (4 tabs + persistence) | ✅ |
+| 4 | Character Creator (modular, 360° preview) | ✅ |
+| 5 | Save/Load/Delete | ✅ |
+| 6 | World: zone system + isometric camera | ✅ |
+| 7 | Player controller + Havok physics + input | ✅ |
+| 8 | **NPC + Claude CLI (Zara) — MVP** | ✅ |
+| 9 | Vehicles (flying car + Harley) | ⬜ next |
+| 10+ | Combat, implants, world expansion | ⬜ |
+
+**Verified working in Electron:** splash → studio → publisher → menu → options → character creator → game world (player moves, camera follows, Zara visible).
+
+**INTEGRATION GAPS still open (wire these before/with Phase 9):**
+1. **Dialog GUI** — `DialogSystem` state machine is built+tested, but the Babylon GUI (speech bubble, text input, thinking dots) is a stub (`buildUIBrowser`/`renderBrowser` empty). Pressing E near Zara toggles state but draws nothing. NPC conversation won't be visible until this is built.
+2. **GameSession glue** — `CharacterCreatorScene.onBegin` navigates to game-world but does NOT create a save (`SaveService.createNewSave`) nor pass appearance/name to `GameWorldScene.setAppearance/setPlayerName`. `LoadGameScene.onLoadSave` likewise doesn't pass loaded appearance/npcMemory. Need a `GameSession` holder (ServiceLocator) carrying `{saveId, character, npcMemory}` across scenes.
+3. **Autosave** — npcMemory + world position are not written back to disk yet (`SaveService.updateNpcMemory` / `updateWorldState` exist but aren't called).
+4. **Real assets** — project ships ZERO `.glb`/textures; everything is procedural placeholder. `CharacterAssembler.useGltf=false` and `MercadoSombrasZone.loadRealAssets` is a no-op. Curated CC0/CC-BY assets catalogued in [docs/design/WORLD_DESIGN.md](docs/design/WORLD_DESIGN.md) for manual download.
+
+---
+
+## Hard-Won Lessons (READ before debugging the running app)
+
+These cost real debugging time — internalize them:
+
+1. **No runtime `require()` in `src/`.** The renderer is ESM-bundled by Vite; `require` is undefined → ReferenceError → black screen. Always use static `import` at file top, even for browser-only modules (`@babylonjs/gui`, `uuid`). The `typeof document` guards keep canvas-creating calls out of Jest; merely *importing* `@babylonjs/gui` is safe in Jest.
+2. **Never `await sceneManager.loadScene(next)` from inside a scene's `onEnter`.** The SceneManager is still `transitioning` from loading THAT scene, so the nested call hits the guard and silently no-ops → stuck screen. Schedule the next scene with a fire-and-forget `setTimeout` (cleared in `onExit`). See SplashScene/StudioScene/PublisherScene.
+3. **Create the camera FIRST in any scene's `onEnter`,** before any slow `await` (Havok WASM, asset loads). No active camera → `Scene.render()` throws "No camera defined" every frame → black screen. Keep slow/failable init (physics) LAST and in `try/catch`.
+4. **Babylon GUI alignment uses named constants, not magic numbers.** `Control.VERTICAL_ALIGNMENT_CENTER` ≠ 1 (1 is BOTTOM). Import `Control` and use the constants.
+5. **`tsconfig.jest.json` is laxer than the build configs.** Jest passing ≠ typecheck passing. ALWAYS run `npm run typecheck` (checks renderer + electron + node) before committing.
+6. **One Electron instance.** `vite-plugin-electron` auto-launches Electron via `onstart`; do NOT also launch it with concurrently. `npm run dev` is the single dev command.
+7. **Browser-only code pattern:** guard with `if (typeof document === 'undefined') return;` + `/* istanbul ignore next */` on the browser branch, keep pure logic separate and 100% tested. This is how every system stays at coverage target without a GPU/DOM.
+
+---
+
 ## Project Overview
 
 Single-player cyberpunk isometric open-world RPG for PC. Standout feature: every NPC is powered by a live `claude` CLI subprocess, enabling natural conversation and reactive behavior. Developed entirely by vibe coding with Claude.
@@ -55,40 +97,53 @@ electron/           IPC bridge, Claude CLI subprocess, window controls
 
 src/
   main.ts           Renderer entry point — initializes GameManager
-  core/             Engine infrastructure (no Babylon dependencies except Engine)
+  vite-env.d.ts     Vite types + global Window.electronAPI (single source)
+  core/             Engine infrastructure
     GameManager.ts  Singleton: owns Engine, SceneManager, ServiceLocator init
     SceneManager.ts Load/unload scenes, scene registry, fade transitions
+    FadeController.ts Pure alpha animation (injectable applyAlpha callback)
     ServiceLocator.ts Lightweight DI container
     EventBus.ts     Typed pub/sub (GameEvents interface)
   scenes/           One file per Babylon.js Scene
     BaseScene.ts    Abstract base: onEnter(), onExit(), update(), dispose()
-    SplashScene.ts  → StudioScene → PublisherScene → MainMenuScene
-    MainMenuScene.ts  New Game / Load Game / Options / Quit
-    CharacterCreatorScene.ts  Modular GLTF character builder
+    SplashScene/StudioScene/PublisherScene  Branding sequence (timer-driven)
+    MainMenuScene.ts  Procedural cityscape + New Game / Load / Options / Quit
+    CharacterCreatorScene.ts  360° preview, body/hair/skin/clothes/implants
     LoadGameScene.ts  Save list, load, delete
     OptionsScene.ts   Tabs: Game / Display / Video / Audio
-    GameWorldScene.ts Isometric world, player, NPCs
-  entities/         Game objects (player, NPCs, vehicles)
-  systems/          Stateless/stateful game systems
-    InputSystem.ts  WASD + gamepad → action map
-    CameraSystem.ts ArcRotateCamera, isometric follow
-    SaveSystem.ts   JSON file I/O via Electron IPC
-    ClaudeNPCSystem.ts  Spawn claude CLI, manage IPC stream
-  ui/               Babylon GUI overlays (HUD, dialog boxes, menus)
-  assets/           Asset manifests and loader helpers
+    GameWorldScene.ts Wires camera+input+zone+player+NPC+dialog (camera FIRST)
+  entities/         Game objects (data + behavior, no GUI)
+    CharacterData.ts      Appearance model, DEFAULT_APPEARANCE, BODY_BASES
+    WorldZone.ts          Abstract zone (load/unload/spawn/bounds)
+    zones/MercadoSombrasZone.ts  Starting district (procedural)
+    PlayerController.ts   Pure computeDisplacement + spawn + movement
+    NPCAgent.ts           Persona + state machine + proximity (pure)
+    npcs/zara.ts          Zara definition (first NPC)
+  systems/          Game systems
+    InputSystem.ts        Keyboard → action map + movement axis (pure core)
+    CameraSystem.ts       Isometric ArcRotateCamera, follow, rotate, zoom
+    PhysicsService.ts     Havok WASM init (browser-only, guarded)
+    SettingsService.ts    Settings load/save/validate (localStorage + memory)
+    SaveService.ts        SaveGame JSON CRUD + npcMemory
+    CharacterAssembler.ts GLTF/placeholder character assembly (useGltf flag)
+    ZoneManager.ts        Zone registry + load/unload
+    DialogSystem.ts       Dialog state machine (GUI render = STUB, gap #1)
+    ClaudeNPCService.ts   Orchestrates an NPC turn via Electron IPC (streaming)
+    NPCManager.ts         Spawns agents, proximity/cooldown, memory serialize
+    npc/
+      ConversationContext.ts  Rolling history + stateless→session graduation
+      PromptBuilder.ts        Pure prompt builders (stateless/primer/turn)
+  assets/
+    AssetManifest.ts  Typed asset path registry
 
-tests/
-  unit/core/        GameManager, SceneManager, EventBus, ServiceLocator
-  unit/systems/     InputSystem, SaveSystem, ClaudeNPCSystem, CameraSystem
-  unit/entities/    Serialization tests
-  integration/      End-to-end flows (NullEngine, mocked IPC)
+tests/unit/         Mirrors src/ paths (core, scenes, systems, systems/npc, entities, assets)
 
 docs/
-  ADR/              Architecture Decision Records (read before major changes)
-  design/           Game Design Documents
-  phases/           Phase plans with completion gates
-  systems/          System specs and API contracts
-  testing/          Testing guide and coverage requirements
+  ADR/              0001-0010 Architecture Decision Records (read before major changes)
+  design/           GDD, CHARACTER_SYSTEM, NPC_SYSTEM, WORLD_DESIGN (+ asset catalog), VEHICLE_SYSTEM, COMBAT_SYSTEM
+  phases/           PHASE_0..PHASE_10 plans with completion gates
+  systems/          INPUT/CAMERA/AUDIO/ASSET_LOADING specs
+  testing/          Testing guide + coverage requirements
 ```
 
 ---
