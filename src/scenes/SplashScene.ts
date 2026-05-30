@@ -1,4 +1,4 @@
-import { Engine, Color4 } from '@babylonjs/core';
+import { Engine, Color4, FreeCamera, Vector3 } from '@babylonjs/core';
 import { BaseScene } from './BaseScene';
 import { SceneManager } from '@core/SceneManager';
 import { ServiceLocator } from '@core/ServiceLocator';
@@ -10,14 +10,52 @@ export class SplashScene extends BaseScene {
   }
 
   async onEnter(): Promise<void> {
-    // Phase 2 will add BeiraRio Games logo animation
+    // Camera required to avoid "No camera defined" on render
+    new FreeCamera('splash-cam', Vector3.Zero(), this.babylonScene);
+    this.buildVisuals();
     await this.wait(3000);
     const sceneManager = ServiceLocator.get<SceneManager>('sceneManager');
     await sceneManager.loadScene('studio');
   }
 
-  async onExit(): Promise<void> {
-    // fade out handled in Phase 2
+  async onExit(): Promise<void> {}
+
+  /** Creates neon logo overlay. No-op in Node.js (OffscreenCanvas unavailable). */
+  private buildVisuals(): void {
+    if (typeof document === 'undefined') return;
+    /* istanbul ignore next — browser/Electron path */
+    this.buildNeonLogo();
+  }
+
+  /* istanbul ignore next */
+  private buildNeonLogo(): void {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { AdvancedDynamicTexture, TextBlock, StackPanel } = require('@babylonjs/gui') as typeof import('@babylonjs/gui');
+
+    const gui = AdvancedDynamicTexture.CreateFullscreenUI('splash-ui', true, this.babylonScene);
+
+    const panel = new StackPanel('panel');
+    panel.verticalAlignment = 1; // center
+    gui.addControl(panel);
+
+    const logo = new TextBlock('logo');
+    logo.text = 'BEIRARIO\nGAMES';
+    logo.color = '#00FFCC';
+    logo.fontSize = 72;
+    logo.fontFamily = '"Courier New", monospace';
+    logo.fontStyle = 'bold';
+    logo.textHorizontalAlignment = 1; // center
+    logo.height = '180px';
+    logo.paddingBottom = '16px';
+    panel.addControl(logo);
+
+    const tagline = new TextBlock('tagline');
+    tagline.text = '◆  2 0 8 7  ◆';
+    tagline.color = '#8844FF';
+    tagline.fontSize = 20;
+    tagline.fontFamily = '"Courier New", monospace';
+    tagline.height = '40px';
+    panel.addControl(tagline);
   }
 
   private wait(ms: number): Promise<void> {
