@@ -44,10 +44,21 @@ describe('Stub Scenes', () => {
 
     it('onEnter loads studio scene after timeout', async () => {
       const scene = new SplashScene(engine);
-      const enterPromise = scene.onEnter();
+      await scene.onEnter();
+      // onEnter must return immediately (not await the next transition) — else
+      // the SceneManager would deadlock since it is still mid-transition.
+      expect(mockSceneManager.loadScene).not.toHaveBeenCalled();
       jest.runAllTimers();
-      await enterPromise;
       expect(mockSceneManager.loadScene).toHaveBeenCalledWith('studio');
+      scene.dispose();
+    });
+
+    it('onExit cancels the pending navigation timer', async () => {
+      const scene = new SplashScene(engine);
+      await scene.onEnter();
+      await scene.onExit();
+      jest.runAllTimers();
+      expect(mockSceneManager.loadScene).not.toHaveBeenCalled();
       scene.dispose();
     });
   });
@@ -68,10 +79,19 @@ describe('Stub Scenes', () => {
 
     it('onEnter loads publisher scene after timeout', async () => {
       const scene = new StudioScene(engine);
-      const enterPromise = scene.onEnter();
+      await scene.onEnter();
+      expect(mockSceneManager.loadScene).not.toHaveBeenCalled();
       jest.runAllTimers();
-      await enterPromise;
       expect(mockSceneManager.loadScene).toHaveBeenCalledWith('publisher');
+      scene.dispose();
+    });
+
+    it('onExit cancels the pending navigation timer', async () => {
+      const scene = new StudioScene(engine);
+      await scene.onEnter();
+      await scene.onExit();
+      jest.runAllTimers();
+      expect(mockSceneManager.loadScene).not.toHaveBeenCalled();
       scene.dispose();
     });
   });
@@ -92,10 +112,19 @@ describe('Stub Scenes', () => {
 
     it('onEnter loads main-menu scene after timeout', async () => {
       const scene = new PublisherScene(engine);
-      const enterPromise = scene.onEnter();
+      await scene.onEnter();
+      expect(mockSceneManager.loadScene).not.toHaveBeenCalled();
       jest.runAllTimers();
-      await enterPromise;
       expect(mockSceneManager.loadScene).toHaveBeenCalledWith('main-menu');
+      scene.dispose();
+    });
+
+    it('onExit cancels the pending navigation timer', async () => {
+      const scene = new PublisherScene(engine);
+      await scene.onEnter();
+      await scene.onExit();
+      jest.runAllTimers();
+      expect(mockSceneManager.loadScene).not.toHaveBeenCalled();
       scene.dispose();
     });
   });
