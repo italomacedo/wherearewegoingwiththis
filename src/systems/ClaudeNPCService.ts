@@ -1,3 +1,4 @@
+import { v4 as uuidv4 } from 'uuid';
 import { NPCAgent } from '@entities/NPCAgent';
 import { PromptBuilder, WorldSnapshot } from '@systems/npc/PromptBuilder';
 
@@ -132,10 +133,8 @@ export class ClaudeNPCService {
     };
   }
 
-  /* istanbul ignore next — uuid only needed at runtime, deterministic factory used in tests */
+  /* istanbul ignore next — deterministic factory injected in tests */
   private static defaultSessionId(): string {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { v4 } = require('uuid') as typeof import('uuid');
-    return v4();
+    return uuidv4();
   }
 }

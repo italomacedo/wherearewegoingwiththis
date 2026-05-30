@@ -3,6 +3,7 @@ import {
   HemisphericLight, PointLight, MeshBuilder,
   StandardMaterial, ParticleSystem, Texture, GlowLayer,
 } from '@babylonjs/core';
+import { AdvancedDynamicTexture, TextBlock, Button, StackPanel, Rectangle } from '@babylonjs/gui';
 import { BaseScene } from './BaseScene';
 import { SceneManager } from '@core/SceneManager';
 import { ServiceLocator } from '@core/ServiceLocator';
@@ -146,9 +147,9 @@ export class MainMenuScene extends BaseScene {
     rain.emitRate = 1500;
     rain.minEmitPower = 8;
     rain.maxEmitPower = 14;
-    rain.color1 = new (require('@babylonjs/core').Color4)(0.5, 0.7, 1, 0.7);
-    rain.color2 = new (require('@babylonjs/core').Color4)(0.3, 0.5, 0.9, 0.5);
-    rain.colorDead = new (require('@babylonjs/core').Color4)(0, 0, 0, 0);
+    rain.color1 = new Color4(0.5, 0.7, 1, 0.7);
+    rain.color2 = new Color4(0.3, 0.5, 0.9, 0.5);
+    rain.colorDead = new Color4(0, 0, 0, 0);
     rain.start();
   }
 
@@ -160,9 +161,6 @@ export class MainMenuScene extends BaseScene {
 
   /* istanbul ignore next */
   private buildMenuUIBrowser(): void {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { AdvancedDynamicTexture, TextBlock, Button, StackPanel, Rectangle } = require('@babylonjs/gui') as typeof import('@babylonjs/gui');
-
     const gui = AdvancedDynamicTexture.CreateFullscreenUI('menu-ui', true, this.babylonScene);
 
     // Game title

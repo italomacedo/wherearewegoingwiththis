@@ -1,6 +1,6 @@
 import {
-  Scene, Vector3, Color3, MeshBuilder, StandardMaterial,
-  HemisphericLight, PointLight, AbstractMesh, Mesh,
+  Scene, Vector3, Color3, Color4, MeshBuilder, StandardMaterial,
+  HemisphericLight, PointLight, ParticleSystem, Texture, AbstractMesh, Mesh,
 } from '@babylonjs/core';
 import { WorldZone, ZoneBounds } from '@entities/WorldZone';
 
@@ -147,18 +147,16 @@ export class MercadoSombrasZone extends WorldZone {
 
   /* istanbul ignore next */
   private buildRainBrowser(scene: Scene): void {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { ParticleSystem, Texture, Vector3: V3, Color4 } = require('@babylonjs/core') as typeof import('@babylonjs/core');
     const rain = new ParticleSystem('rain', 4000, scene);
     rain.particleTexture = new Texture(
       'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==',
       scene
     );
-    rain.emitter = new V3(0, 28, 0);
-    rain.minEmitBox = new V3(-30, 0, -30);
-    rain.maxEmitBox = new V3(30, 0, 30);
-    rain.direction1 = new V3(-0.2, -1, -0.1);
-    rain.direction2 = new V3(0.2, -1, 0.1);
+    rain.emitter = new Vector3(0, 28, 0);
+    rain.minEmitBox = new Vector3(-30, 0, -30);
+    rain.maxEmitBox = new Vector3(30, 0, 30);
+    rain.direction1 = new Vector3(-0.2, -1, -0.1);
+    rain.direction2 = new Vector3(0.2, -1, 0.1);
     rain.minSize = 0.01;
     rain.maxSize = 0.04;
     rain.minLifeTime = 1;

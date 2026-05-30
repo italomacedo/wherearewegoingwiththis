@@ -1,4 +1,5 @@
 import { Engine, Color4, FreeCamera, Vector3 } from '@babylonjs/core';
+import { AdvancedDynamicTexture, TextBlock, StackPanel } from '@babylonjs/gui';
 import { BaseScene } from './BaseScene';
 import { SceneManager } from '@core/SceneManager';
 import { ServiceLocator } from '@core/ServiceLocator';
@@ -27,9 +28,6 @@ export class PublisherScene extends BaseScene {
 
   /* istanbul ignore next */
   private buildPublisherScreen(): void {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { AdvancedDynamicTexture, TextBlock, StackPanel } = require('@babylonjs/gui') as typeof import('@babylonjs/gui');
-
     const gui = AdvancedDynamicTexture.CreateFullscreenUI('publisher-ui', true, this.babylonScene);
     const panel = new StackPanel('panel');
     gui.addControl(panel);

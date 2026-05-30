@@ -2,6 +2,7 @@ import {
   Engine, Color4, ArcRotateCamera, Vector3,
   HemisphericLight, Color3, PointLight,
 } from '@babylonjs/core';
+import { AdvancedDynamicTexture, TextBlock, Button, StackPanel, InputText } from '@babylonjs/gui';
 import { BaseScene } from './BaseScene';
 import { SceneManager } from '@core/SceneManager';
 import { ServiceLocator } from '@core/ServiceLocator';
@@ -170,10 +171,6 @@ export class CharacterCreatorScene extends BaseScene {
 
   /* istanbul ignore next */
   private buildUIBrowser(): void {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { AdvancedDynamicTexture, TextBlock, Button, StackPanel, InputText } =
-      require('@babylonjs/gui') as typeof import('@babylonjs/gui');
-
     const gui = AdvancedDynamicTexture.CreateFullscreenUI('creator-ui', true, this.babylonScene);
 
     // Title

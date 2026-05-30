@@ -1,4 +1,5 @@
 import { Engine } from '@babylonjs/core';
+import { AdvancedDynamicTexture, Rectangle } from '@babylonjs/gui';
 import { BaseScene } from '@scenes/BaseScene';
 import { EventBus, GameEvents } from '@core/EventBus';
 import { ServiceLocator } from '@core/ServiceLocator';
@@ -93,9 +94,6 @@ export class SceneManager {
       return new FadeController(() => {}, initialAlpha);
     }
     /* istanbul ignore next — browser/Electron path, tested via Electron smoke test */
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { AdvancedDynamicTexture, Rectangle } = require('@babylonjs/gui') as typeof import('@babylonjs/gui');
-    /* istanbul ignore next */
     const gui = AdvancedDynamicTexture.CreateFullscreenUI('fade', true, scene.babylonScene);
     /* istanbul ignore next */
     const overlay = new Rectangle('fade-rect');

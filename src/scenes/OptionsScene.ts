@@ -1,4 +1,5 @@
 import { Engine, Color4, FreeCamera, Vector3 } from '@babylonjs/core';
+import { AdvancedDynamicTexture, TextBlock, Button, StackPanel, Rectangle, InputText } from '@babylonjs/gui';
 import { BaseScene } from './BaseScene';
 import { SceneManager } from '@core/SceneManager';
 import { ServiceLocator } from '@core/ServiceLocator';
@@ -69,10 +70,6 @@ export class OptionsScene extends BaseScene {
 
   /* istanbul ignore next */
   private buildUIBrowser(): void {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { AdvancedDynamicTexture, TextBlock, Button, StackPanel, Rectangle, InputText } =
-      require('@babylonjs/gui') as typeof import('@babylonjs/gui');
-
     const gui = AdvancedDynamicTexture.CreateFullscreenUI('options-ui', true, this.babylonScene);
 
     // Title
