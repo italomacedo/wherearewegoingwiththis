@@ -25,14 +25,21 @@ export class CharacterAssembler {
     this.scene = scene;
   }
 
+  /**
+   * Whether to load real GLTF assets. Defaults to false because the project
+   * currently ships zero .glb files — only procedural placeholders. Flip to
+   * true (per-environment) once real character GLBs are placed in public/assets/.
+   */
+  static useGltf = false;
+
   /** Returns true when SceneLoader is available (browser/Electron only) */
   static canLoadGltf(): boolean {
     return typeof document !== 'undefined';
   }
 
   async assemble(appearance: CharacterAppearance): Promise<AssembledCharacter> {
-    if (CharacterAssembler.canLoadGltf()) {
-      /* istanbul ignore next — GLTF loading is browser/Electron only */
+    if (CharacterAssembler.useGltf && CharacterAssembler.canLoadGltf()) {
+      /* istanbul ignore next — GLTF loading enabled only when real assets exist */
       return this.assembleGltf(appearance);
     }
     return this.assemblePlaceholder(appearance);

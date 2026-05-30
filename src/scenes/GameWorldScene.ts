@@ -53,10 +53,8 @@ export class GameWorldScene extends BaseScene {
   }
 
   async onEnter(): Promise<void> {
-    this.physics = new PhysicsService();
-    await this.physics.init(this.babylonScene);
-    ServiceLocator.register('physics', this.physics);
-
+    // Camera FIRST — guarantees the scene always has an active camera so it
+    // renders even if a later async step (physics WASM, asset load) is slow.
     this.cameraSystem = new CameraSystem(this.babylonScene);
     ServiceLocator.register('cameraSystem', this.cameraSystem);
 
@@ -78,6 +76,16 @@ export class GameWorldScene extends BaseScene {
     this.setupNPCs();
     this.dialog = new DialogSystem(this.babylonScene);
     this.wireDialog();
+
+    // Physics LAST and resilient — Havok WASM load failure must never block
+    // the world from rendering. PlayerController falls back to direct movement.
+    this.physics = new PhysicsService();
+    ServiceLocator.register('physics', this.physics);
+    try {
+      await this.physics.init(this.babylonScene);
+    } catch {
+      // ignore — movement falls back to non-physics path
+    }
   }
 
   async onExit(): Promise<void> {
