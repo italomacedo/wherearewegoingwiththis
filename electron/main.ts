@@ -47,7 +47,7 @@ function createWindow() {
 // Claude CLI NPC integration
 ipcMain.handle(
   'claude-query',
-  async (event, { npcId, prompt, claudePath, sessionId, useSession }: {
+  async (_event, { npcId, prompt, claudePath, sessionId, useSession }: {
     npcId: string;
     prompt: string;
     claudePath: string;

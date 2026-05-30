@@ -45,8 +45,5 @@ const api: ElectronAPI = {
 
 contextBridge.exposeInMainWorld('electronAPI', api);
 
-declare global {
-  interface Window {
-    electronAPI: ElectronAPI;
-  }
-}
+// The renderer-side global Window.electronAPI typing lives in src/vite-env.d.ts
+// (declared optional, since it is undefined until the preload runs).

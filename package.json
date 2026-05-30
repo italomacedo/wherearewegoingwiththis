@@ -6,7 +6,7 @@
   "private": true,
   "scripts": {
     "dev": "vite",
-    "build": "tsc -p tsconfig.node.json && vite build && tsc -p tsconfig.electron.json",
+    "build": "npm run typecheck && vite build",
     "preview": "vite preview",
     "electron:dev": "concurrently \"npm run dev\" \"wait-on tcp:5173 && electron .\"",
     "electron:build": "npm run build && electron-builder",
@@ -15,7 +15,7 @@
     "coverage": "jest --coverage",
     "lint": "eslint src electron --ext .ts,.tsx",
     "lint:fix": "eslint src electron --ext .ts,.tsx --fix",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.electron.json && tsc --noEmit -p tsconfig.node.json"
   },
   "dependencies": {
     "@babylonjs/core": "^7.35.0",
