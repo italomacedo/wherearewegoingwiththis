@@ -71,3 +71,32 @@ Underground → Phase 10+: sewers, corporate basements
 | HDRI sky | Poly Haven: night/overcast | Phase 6 |
 | Rain particles | Babylon.js ParticleSystem (procedural) | Phase 6 |
 | Vehicles | Sketchfab MCP: "flying car cyberpunk" | Phase 9 |
+
+## Curated Free Assets for Mercado das Sombras (researched 2026-05-30)
+
+All free for commercial use. **Download manually** and place under `public/assets/`;
+the zone falls back to procedural geometry until they exist (`loadRealAssets`).
+
+### PBR Textures — Poly Haven (CC0, API: `api.polyhaven.com`)
+| Asset | Slug | Use |
+|---|---|---|
+| Asphalt 02 | `asphalt_02` | Wet street ground |
+| Rusty Metal Grid | `rusty_metal_grid` | Industrial flooring (turquoise/rust patina) |
+| Concrete Floor Damaged 01 | `concrete_floor_damaged_01` | Weathered walkways |
+
+### HDRI Sky — Poly Haven (CC0)
+| Asset | Slug | Use |
+|---|---|---|
+| Cobblestone Street Night | `cobblestone_street_night` | Primary night ambiance (warm lamps, wet reflections) |
+| Urban Street 01 | `urban_street_01` | Soft overcast fill |
+
+### 3D Props — Sketchfab
+| Asset | Creator | License | Notes |
+|---|---|---|---|
+| [Building + Modular Facades CC0](https://sketchfab.com/3d-models/building-modular-facades-cc0-03d8c98bd382419ca364c68d6a004d3a) | Lit For 20 | **CC0** | glTF/Blend, low-poly, no attribution needed |
+| [PSX Industrial Pack](https://sketchfab.com/3d-models/psx-industrial-pack-12cb749961974f94a4063e67dafb2d76) | Tomitos | CC-BY | 20 props, great value |
+| [Crates And Barrels](https://sketchfab.com/3d-models/crates-and-barrels-5ae3c72285474862a89d69c2f2ad2246) | Mateusz Woliński | CC-BY | game-ready clutter |
+| [Market Stall (Dirty)](https://sketchfab.com/3d-models/market-stall-ff6c0680a17e40989043a503c86e3f33) | Kairomitsu | CC-BY | vendor stall, retexturable |
+
+**Recommended starting set (all CC0, zero attribution):** Asphalt 02 + Cobblestone Street
+Night HDRI + Building Modular Facades CC0.

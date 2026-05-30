@@ -1,4 +1,4 @@
-import { Scene, ArcRotateCamera, Vector3, AbstractMesh, Scalar } from '@babylonjs/core';
+import { Scene, ArcRotateCamera, Vector3, TransformNode, Scalar } from '@babylonjs/core';
 import { SettingsService } from '@systems/SettingsService';
 
 export interface CameraConfig {
@@ -26,7 +26,7 @@ export const DEFAULT_CAMERA_CONFIG: CameraConfig = {
 export class CameraSystem {
   private camera: ArcRotateCamera;
   private config: CameraConfig;
-  private target: AbstractMesh | null = null;
+  private target: TransformNode | null = null;
   private followPoint: Vector3;
 
   constructor(scene: Scene, config?: Partial<CameraConfig>) {
@@ -57,8 +57,13 @@ export class CameraSystem {
     return this.camera;
   }
 
-  setTarget(mesh: AbstractMesh): void {
-    this.target = mesh;
+  setTarget(node: TransformNode): void {
+    this.target = node;
+  }
+
+  /** Current view yaw (radians) — used for camera-relative player movement. */
+  getYaw(): number {
+    return this.camera.alpha;
   }
 
   clearTarget(): void {

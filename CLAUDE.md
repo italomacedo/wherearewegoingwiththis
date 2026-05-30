@@ -193,3 +193,4 @@ Read these before making structural changes:
 - [ADR-0006](docs/ADR/0006-save-system.md) — Save system: JSON files
 - [ADR-0007](docs/ADR/0007-testing-strategy.md) — Testing: Jest + NullEngine + 95% coverage
 - [ADR-0008](docs/ADR/0008-world-zones.md) — World architecture: zone/chunk system
+- [ADR-0009](docs/ADR/0009-physics-havok.md) — Physics: Havok (isolated from tests)
