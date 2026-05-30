@@ -1,0 +1,106 @@
+export interface GameSettings {
+  // Game Options
+  difficulty: 'easy' | 'normal' | 'hard';
+  npcLanguage: 'en';
+  subtitles: boolean;
+  claudeCliPath: string;
+  autosaveInterval: 0 | 5 | 10 | 30;
+
+  // Display
+  resolution: '1280x720' | '1920x1080' | '2560x1440' | '3840x2160';
+  windowMode: 'windowed' | 'fullscreen' | 'borderless';
+  vsync: boolean;
+  cameraAngleDeg: number; // 30–60
+
+  // Video
+  shadowQuality: 'off' | 'low' | 'medium' | 'high';
+  antiAliasing: 'off' | 'fxaa' | 'msaa2x' | 'msaa4x';
+  postProcessing: 'off' | 'low' | 'high';
+  drawDistance: number; // 50–500
+
+  // Audio
+  masterVolume: number; // 0–1
+  musicVolume: number;
+  sfxVolume: number;
+  npcVoiceVolume: number;
+}
+
+export const DEFAULT_SETTINGS: Readonly<GameSettings> = {
+  difficulty: 'normal',
+  npcLanguage: 'en',
+  subtitles: true,
+  claudeCliPath: 'claude',
+  autosaveInterval: 10,
+
+  resolution: '1920x1080',
+  windowMode: 'windowed',
+  vsync: true,
+  cameraAngleDeg: 45,
+
+  shadowQuality: 'medium',
+  antiAliasing: 'fxaa',
+  postProcessing: 'low',
+  drawDistance: 200,
+
+  masterVolume: 1,
+  musicVolume: 0.6,
+  sfxVolume: 0.8,
+  npcVoiceVolume: 1,
+};
+
+const STORAGE_KEY = 'beirario-settings';
+
+export class SettingsService {
+  private static memoryStore: GameSettings | null = null;
+
+  static load(): GameSettings {
+    /* istanbul ignore next — localStorage unavailable in Node.js/Jest */
+    if (typeof localStorage !== 'undefined') {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) return { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
+      } catch {
+        // corrupted storage — return defaults
+      }
+    }
+    return { ...(SettingsService.memoryStore ?? DEFAULT_SETTINGS) };
+  }
+
+  static save(settings: GameSettings): void {
+    SettingsService.memoryStore = { ...settings };
+    /* istanbul ignore next */
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
+    }
+  }
+
+  static reset(): void {
+    SettingsService.memoryStore = null;
+    /* istanbul ignore next */
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem(STORAGE_KEY);
+    }
+  }
+
+  static get<K extends keyof GameSettings>(key: K): GameSettings[K] {
+    return SettingsService.load()[key];
+  }
+
+  static set<K extends keyof GameSettings>(key: K, value: GameSettings[K]): void {
+    const current = SettingsService.load();
+    SettingsService.save({ ...current, [key]: value });
+  }
+
+  /** Basic validation: path must be non-empty string */
+  static validateClaudePath(path: string): { valid: boolean; reason?: string } {
+    if (!path || path.trim().length === 0) {
+      return { valid: false, reason: 'Path cannot be empty' };
+    }
+    return { valid: true };
+  }
+
+  /** For test isolation: wipes the in-memory store without touching localStorage */
+  static clearMemoryStore(): void {
+    SettingsService.memoryStore = null;
+  }
+}
