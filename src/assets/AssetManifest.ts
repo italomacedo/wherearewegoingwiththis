@@ -13,14 +13,14 @@ import { MORPH_REGISTRY, type MorphId } from '@entities/CharacterData';
 
 export const CharacterAssets = {
   bases: {
-    body_female_asian:   'characters/base/body_female_asian.glb',
-    body_female_black:   'characters/base/body_female_black.glb',
-    body_female_latina:  'characters/base/body_female_latina.glb',
-    body_female_white:   'characters/base/body_female_white.glb',
-    body_male_asian:     'characters/base/body_male_asian.glb',
-    body_male_black:     'characters/base/body_male_black.glb',
-    body_male_latino:    'characters/base/body_male_latino.glb',
-    body_male_white:     'characters/base/body_male_white.glb',
+    body_female_african:   'characters/base/body_female_african.glb',
+    body_female_asian:     'characters/base/body_female_asian.glb',
+    body_female_caucasian: 'characters/base/body_female_caucasian.glb',
+    body_female_universal: 'characters/base/body_female_universal.glb',
+    body_male_african:     'characters/base/body_male_african.glb',
+    body_male_asian:       'characters/base/body_male_asian.glb',
+    body_male_caucasian:   'characters/base/body_male_caucasian.glb',
+    body_male_universal:   'characters/base/body_male_universal.glb',
   },
 
   // PBR skin textures (albedo PNGs) — tinted by colors.skin at runtime.
@@ -193,7 +193,7 @@ export function listAssetKeys(manifestKey: string): string[] {
 /** Resolves a base-body key directly to its GLB path (falls back to default). */
 export function resolveBasePath(bodyBase: string): string {
   const bases = CharacterAssets.bases as Record<string, string>;
-  return bases[bodyBase] ?? CharacterAssets.bases.body_female_black;
+  return bases[bodyBase] ?? CharacterAssets.bases.body_female_african;
 }
 
 /**

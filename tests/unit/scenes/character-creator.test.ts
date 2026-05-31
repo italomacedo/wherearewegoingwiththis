@@ -173,21 +173,21 @@ describe('CharacterCreatorScene', () => {
   it('setGender switches the body base male/female and keeps ethnicity', async () => {
     await scene.onEnter();
     await scene.setGender('male');
-    expect(scene.getCharacterData().appearance.bodyBase).toBe('body_male_black');
+    expect(scene.getCharacterData().appearance.bodyBase).toBe('body_male_african');
     expect(scene.getGender()).toBe('male');
     await scene.setGender('female');
-    expect(scene.getCharacterData().appearance.bodyBase).toBe('body_female_black');
+    expect(scene.getCharacterData().appearance.bodyBase).toBe('body_female_african');
     expect(scene.getGender()).toBe('female');
   });
 
   it('setEthnicity selects the matching body GLB (keeps gender)', async () => {
     await scene.onEnter();
-    expect(scene.getEthnicity()).toBe('black'); // default body_female_black
-    await scene.setEthnicity('white');
-    expect(scene.getCharacterData().appearance.bodyBase).toBe('body_female_white');
-    expect(scene.getEthnicity()).toBe('white');
+    expect(scene.getEthnicity()).toBe('african'); // default body_female_african
+    await scene.setEthnicity('caucasian');
+    expect(scene.getCharacterData().appearance.bodyBase).toBe('body_female_caucasian');
+    expect(scene.getEthnicity()).toBe('caucasian');
     await scene.setGender('male');
-    expect(scene.getCharacterData().appearance.bodyBase).toBe('body_male_white'); // ethnicity preserved
+    expect(scene.getCharacterData().appearance.bodyBase).toBe('body_male_caucasian'); // ethnicity preserved
   });
 
   it('setSkinTextureChoice updates the skin texture', async () => {

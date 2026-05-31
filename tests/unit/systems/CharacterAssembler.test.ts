@@ -9,8 +9,8 @@ const withSkin = (skin: string): CharacterAppearance =>
 
 describe('buildCharacterPlan (pure)', () => {
   it('resolves base path, skin tone and texture', () => {
-    const plan = buildCharacterPlan({ ...DEFAULT_APPEARANCE, bodyBase: 'body_male_white' });
-    expect(plan.basePath).toBe('characters/base/body_male_white.glb');
+    const plan = buildCharacterPlan({ ...DEFAULT_APPEARANCE, bodyBase: 'body_male_caucasian' });
+    expect(plan.basePath).toBe('characters/base/body_male_caucasian.glb');
     expect(plan.skinTone).toBe(DEFAULT_APPEARANCE.colors.skin);
     expect(plan.skinTexturePath).toMatch(/skin_01\.png$/);
   });
@@ -184,8 +184,8 @@ describe('CharacterAssembler', () => {
   });
 
   it('body proportions vary by gender (placeholder feedback)', async () => {
-    const male = await assembler.assemble({ ...DEFAULT_APPEARANCE, bodyBase: 'body_male_white' });
-    const female = await assembler.assemble({ ...DEFAULT_APPEARANCE, bodyBase: 'body_female_white' });
+    const male = await assembler.assemble({ ...DEFAULT_APPEARANCE, bodyBase: 'body_male_caucasian' });
+    const female = await assembler.assemble({ ...DEFAULT_APPEARANCE, bodyBase: 'body_female_caucasian' });
     const mW = male.meshes.find((m) => m.name === 'torso')!.getBoundingInfo().boundingBox.extendSize.x;
     const fW = female.meshes.find((m) => m.name === 'torso')!.getBoundingInfo().boundingBox.extendSize.x;
     expect(mW).toBeGreaterThan(fW);

@@ -66,10 +66,10 @@ describe('AssetManifest', () => {
 
   describe('resolveBasePath', () => {
     it('resolves a known base', () => {
-      expect(resolveBasePath('body_male_white')).toBe('characters/base/body_male_white.glb');
+      expect(resolveBasePath('body_male_caucasian')).toBe('characters/base/body_male_caucasian.glb');
     });
     it('falls back to default for unknown base', () => {
-      expect(resolveBasePath('nope')).toBe(CharacterAssets.bases.body_female_black);
+      expect(resolveBasePath('nope')).toBe(CharacterAssets.bases.body_female_african);
     });
   });
 

@@ -61,26 +61,25 @@ describe('CharacterData', () => {
   });
 
   describe('gender/ethnicity body-base keys', () => {
-    it('composes keys and handles latino/latina spelling', () => {
-      expect(bodyBaseKey('female', 'black')).toBe('body_female_black');
-      expect(bodyBaseKey('male', 'white')).toBe('body_male_white');
-      expect(bodyBaseKey('female', 'latin')).toBe('body_female_latina');
-      expect(bodyBaseKey('male', 'latin')).toBe('body_male_latino');
+    it('composes keys (MakeHuman ethnicity vocabulary)', () => {
+      expect(bodyBaseKey('female', 'african')).toBe('body_female_african');
+      expect(bodyBaseKey('male', 'caucasian')).toBe('body_male_caucasian');
+      expect(bodyBaseKey('female', 'asian')).toBe('body_female_asian');
+      expect(bodyBaseKey('male', 'universal')).toBe('body_male_universal');
     });
 
     it('parses gender + ethnicity back from a key', () => {
-      expect(parseGender('body_male_black')).toBe('male');
-      expect(parseGender('body_female_white')).toBe('female');
+      expect(parseGender('body_male_african')).toBe('male');
+      expect(parseGender('body_female_caucasian')).toBe('female');
       expect(parseEthnicity('body_female_asian')).toBe('asian');
-      expect(parseEthnicity('body_male_black')).toBe('black');
-      expect(parseEthnicity('body_female_white')).toBe('white');
-      expect(parseEthnicity('body_male_latino')).toBe('latin');
-      expect(parseEthnicity('body_female_latina')).toBe('latin');
+      expect(parseEthnicity('body_male_african')).toBe('african');
+      expect(parseEthnicity('body_female_caucasian')).toBe('caucasian');
+      expect(parseEthnicity('body_male_universal')).toBe('universal');
     });
 
     it('round-trips through bodyBaseKey', () => {
       for (const g of ['male', 'female'] as const) {
-        for (const e of ['asian', 'black', 'latin', 'white'] as const) {
+        for (const e of ['african', 'asian', 'caucasian', 'universal'] as const) {
           const key = bodyBaseKey(g, e);
           expect(parseGender(key)).toBe(g);
           expect(parseEthnicity(key)).toBe(e);

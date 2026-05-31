@@ -168,15 +168,15 @@ export interface CharacterAppearance {
 }
 
 // Ethnicity is encoded in the body-base key (one MakeHuman GLB per ethnicity),
-// not a runtime morph — MakeHuman doesn't export the fine shape keys.
+// not a runtime morph — MakeHuman doesn't export the fine shape keys. The values
+// mirror MakeHuman's Race options exactly.
 export type Gender = 'male' | 'female';
-export type Ethnicity = 'asian' | 'black' | 'latin' | 'white';
-export const ETHNICITIES: Ethnicity[] = ['asian', 'black', 'latin', 'white'];
+export type Ethnicity = 'african' | 'asian' | 'caucasian' | 'universal';
+export const ETHNICITIES: Ethnicity[] = ['african', 'asian', 'caucasian', 'universal'];
 
-/** Compose a body-base key, handling the latino/latina spelling per gender. */
+/** Compose a body-base key, e.g. body_female_african. */
 export function bodyBaseKey(gender: Gender, ethnicity: Ethnicity): string {
-  const e = ethnicity === 'latin' ? (gender === 'male' ? 'latino' : 'latina') : ethnicity;
-  return `body_${gender}_${e}`;
+  return `body_${gender}_${ethnicity}`;
 }
 
 export function parseGender(bodyBase: string): Gender {
@@ -185,9 +185,9 @@ export function parseGender(bodyBase: string): Gender {
 
 export function parseEthnicity(bodyBase: string): Ethnicity {
   if (bodyBase.includes('_asian')) return 'asian';
-  if (bodyBase.includes('_black')) return 'black';
-  if (bodyBase.includes('_white')) return 'white';
-  return 'latin'; // latina / latino
+  if (bodyBase.includes('_caucasian')) return 'caucasian';
+  if (bodyBase.includes('_universal')) return 'universal';
+  return 'african';
 }
 
 export interface CharacterData {
@@ -205,7 +205,7 @@ export const DEFAULT_COLORS: Record<ColorKey, string> = {
 };
 
 export const DEFAULT_APPEARANCE: CharacterAppearance = {
-  bodyBase: 'body_female_black',
+  bodyBase: 'body_female_african',
   slots: { hair: 'hair_short_01', eyes: 'eyes_default' },
   morphs: {},
   colors: { ...DEFAULT_COLORS },
@@ -215,14 +215,14 @@ export const DEFAULT_APPEARANCE: CharacterAppearance = {
 };
 
 export const BODY_BASES = [
+  'body_female_african',
   'body_female_asian',
-  'body_female_black',
-  'body_female_latina',
-  'body_female_white',
+  'body_female_caucasian',
+  'body_female_universal',
+  'body_male_african',
   'body_male_asian',
-  'body_male_black',
-  'body_male_latino',
-  'body_male_white',
+  'body_male_caucasian',
+  'body_male_universal',
 ] as const;
 
 export type BodyBaseKey = (typeof BODY_BASES)[number];
