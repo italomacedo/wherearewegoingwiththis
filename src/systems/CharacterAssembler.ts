@@ -2,16 +2,23 @@ import {
   Scene, AbstractMesh, MeshBuilder, StandardMaterial,
   Color3, Vector3, Mesh,
 } from '@babylonjs/core';
+import type { Skeleton, AnimationGroup } from '@babylonjs/core';
 import {
   CharacterAppearance, SlotId, SlotCategory, ColorKey, MorphId,
   DEFAULT_COLORS, MORPH_REGISTRY, resolveLayers, getSkinTone, clampMorph,
 } from '@entities/CharacterData';
-import { CharacterAssets, resolveAssetPath, resolveBasePath } from '@assets/AssetManifest';
+import { CharacterAssets, resolveAssetPath, resolveBasePath, mapMorphName } from '@assets/AssetManifest';
 
 export interface AssembledCharacter {
   rootMesh: AbstractMesh;
   meshes: AbstractMesh[];
   dispose(): void;
+  /** Live-update a facial morph (GLB mode only; no-op/undefined for placeholders). */
+  setMorph?(morphId: MorphId, weight: number): void;
+  /** Shared humanoid skeleton (GLB mode only). */
+  getSkeleton?(): Skeleton | null;
+  /** Locomotion animation groups from the rigged base (GLB mode only). */
+  getAnimationGroups?(): AnimationGroup[];
 }
 
 // ─── Character plan (pure — no scene, fully unit-testable) ──────────────────────
@@ -83,6 +90,23 @@ export function buildCharacterPlan(appearance: CharacterAppearance): CharacterPl
   };
 }
 
+/**
+ * Maps planned morph weights onto the glTF morph-target names actually present
+ * on the loaded mesh (via the alias table). Sliders whose target isn't found
+ * are dropped — graceful degradation rather than a crash. Pure + testable.
+ */
+export function resolveMorphInfluences(
+  morphs: MorphPlanEntry[],
+  availableTargetNames: string[],
+): Array<{ name: string; weight: number }> {
+  const out: Array<{ name: string; weight: number }> = [];
+  for (const m of morphs) {
+    const name = mapMorphName(m.morphId, availableTargetNames);
+    if (name) out.push({ name, weight: m.weight });
+  }
+  return out;
+}
+
 // Placeholder tints for clothing/footwear slots that carry no color picker.
 const CLOTHING_TINTS: Partial<Record<SlotId, string>> = {
   t_shirt: '#2A3A4A', shirt: '#223344', long_sleeve: '#1E2E3E',
@@ -145,31 +169,102 @@ export class CharacterAssembler {
     return this.assemblePlaceholder(appearance);
   }
 
-  /* istanbul ignore next */
+  /* istanbul ignore next — browser/Electron only; exercised via manual verification (phase 6) */
   private async assembleGltf(appearance: CharacterAppearance): Promise<AssembledCharacter> {
     const { SceneLoader } = await import('@babylonjs/core');
     const plan = buildCharacterPlan(appearance);
     const meshes: AbstractMesh[] = [];
 
+    let skeleton: Skeleton | null = null;
+    let animationGroups: AnimationGroup[] = [];
+    // morph-target lookup by resolved glTF name, for live slider updates
+    const morphByName = new Map<string, { influence: number }>();
+
+    // ─── Base body (carries the skeleton, morph targets, animations) ──────────
     try {
-      const result = await SceneLoader.ImportMeshAsync('', '/assets/', plan.basePath, this.scene);
-      meshes.push(...result.meshes);
+      const container = await SceneLoader.LoadAssetContainerAsync('/assets/', plan.basePath, this.scene);
+      container.addAllToScene();
+      meshes.push(...container.meshes);
+      skeleton = container.skeletons[0] ?? null;
+      animationGroups = container.animationGroups;
+
+      // Collect morph targets from any mesh that has a manager.
+      const available: string[] = [];
+      for (const mesh of container.meshes) {
+        const mgr = (mesh as { morphTargetManager?: { numTargets: number; getTarget(i: number): { name: string; influence: number } } }).morphTargetManager;
+        if (!mgr) continue;
+        for (let i = 0; i < mgr.numTargets; i++) {
+          const t = mgr.getTarget(i);
+          morphByName.set(t.name, t);
+          available.push(t.name);
+        }
+      }
+      // Apply the planned morph weights to their matching targets.
+      for (const { name, weight } of resolveMorphInfluences(plan.morphs, available)) {
+        const target = morphByName.get(name);
+        if (target) target.influence = weight;
+      }
+
+      this.applySkinTexture(container.meshes, plan);
     } catch {
-      // GLTF file not found — fall back to placeholder for this part
+      // Base GLB missing — fall back to placeholder body.
       const placeholderBody = this.buildPlaceholderBody();
       this.applySkinTone(placeholderBody, plan.skinTone);
       meshes.push(...placeholderBody);
     }
 
-    this.applySkinTone(meshes, plan.skinTone);
+    // ─── Attached layers (clothing/hair/etc.), sharing the base skeleton ──────
+    for (const entry of plan.layers) {
+      if (!entry.manifestPath) {
+        meshes.push(this.buildPlaceholderPart(entry, plan.colors));
+        continue;
+      }
+      try {
+        const part = await SceneLoader.LoadAssetContainerAsync('/assets/', entry.manifestPath, this.scene);
+        part.addAllToScene();
+        for (const m of part.meshes) {
+          if (skeleton) m.skeleton = skeleton; // share rig so one animation drives all
+          this.applyPartTint(m, entry, plan.colors);
+          meshes.push(m);
+        }
+      } catch {
+        meshes.push(this.buildPlaceholderPart(entry, plan.colors));
+      }
+    }
 
     const root = meshes[0] ?? MeshBuilder.CreateBox('char-root', { size: 0.01 }, this.scene);
 
     return {
       rootMesh: root,
       meshes,
-      dispose: () => meshes.forEach((m) => m.dispose()),
+      dispose: () => {
+        animationGroups.forEach((g) => g.dispose());
+        meshes.forEach((m) => m.dispose());
+      },
+      setMorph: (morphId: MorphId, weight: number) => {
+        const name = mapMorphName(morphId, [...morphByName.keys()]);
+        const target = name ? morphByName.get(name) : undefined;
+        if (target) target.influence = clampMorph(weight);
+      },
+      getSkeleton: () => skeleton,
+      getAnimationGroups: () => animationGroups,
     };
+  }
+
+  /* istanbul ignore next — browser-only material/texture wiring */
+  private applySkinTexture(meshes: AbstractMesh[], plan: CharacterPlan): void {
+    void meshes; void plan;
+    // Real implementation (phase 6, once skin PNGs exist): swap PBRMaterial
+    // albedoTexture to plan.skinTexturePath, multiply albedoColor by plan.skinTone,
+    // and composite plan.makeup over the face material via a DynamicTexture.
+  }
+
+  /* istanbul ignore next — browser-only material tint */
+  private applyPartTint(mesh: AbstractMesh, entry: SlotPlanEntry, colors: Record<ColorKey, string>): void {
+    const hex = entry.colorKey ? colors[entry.colorKey] : (CLOTHING_TINTS[entry.slot] ?? null);
+    if (hex && mesh.material instanceof StandardMaterial) {
+      mesh.material.diffuseColor = Color3.FromHexString(hex.padEnd(7, '0'));
+    }
   }
 
   /** Procedural placeholder — used when GLTF files don't exist yet. */

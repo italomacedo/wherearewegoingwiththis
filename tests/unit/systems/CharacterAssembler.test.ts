@@ -1,5 +1,5 @@
 import { NullEngine, Scene } from '@babylonjs/core';
-import { CharacterAssembler, buildCharacterPlan } from '../../../src/systems/CharacterAssembler';
+import { CharacterAssembler, buildCharacterPlan, resolveMorphInfluences } from '../../../src/systems/CharacterAssembler';
 import { DEFAULT_APPEARANCE, CharacterAppearance } from '../../../src/entities/CharacterData';
 
 const withSlots = (slots: CharacterAppearance['slots']): CharacterAppearance =>
@@ -50,6 +50,31 @@ describe('buildCharacterPlan (pure)', () => {
     const plan = buildCharacterPlan({ ...DEFAULT_APPEARANCE, colors: { skin: '#ABCDEF' } });
     expect(plan.colors.skin).toBe('#ABCDEF');
     expect(plan.colors.eye).toBeDefined(); // backfilled default
+  });
+});
+
+describe('resolveMorphInfluences (pure)', () => {
+  it('maps planned morphs onto available glTF target names', () => {
+    const out = resolveMorphInfluences(
+      [{ morphId: 'nostril_width', weight: 0.7 }, { morphId: 'lips_fullness', weight: 0.2 }],
+      ['nose-nostrils-width', 'mouth-lips-fullness'],
+    );
+    expect(out).toEqual([
+      { name: 'nose-nostrils-width', weight: 0.7 },
+      { name: 'mouth-lips-fullness', weight: 0.2 },
+    ]);
+  });
+
+  it('drops morphs whose target is not present', () => {
+    const out = resolveMorphInfluences(
+      [{ morphId: 'nostril_width', weight: 0.5 }, { morphId: 'ear_size', weight: 0.5 }],
+      ['ear-scale'],
+    );
+    expect(out).toEqual([{ name: 'ear-scale', weight: 0.5 }]);
+  });
+
+  it('returns empty when nothing matches', () => {
+    expect(resolveMorphInfluences([{ morphId: 'nose_width', weight: 1 }], ['unrelated'])).toEqual([]);
   });
 });
 
