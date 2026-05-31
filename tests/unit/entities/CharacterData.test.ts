@@ -3,6 +3,7 @@ import {
   SLOT_REGISTRY, MORPH_REGISTRY, EXCLUSIVE_GROUPS,
   applySlot, resolveLayers, clampMorph, cloneAppearance, migrateAppearance,
   getSkinTone, getHair, getHairColor, getBaseTop, getOuterwear, getBottom, getFootwear,
+  bodyBaseKey, parseGender, parseEthnicity,
 } from '../../../src/entities/CharacterData';
 
 describe('CharacterData', () => {
@@ -13,7 +14,6 @@ describe('CharacterData', () => {
     expect(DEFAULT_APPEARANCE.skinTexture).toBe('skin_01');
     expect(DEFAULT_APPEARANCE.slots.hair).toBe('hair_short_01');
     expect(DEFAULT_APPEARANCE.slots.eyes).toBe('eyes_default');
-    expect(DEFAULT_APPEARANCE.ethnicity).toBe('universal');
     expect(Array.isArray(DEFAULT_APPEARANCE.accessories)).toBe(true);
     expect(Array.isArray(DEFAULT_APPEARANCE.implants)).toBe(true);
   });
@@ -57,6 +57,35 @@ describe('CharacterData', () => {
       expect(MORPH_REGISTRY.nostril_width.group).toBe('nose');
       expect(MORPH_REGISTRY.lips_fullness.group).toBe('lips');
       expect(MORPH_REGISTRY.ear_size.group).toBe('ears');
+    });
+  });
+
+  describe('gender/ethnicity body-base keys', () => {
+    it('composes keys and handles latino/latina spelling', () => {
+      expect(bodyBaseKey('female', 'black')).toBe('body_female_black');
+      expect(bodyBaseKey('male', 'white')).toBe('body_male_white');
+      expect(bodyBaseKey('female', 'latin')).toBe('body_female_latina');
+      expect(bodyBaseKey('male', 'latin')).toBe('body_male_latino');
+    });
+
+    it('parses gender + ethnicity back from a key', () => {
+      expect(parseGender('body_male_black')).toBe('male');
+      expect(parseGender('body_female_white')).toBe('female');
+      expect(parseEthnicity('body_female_asian')).toBe('asian');
+      expect(parseEthnicity('body_male_black')).toBe('black');
+      expect(parseEthnicity('body_female_white')).toBe('white');
+      expect(parseEthnicity('body_male_latino')).toBe('latin');
+      expect(parseEthnicity('body_female_latina')).toBe('latin');
+    });
+
+    it('round-trips through bodyBaseKey', () => {
+      for (const g of ['male', 'female'] as const) {
+        for (const e of ['asian', 'black', 'latin', 'white'] as const) {
+          const key = bodyBaseKey(g, e);
+          expect(parseGender(key)).toBe(g);
+          expect(parseEthnicity(key)).toBe(e);
+        }
+      }
     });
   });
 

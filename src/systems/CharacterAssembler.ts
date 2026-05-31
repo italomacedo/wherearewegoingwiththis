@@ -4,7 +4,7 @@ import {
 } from '@babylonjs/core';
 import type { Skeleton, AnimationGroup } from '@babylonjs/core';
 import {
-  CharacterAppearance, SlotId, SlotCategory, ColorKey, MorphId, Ethnicity, ETHNICITIES,
+  CharacterAppearance, SlotId, SlotCategory, ColorKey, MorphId,
   DEFAULT_COLORS, MORPH_REGISTRY, resolveLayers, getSkinTone, clampMorph,
 } from '@entities/CharacterData';
 import { CharacterAssets, resolveAssetPath, resolveBasePath, mapMorphName, diffMorphCoverage } from '@assets/AssetManifest';
@@ -15,8 +15,6 @@ export interface AssembledCharacter {
   dispose(): void;
   /** Live-update a facial morph (GLB mode only; no-op/undefined for placeholders). */
   setMorph?(morphId: MorphId, weight: number): void;
-  /** Blend the ethnic morphology to a MakeHuman macro target (GLB mode only). */
-  setEthnicity?(ethnicity: Ethnicity): void;
   /** Shared humanoid skeleton (GLB mode only). */
   getSkeleton?(): Skeleton | null;
   /** Locomotion animation groups from the rigged base (GLB mode only). */
@@ -109,30 +107,6 @@ export function resolveMorphInfluences(
   return out;
 }
 
-export interface MacroTargets {
-  ethnicity: Partial<Record<Ethnicity, string>>;
-  bust: string | null;
-}
-
-/**
- * Classifies the MakeHuman macro morph-target names a GLB exports into the
- * ones we can drive: ethnicity (asian/caucasian/african/universal) and bust.
- * MPFB's compressed names look like `$md-$as-$fe-$yn` / `...maxcup...`. Pure.
- */
-export function classifyMacroTargets(names: string[]): MacroTargets {
-  const ethnicity: Partial<Record<Ethnicity, string>> = {};
-  let bust: string | null = null;
-  for (const name of names) {
-    const l = name.toLowerCase();
-    if (l.includes('cup')) { bust = bust ?? name; continue; }
-    if (l.includes('universal')) ethnicity.universal = name;
-    else if (/\$as|-as-|asian/.test(l)) ethnicity.asian = name;
-    else if (/\$ca|-ca-|caucasian/.test(l)) ethnicity.caucasian = name;
-    else if (/\$af|-af-|african/.test(l)) ethnicity.african = name;
-  }
-  return { ethnicity, bust };
-}
-
 // Placeholder tints for clothing/footwear slots that carry no color picker.
 const CLOTHING_TINTS: Partial<Record<SlotId, string>> = {
   t_shirt: '#2A3A4A', shirt: '#223344', long_sleeve: '#1E2E3E',
@@ -217,16 +191,6 @@ export class CharacterAssembler {
     let animationGroups: AnimationGroup[] = [];
     // morph-target lookup by resolved glTF name, for live slider updates
     const morphByName = new Map<string, { influence: number }>();
-    let macros: MacroTargets = { ethnicity: {}, bust: null };
-
-    // Blend toward a single ethnicity macro target (the others to 0).
-    const applyEthnicity = (eth: Ethnicity): void => {
-      for (const key of ETHNICITIES) {
-        const tname = macros.ethnicity[key];
-        const t = tname ? morphByName.get(tname) : undefined;
-        if (t) t.influence = key === eth ? 1 : 0;
-      }
-    };
 
     // ─── Base body (carries the skeleton, morph targets, animations) ──────────
     try {
@@ -275,10 +239,6 @@ export class CharacterAssembler {
         if (target) target.influence = weight;
       }
 
-      // Ethnicity from the macro morphs the GLB actually exports.
-      macros = classifyMacroTargets(available);
-      applyEthnicity(appearance.ethnicity ?? 'universal');
-
       this.applySkinTexture(container.meshes, plan);
     } catch {
       // Base GLB missing — fall back to placeholder body.
@@ -319,7 +279,6 @@ export class CharacterAssembler {
         const target = name ? morphByName.get(name) : undefined;
         if (target) target.influence = clampMorph(weight);
       },
-      setEthnicity: (e: Ethnicity) => applyEthnicity(e),
       getSkeleton: () => skeleton,
       getAnimationGroups: () => animationGroups,
     };

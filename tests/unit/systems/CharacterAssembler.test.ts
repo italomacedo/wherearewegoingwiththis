@@ -1,5 +1,5 @@
 import { NullEngine, Scene } from '@babylonjs/core';
-import { CharacterAssembler, buildCharacterPlan, resolveMorphInfluences, classifyMacroTargets } from '../../../src/systems/CharacterAssembler';
+import { CharacterAssembler, buildCharacterPlan, resolveMorphInfluences } from '../../../src/systems/CharacterAssembler';
 import { DEFAULT_APPEARANCE, CharacterAppearance } from '../../../src/entities/CharacterData';
 
 const withSlots = (slots: CharacterAppearance['slots']): CharacterAppearance =>
@@ -75,28 +75,6 @@ describe('resolveMorphInfluences (pure)', () => {
 
   it('returns empty when nothing matches', () => {
     expect(resolveMorphInfluences([{ morphId: 'nose_width', weight: 1 }], ['unrelated'])).toEqual([]);
-  });
-});
-
-describe('classifyMacroTargets (pure)', () => {
-  it('classifies MPFB macro morph names into ethnicity + bust', () => {
-    const names = [
-      '$md-$as-$fe-$yn', '$md-$ca-$fe-$yn', '$md-$af-$fe-$yn',
-      '$md-universal-$fe-$yn-$av$mu-$av$wg',
-      '$md-$fe-$yn-$av$mu-$av$wg-maxcup-$av$fi',
-    ];
-    const macros = classifyMacroTargets(names);
-    expect(macros.ethnicity.asian).toBe('$md-$as-$fe-$yn');
-    expect(macros.ethnicity.caucasian).toBe('$md-$ca-$fe-$yn');
-    expect(macros.ethnicity.african).toBe('$md-$af-$fe-$yn');
-    expect(macros.ethnicity.universal).toBe('$md-universal-$fe-$yn-$av$mu-$av$wg');
-    expect(macros.bust).toBe('$md-$fe-$yn-$av$mu-$av$wg-maxcup-$av$fi');
-  });
-
-  it('returns empties when no macro targets present', () => {
-    const macros = classifyMacroTargets(['random-target', 'another']);
-    expect(macros.ethnicity).toEqual({});
-    expect(macros.bust).toBeNull();
   });
 });
 

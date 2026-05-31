@@ -9,8 +9,9 @@ import { ServiceLocator } from '@core/ServiceLocator';
 import { GameSession } from '@core/GameSession';
 import {
   CharacterData, CharacterAppearance, DEFAULT_APPEARANCE, BODY_BASES,
-  SlotId, ColorKey, SkinTextureId, MorphId, Ethnicity, ETHNICITIES,
+  SlotId, ColorKey, SkinTextureId, MorphId, Ethnicity, Gender, ETHNICITIES,
   SLOT_REGISTRY, MORPH_REGISTRY, applySlot, getHair, cloneAppearance,
+  bodyBaseKey, parseGender, parseEthnicity,
 } from '@entities/CharacterData';
 import { CharacterAssets, listAssetKeys } from '@assets/AssetManifest';
 
@@ -232,30 +233,24 @@ export class CharacterCreatorScene extends BaseScene {
     await this.rebuildCharacter();
   }
 
-  /** Switch the body between male/female, preserving the current ethnicity key. */
-  async setGender(gender: 'male' | 'female'): Promise<void> {
-    const parts = this.characterData.appearance.bodyBase.split('_'); // body_<gender>_<eth>
-    const ethnicity = parts[2] ?? 'black';
-    this.setAppearance('bodyBase', `body_${gender}_${ethnicity}`);
+  /** Switch gender, keeping the current ethnicity — selects the matching GLB. */
+  async setGender(gender: Gender): Promise<void> {
+    this.setAppearance('bodyBase', bodyBaseKey(gender, this.getEthnicity()));
     await this.rebuildCharacter();
   }
 
-  /** Current gender parsed from the body-base key. */
-  getGender(): 'male' | 'female' {
-    return this.characterData.appearance.bodyBase.includes('_male_') ? 'male' : 'female';
+  getGender(): Gender {
+    return parseGender(this.characterData.appearance.bodyBase);
   }
 
-  /** Set ethnic morphology (drives the MakeHuman macro morph). Applied live. */
+  /** Switch ethnicity, keeping gender — selects the matching MakeHuman GLB. */
   async setEthnicity(ethnicity: Ethnicity): Promise<void> {
-    this.characterData = {
-      ...this.characterData,
-      appearance: { ...this.characterData.appearance, ethnicity },
-    };
-    this.assembled?.setEthnicity?.(ethnicity);
+    this.setAppearance('bodyBase', bodyBaseKey(this.getGender(), ethnicity));
+    await this.rebuildCharacter();
   }
 
   getEthnicity(): Ethnicity {
-    return this.characterData.appearance.ethnicity ?? 'universal';
+    return parseEthnicity(this.characterData.appearance.bodyBase);
   }
 
   /** Choose one of the four skin textures and rebuild. */
