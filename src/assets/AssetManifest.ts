@@ -168,6 +168,28 @@ export function resolveAssetPath(manifestKey: string, assetKey: string): string 
   return null;
 }
 
+/**
+ * Lists the asset keys available under a manifest category path (e.g.
+ * 'clothes.jacket' → ['jacket_neon_bomber', 'jacket_leather']). Returns only
+ * leaf (string-valued) entries; unknown paths yield []. Pure.
+ */
+export function listAssetKeys(manifestKey: string): string[] {
+  let node: unknown = CharacterAssets;
+  for (const segment of manifestKey.split('.')) {
+    if (node && typeof node === 'object' && segment in (node as Record<string, unknown>)) {
+      node = (node as Record<string, unknown>)[segment];
+    } else {
+      return [];
+    }
+  }
+  if (node && typeof node === 'object') {
+    return Object.entries(node as Record<string, unknown>)
+      .filter(([, v]) => typeof v === 'string')
+      .map(([k]) => k);
+  }
+  return [];
+}
+
 /** Resolves a base-body key directly to its GLB path (falls back to default). */
 export function resolveBasePath(bodyBase: string): string {
   const bases = CharacterAssets.bases as Record<string, string>;

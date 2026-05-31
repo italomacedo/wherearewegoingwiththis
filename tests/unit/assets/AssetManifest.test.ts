@@ -1,6 +1,6 @@
 import {
   CharacterAssets, assetExists, resolveAssetPath, resolveBasePath,
-  mapMorphName, MORPH_TARGET_NAMES,
+  mapMorphName, MORPH_TARGET_NAMES, listAssetKeys,
 } from '../../../src/assets/AssetManifest';
 
 describe('AssetManifest', () => {
@@ -91,6 +91,31 @@ describe('AssetManifest', () => {
       for (const aliases of Object.values(MORPH_TARGET_NAMES)) {
         expect(aliases.length).toBeGreaterThan(0);
       }
+    });
+  });
+
+  describe('listAssetKeys', () => {
+    it('lists leaf keys of a nested category', () => {
+      expect(listAssetKeys('clothes.jacket')).toEqual(
+        Object.keys(CharacterAssets.clothes.jacket),
+      );
+    });
+
+    it('lists keys of a top-level category', () => {
+      expect(listAssetKeys('hair')).toEqual(Object.keys(CharacterAssets.hair));
+    });
+
+    it('returns [] for an unknown path', () => {
+      expect(listAssetKeys('clothes.nope')).toEqual([]);
+    });
+
+    it('returns [] when the node is not a leaf map of strings', () => {
+      // 'clothes' is a map of sub-objects, not strings
+      expect(listAssetKeys('clothes')).toEqual([]);
+    });
+
+    it('returns [] when the path resolves to a string leaf', () => {
+      expect(listAssetKeys('clothes.jacket.jacket_leather')).toEqual([]);
     });
   });
 

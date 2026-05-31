@@ -1,5 +1,5 @@
 import { NullEngine } from '@babylonjs/core';
-import { CharacterCreatorScene } from '../../../src/scenes/CharacterCreatorScene';
+import { CharacterCreatorScene, buildCreatorSchema } from '../../../src/scenes/CharacterCreatorScene';
 import { ServiceLocator } from '../../../src/core/ServiceLocator';
 import { GameSession } from '../../../src/core/GameSession';
 import { SaveService } from '../../../src/systems/SaveService';
@@ -164,11 +164,69 @@ describe('CharacterCreatorScene', () => {
     expect(mockSceneManager.loadScene).not.toHaveBeenCalled();
   });
 
+  it('setColorValue updates an arbitrary region tint', async () => {
+    await scene.onEnter();
+    await scene.setColorValue('eye', '#00FF00');
+    expect(scene.getCharacterData().appearance.colors.eye).toBe('#00FF00');
+  });
+
+  it('setSkinTextureChoice updates the skin texture', async () => {
+    await scene.onEnter();
+    await scene.setSkinTextureChoice('skin_03');
+    expect(scene.getCharacterData().appearance.skinTexture).toBe('skin_03');
+  });
+
+  it('setSlotValue applies exclusion (boots clears sneakers)', async () => {
+    await scene.onEnter();
+    await scene.setSlotValue('sneakers', 'sneakers_neon');
+    await scene.setSlotValue('boots', 'boots_combat');
+    const slots = scene.getCharacterData().appearance.slots;
+    expect(slots.boots).toBe('boots_combat');
+    expect(slots.sneakers).toBeUndefined();
+  });
+
+  it('setMorph stores a morph slider value', async () => {
+    await scene.onEnter();
+    await scene.setMorph('nose_width', 0.8);
+    expect(scene.getCharacterData().appearance.morphs.nose_width).toBe(0.8);
+  });
+
   it('getCharacterData returns independent copy (not reference)', async () => {
     await scene.onEnter();
     const data1 = scene.getCharacterData();
     data1.name = 'mutated';
     const data2 = scene.getCharacterData();
     expect(data2.name).not.toBe('mutated');
+  });
+});
+
+describe('buildCreatorSchema (pure)', () => {
+  const schema = buildCreatorSchema();
+
+  it('has the expected categories', () => {
+    expect(schema.map((c) => c.title)).toEqual([
+      'Body & Skin', 'Face', 'Hair & Facial Hair', 'Eyes & Makeup',
+      'Tops', 'Bottoms & Belt', 'Footwear',
+    ]);
+  });
+
+  it('Body & Skin exposes body cycler, skin swatch and skin color', () => {
+    const kinds = schema[0]!.controls.map((c) => c.kind);
+    expect(kinds).toEqual(['bodyCycler', 'swatch', 'color']);
+    const swatch = schema[0]!.controls.find((c) => c.kind === 'swatch');
+    expect(swatch && swatch.kind === 'swatch' && swatch.skinTextures.length).toBe(4);
+  });
+
+  it('Face is all morph sliders', () => {
+    const face = schema.find((c) => c.title === 'Face')!;
+    expect(face.controls.length).toBeGreaterThanOrEqual(30);
+    expect(face.controls.every((c) => c.kind === 'slider')).toBe(true);
+  });
+
+  it('clothing cyclers offer a "none" (null) option first', () => {
+    const tops = schema.find((c) => c.title === 'Tops')!;
+    for (const c of tops.controls) {
+      if (c.kind === 'cycler') expect(c.options[0]).toBeNull();
+    }
   });
 });

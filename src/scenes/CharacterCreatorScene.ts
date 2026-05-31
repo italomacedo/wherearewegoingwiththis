@@ -2,15 +2,111 @@ import {
   Engine, Color4, ArcRotateCamera, Vector3,
   HemisphericLight, Color3, PointLight,
 } from '@babylonjs/core';
-import { AdvancedDynamicTexture, TextBlock, Button, StackPanel, InputText } from '@babylonjs/gui';
+import { AdvancedDynamicTexture, TextBlock, Button, StackPanel, InputText, Slider, ScrollViewer, Control } from '@babylonjs/gui';
 import { BaseScene } from './BaseScene';
 import { SceneManager } from '@core/SceneManager';
 import { ServiceLocator } from '@core/ServiceLocator';
 import { GameSession } from '@core/GameSession';
 import {
   CharacterData, CharacterAppearance, DEFAULT_APPEARANCE, BODY_BASES,
-  SlotId, ColorKey, applySlot, getHair, cloneAppearance,
+  SlotId, ColorKey, SkinTextureId, MorphId, SLOT_REGISTRY, MORPH_REGISTRY,
+  applySlot, getHair, cloneAppearance,
 } from '@entities/CharacterData';
+import { CharacterAssets, listAssetKeys } from '@assets/AssetManifest';
+
+// ─── Character-creator UI schema (pure, data-driven) ────────────────────────────
+
+export type ControlSpec =
+  | { kind: 'bodyCycler'; label: string }
+  | { kind: 'swatch'; label: string; skinTextures: SkinTextureId[] }
+  | { kind: 'color'; label: string; colorKey: ColorKey }
+  | { kind: 'cycler'; label: string; slot: SlotId; options: (string | null)[] }
+  | { kind: 'slider'; label: string; morph: MorphId };
+
+export interface CategorySpec {
+  title: string;
+  controls: ControlSpec[];
+}
+
+function slotCycler(slot: SlotId, label: string): ControlSpec {
+  return { kind: 'cycler', label, slot, options: [null, ...listAssetKeys(SLOT_REGISTRY[slot].manifestKey)] };
+}
+
+/**
+ * Builds the grouped control schema for the character creator from the slot +
+ * morph registries and the asset manifest. Pure + unit-tested; the browser
+ * widget factory consumes this so adding a slot needs no new UI code.
+ */
+export function buildCreatorSchema(): CategorySpec[] {
+  const skinTextures = Object.keys(CharacterAssets.skinTextures) as SkinTextureId[];
+
+  const faceSliders: ControlSpec[] = Object.values(MORPH_REGISTRY)
+    .slice()
+    .sort((a, b) => (a.group === b.group ? a.label.localeCompare(b.label) : a.group.localeCompare(b.group)))
+    .map((m) => ({ kind: 'slider', label: m.label, morph: m.id }));
+
+  return [
+    {
+      title: 'Body & Skin',
+      controls: [
+        { kind: 'bodyCycler', label: 'Body' },
+        { kind: 'swatch', label: 'Skin Texture', skinTextures },
+        { kind: 'color', label: 'Skin Tone', colorKey: 'skin' },
+      ],
+    },
+    { title: 'Face', controls: faceSliders },
+    {
+      title: 'Hair & Facial Hair',
+      controls: [
+        slotCycler('hair', 'Hair'),
+        { kind: 'color', label: 'Hair Color', colorKey: 'hair' },
+        slotCycler('eyebrows', 'Eyebrows'),
+        { kind: 'color', label: 'Eyebrow Color', colorKey: 'eyebrow' },
+        slotCycler('beard', 'Beard'),
+        { kind: 'color', label: 'Beard Color', colorKey: 'beard' },
+      ],
+    },
+    {
+      title: 'Eyes & Makeup',
+      controls: [
+        slotCycler('eyes', 'Eyes'),
+        { kind: 'color', label: 'Eye Color', colorKey: 'eye' },
+        slotCycler('teeth', 'Teeth'),
+        slotCycler('makeup', 'Makeup'),
+        { kind: 'color', label: 'Makeup Color', colorKey: 'makeup' },
+      ],
+    },
+    {
+      title: 'Tops',
+      controls: [
+        slotCycler('t_shirt', 'T-Shirt'),
+        slotCycler('shirt', 'Shirt'),
+        slotCycler('long_sleeve', 'Long Sleeve'),
+        slotCycler('jacket', 'Jacket'),
+        slotCycler('coat', 'Coat'),
+        slotCycler('kutte', 'Kutte'),
+      ],
+    },
+    {
+      title: 'Bottoms & Belt',
+      controls: [
+        slotCycler('pants', 'Pants'),
+        slotCycler('skirt', 'Skirt'),
+        slotCycler('shorts', 'Shorts'),
+        slotCycler('belt', 'Belt'),
+      ],
+    },
+    {
+      title: 'Footwear',
+      controls: [
+        slotCycler('socks', 'Socks'),
+        slotCycler('shoes', 'Shoes'),
+        slotCycler('boots', 'Boots'),
+        slotCycler('sneakers', 'Sneakers'),
+      ],
+    },
+  ];
+}
 import { CharacterAssembler, AssembledCharacter } from '@systems/CharacterAssembler';
 import { SaveService } from '@systems/SaveService';
 
@@ -116,6 +212,21 @@ export class CharacterCreatorScene extends BaseScene {
   /** Set a slot directly by its id (exclusion-aware). */
   async setSlotValue(slot: SlotId, value: string | null): Promise<void> {
     this.setSlot(slot, value);
+    await this.rebuildCharacter();
+  }
+
+  /** Set a region tint (skin/hair/eyebrow/eye/beard/makeup) and rebuild. */
+  async setColorValue(key: ColorKey, hex: string): Promise<void> {
+    this.setColor(key, hex);
+    await this.rebuildCharacter();
+  }
+
+  /** Choose one of the four skin textures and rebuild. */
+  async setSkinTextureChoice(id: SkinTextureId): Promise<void> {
+    this.characterData = {
+      ...this.characterData,
+      appearance: { ...this.characterData.appearance, skinTexture: id },
+    };
     await this.rebuildCharacter();
   }
 
@@ -244,69 +355,35 @@ export class CharacterCreatorScene extends BaseScene {
     title.height = '40px';
     gui.addControl(title);
 
-    // Left panel — body customization
-    const leftPanel = new StackPanel('left-panel');
-    leftPanel.horizontalAlignment = 0;
-    leftPanel.verticalAlignment = 0;
-    leftPanel.left = '20px';
-    leftPanel.top = '80px';
-    leftPanel.width = '200px';
-    leftPanel.spacing = 10;
-    gui.addControl(leftPanel);
+    // Left panel — scrollable, schema-driven customization categories
+    const scroll = new ScrollViewer('creator-scroll');
+    scroll.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+    scroll.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+    scroll.left = '20px';
+    scroll.top = '80px';
+    scroll.width = '300px';
+    scroll.height = '70%';
+    scroll.thickness = 1;
+    scroll.barColor = '#00FFCC';
+    gui.addControl(scroll);
 
-    // Body base selector
-    const bodyLabel = new TextBlock('body-label');
-    bodyLabel.text = 'BODY';
-    bodyLabel.color = '#AABBCC';
-    bodyLabel.fontSize = 13;
-    bodyLabel.fontFamily = 'monospace';
-    bodyLabel.height = '20px';
-    leftPanel.addControl(bodyLabel);
+    const panel = new StackPanel('creator-panel');
+    panel.spacing = 6;
+    panel.paddingTop = '6px';
+    panel.paddingBottom = '6px';
+    scroll.addControl(panel);
 
-    const bodyRow = new StackPanel('body-row');
-    bodyRow.isVertical = false;
-    bodyRow.height = '36px';
-    bodyRow.spacing = 4;
-    leftPanel.addControl(bodyRow);
-
-    const bodyPrev = Button.CreateSimpleButton('body-prev', '◄');
-    bodyPrev.width = '36px'; bodyPrev.height = '36px';
-    bodyPrev.color = '#00FFCC'; bodyPrev.background = 'rgba(0,30,40,0.8)';
-    bodyPrev.onPointerUpObservable.add(() => void this.cycleBodyBase(-1));
-    bodyRow.addControl(bodyPrev);
-
-    const bodyNext = Button.CreateSimpleButton('body-next', '►');
-    bodyNext.width = '36px'; bodyNext.height = '36px';
-    bodyNext.color = '#00FFCC'; bodyNext.background = 'rgba(0,30,40,0.8)';
-    bodyNext.onPointerUpObservable.add(() => void this.cycleBodyBase(1));
-    bodyRow.addControl(bodyNext);
-
-    // Hair selector
-    const hairLabel = new TextBlock('hair-label');
-    hairLabel.text = 'HAIR';
-    hairLabel.color = '#AABBCC';
-    hairLabel.fontSize = 13;
-    hairLabel.fontFamily = 'monospace';
-    hairLabel.height = '20px';
-    leftPanel.addControl(hairLabel);
-
-    const hairRow = new StackPanel('hair-row');
-    hairRow.isVertical = false;
-    hairRow.height = '36px';
-    hairRow.spacing = 4;
-    leftPanel.addControl(hairRow);
-
-    const hairPrev = Button.CreateSimpleButton('hair-prev', '◄');
-    hairPrev.width = '36px'; hairPrev.height = '36px';
-    hairPrev.color = '#00FFCC'; hairPrev.background = 'rgba(0,30,40,0.8)';
-    hairPrev.onPointerUpObservable.add(() => void this.cycleHair(-1));
-    hairRow.addControl(hairPrev);
-
-    const hairNext = Button.CreateSimpleButton('hair-next', '►');
-    hairNext.width = '36px'; hairNext.height = '36px';
-    hairNext.color = '#00FFCC'; hairNext.background = 'rgba(0,30,40,0.8)';
-    hairNext.onPointerUpObservable.add(() => void this.cycleHair(1));
-    hairRow.addControl(hairNext);
+    for (const category of buildCreatorSchema()) {
+      const header = new TextBlock(`cat-${category.title}`);
+      header.text = category.title.toUpperCase();
+      header.color = '#00FFCC';
+      header.fontSize = 14;
+      header.fontFamily = 'monospace';
+      header.fontStyle = 'bold';
+      header.height = '26px';
+      panel.addControl(header);
+      for (const control of category.controls) this.buildControl(control, panel);
+    }
 
     // Right panel — name + begin
     const nameInput = new InputText('name-input', 'Operative');
@@ -353,5 +430,87 @@ export class CharacterCreatorScene extends BaseScene {
     backBtn.paddingLeft = '20px';
     backBtn.onPointerUpObservable.add(() => this.onBack());
     gui.addControl(backBtn);
+  }
+
+  /** Builds one widget for a control spec and wires it to a pure setter. */
+  /* istanbul ignore next — browser-only GUI widget factory */
+  private buildControl(spec: ControlSpec, parent: StackPanel): void {
+    const label = new TextBlock(`lbl-${spec.label}`);
+    label.text = spec.label;
+    label.color = '#AABBCC';
+    label.fontSize = 12;
+    label.fontFamily = 'monospace';
+    label.height = '18px';
+    parent.addControl(label);
+
+    if (spec.kind === 'slider') {
+      const slider = new Slider(`sld-${spec.morph}`);
+      slider.minimum = 0; slider.maximum = 1;
+      slider.value = this.characterData.appearance.morphs[spec.morph] ?? MORPH_REGISTRY[spec.morph]?.defaultValue ?? 0.5;
+      slider.height = '18px'; slider.width = '260px';
+      slider.color = '#00FFCC'; slider.background = 'rgba(0,30,40,0.8)';
+      slider.onValueChangedObservable.add((v) => void this.setMorph(spec.morph, v));
+      parent.addControl(slider);
+      return;
+    }
+
+    if (spec.kind === 'color') {
+      const btn = Button.CreateSimpleButton(`col-${spec.colorKey}`, '🎨 pick');
+      btn.height = '30px'; btn.width = '260px';
+      btn.color = '#00FFCC'; btn.background = 'rgba(0,30,40,0.8)';
+      const dom = document.createElement('input');
+      dom.type = 'color';
+      dom.style.position = 'absolute';
+      dom.style.left = '-9999px';
+      dom.value = this.characterData.appearance.colors[spec.colorKey] ?? '#888888';
+      dom.addEventListener('input', () => void this.setColorValue(spec.colorKey, dom.value));
+      document.body.appendChild(dom);
+      btn.onPointerUpObservable.add(() => dom.click());
+      parent.addControl(btn);
+      return;
+    }
+
+    if (spec.kind === 'swatch') {
+      const row = new StackPanel(`sw-${spec.label}`);
+      row.isVertical = false; row.height = '30px'; row.spacing = 4;
+      for (const id of spec.skinTextures) {
+        const b = Button.CreateSimpleButton(`sw-${id}`, id.replace('skin_', ''));
+        b.width = '60px'; b.height = '30px';
+        b.color = '#00FFCC'; b.background = 'rgba(0,30,40,0.8)';
+        b.onPointerUpObservable.add(() => void this.setSkinTextureChoice(id));
+        row.addControl(b);
+      }
+      parent.addControl(row);
+      return;
+    }
+
+    // cycler / bodyCycler — ◄ value ► row
+    const row = new StackPanel(`row-${spec.label}`);
+    row.isVertical = false; row.height = '30px'; row.spacing = 4;
+    const prev = Button.CreateSimpleButton(`prev-${spec.label}`, '◄');
+    const next = Button.CreateSimpleButton(`next-${spec.label}`, '►');
+    [prev, next].forEach((b) => {
+      b.width = '40px'; b.height = '30px';
+      b.color = '#00FFCC'; b.background = 'rgba(0,30,40,0.8)';
+    });
+    if (spec.kind === 'bodyCycler') {
+      prev.onPointerUpObservable.add(() => void this.cycleBodyBase(-1));
+      next.onPointerUpObservable.add(() => void this.cycleBodyBase(1));
+    } else {
+      prev.onPointerUpObservable.add(() => void this.cycleSlotOption(spec.slot, spec.options, -1));
+      next.onPointerUpObservable.add(() => void this.cycleSlotOption(spec.slot, spec.options, 1));
+    }
+    row.addControl(prev);
+    row.addControl(next);
+    parent.addControl(row);
+  }
+
+  /* istanbul ignore next — browser-only convenience used by the cycler widget */
+  private async cycleSlotOption(slot: SlotId, options: (string | null)[], dir: 1 | -1): Promise<void> {
+    const current = this.characterData.appearance.slots[slot] ?? null;
+    const idx = options.indexOf(current);
+    const start = idx === -1 ? 0 : idx;
+    const nextVal = options[(start + dir + options.length) % options.length] ?? null;
+    await this.setSlotValue(slot, nextVal);
   }
 }
