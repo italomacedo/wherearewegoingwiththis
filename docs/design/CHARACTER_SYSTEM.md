@@ -4,27 +4,27 @@
 
 The player character is assembled from modular GLTF parts at runtime. Every combination is valid — from a completely nude base body to a fully augmented, armored operative.
 
-> **Implementation status (avatar overhaul — [ADR-0014](../ADR/0014-avatar-pipeline-makehuman-morphs.md)).**
-> - **Data-driven appearance model** (`entities/CharacterData.ts`):
->   `CharacterAppearance { bodyBase, slots, morphs, colors, skinTexture, accessories,
->   implants }` backed by `SLOT_REGISTRY` + `MORPH_REGISTRY`. Pure rules `applySlot`
->   (exclusion), `resolveLayers` (layer order), `clampMorph`, accessors, and idempotent
->   `migrateAppearance` (legacy flat → new), wired into `SaveService.migrate`.
-> - **Assembler** (`systems/CharacterAssembler.ts`): pure `buildCharacterPlan` →
->   placeholder renders every layered slot per-slot; `assembleGltf` (browser-only) loads
->   the MakeHuman base via `LoadAssetContainerAsync`, applies morph influences, shares the
->   skeleton with attached clothing/hair, per-part fallback. `useGltf=false` (toggle via
->   `setUseGltf`) until real GLBs exist — see [ASSET_LOADING.md](../systems/ASSET_LOADING.md)
->   and `public/assets/README.md`.
-> - **Morph names**: `MORPH_TARGET_NAMES` alias lists + `mapMorphName` + `diffMorphCoverage`
->   make MakeHuman/MPFB2 target-name differences a manifest-only fix (graceful no-op).
-> - **Animation**: pure `selectLocoState` (`entities/Locomotion.ts`) drives idle/walk/run/
->   interact from `PlayerController.update` (dt≈0 guard); playback browser-only.
-> - **Creator UI**: pure `buildCreatorSchema` + generic schema-driven widget factory
->   (scrollable categories, cyclers, morph sliders, native colour pickers, skin swatches).
-> - **Health:** the player has HP (`entities/Health.ts`) with **fall damage**; **0 HP =
->   game over → Main Menu**; persisted in `SaveGame.playerHealth`.
-> - Appearance/name flow into the world via the `GameSession` holder.
+> **Implementation status (avatar overhaul — [ADR-0014](../ADR/0014-avatar-pipeline-makehuman-morphs.md), incl. its 2026-05-31 addendum).**
+> Real **MakeHuman/MPFB2 GLB** hero loads in-engine (`useGltf=true`, glTF loader registered,
+> base rotated to face camera, missing per-slot GLBs skipped). Working customization on the
+> real model:
+> - **Gender + Ethnicity by FILE** — one GLB per ethnicity (`body_<gender>_<ethnicity>`,
+>   MakeHuman vocab: african/asian/caucasian/universal). Creator buttons switch the file via
+>   `bodyBaseKey`/`parseGender`/`parseEthnicity`. (MPFB exports no fine shape keys and
+>   Apply-Modifiers strips macro morphs, so runtime morph sliders were dropped — the morph
+>   plumbing stays dormant.)
+> - **Skin tone** — `applySkinTexture` tints the GLB material (`albedoColor`); chosen via
+>   in-canvas swatches (`COLOR_PRESETS`).
+> - **Creator UI** — pure `buildCreatorSchema` + generic widget factory (scrollable
+>   categories, gender/ethnicity buttons, colour swatches); BEGIN/name bottom-right.
+> - **Model** (`entities/CharacterData.ts`): `CharacterAppearance { bodyBase, slots, morphs,
+>   colors, skinTexture, accessories, implants }` + `SLOT_REGISTRY`; pure rules
+>   (`applySlot`/`resolveLayers`/`clampMorph`) + accessors + idempotent `migrateAppearance`.
+> - **Animation:** pure `selectLocoState` (`entities/Locomotion.ts`) wired in
+>   `PlayerController.update`; rig + Mixamo clips still to be added (owner export).
+> - **Health:** HP + fall damage; 0 HP → game over → Main Menu; persisted.
+> - **Deferred:** rig/animation, hair/clothing GLBs, skin-texture PNGs (tint→texture),
+>   distinct per-ethnicity exports (8 base files are copies for now).
 
 ---
 

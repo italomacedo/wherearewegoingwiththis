@@ -66,3 +66,31 @@ A data-driven, registry-backed appearance model and a pure/browser-split assembl
 - **Open (owner-side):** export the MakeHuman base, confirm/tune morph-target alias names,
   drop GLBs/PNGs, flip `useGltf`, and verify in Electron. Skin-texture/makeup material
   wiring is stubbed pending the PNGs.
+
+## Addendum (2026-05-31) — reality after wiring MakeHuman/MPFB2 end-to-end
+
+Verified in Electron with a real MPFB2 export. Three findings reshaped the design:
+
+1. **No fine facial shape keys.** MPFB applies its detail targets (nose/ears/lips/jaw…)
+   directly to vertices, not as Blender shape keys, so the GLB exports **zero** fine morph
+   targets. Only ~6 *macro* targets (ethnicity + breast) ever appeared. The 36 in-game
+   morph sliders had nothing to drive, so they were **removed** from the creator. The morph
+   plumbing (`MORPH_REGISTRY`, `buildCharacterPlan.morphs`, `resolveMorphInfluences`,
+   `setMorph`) remains dormant for a future morph-capable base.
+2. **Helper "robe" vs shape keys conflict.** MakeHuman's basemesh ships helper geometry
+   (clothes/joint proxy) hidden by a Mask modifier. Exporting needs **Apply Modifiers** to
+   drop it — but applying a vertex-count-changing modifier **strips all shape keys**. So you
+   can't keep macro morphs *and* a clean mesh in one export. We therefore do **not** rely on
+   runtime morphs at all.
+3. **Pivot — ethnicity by file, not morph.** Ethnicity is now one **GLB per ethnicity**
+   (`body_<gender>_<ethnicity>`), matching MakeHuman's Race vocabulary exactly:
+   **african / asian / caucasian / universal** (no latino). The creator's gender + ethnicity
+   buttons select the matching GLB (`bodyBaseKey`/`parseGender`/`parseEthnicity`); each
+   ethnicity is an independent clean export (Apply Modifiers on, shape keys irrelevant).
+
+**Working today (real GLB):** gender + ethnicity (file switch) + **skin-tone tint**
+(`applySkinTexture` sets PBR `albedoColor`). UI cleaned up (BEGIN bottom-right, makeup
+removed, no dead sliders). Missing per-slot GLBs are skipped (no floating placeholders).
+**Deferred:** rig + Mixamo animation, hair/clothing GLBs, skin-texture PNGs (tint→texture),
+optional bust slider. The 8 base files are currently copies of one export until distinct
+per-ethnicity exports are dropped.
