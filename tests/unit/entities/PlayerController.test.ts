@@ -128,6 +128,56 @@ describe('PlayerController', () => {
     expect(player.getPosition().z).toBeCloseTo(DEFAULT_PLAYER_CONFIG.runSpeed, 4);
   });
 
+  // ─── locomotion state ──────────────────────────────────────────────────────
+
+  it('defaults to idle locomotion', () => {
+    expect(player.getLocoState()).toBe('idle');
+  });
+
+  it('update with no input stays idle', async () => {
+    await player.spawn(new Vector3(0, 0, 0));
+    player.update(1);
+    expect(player.getLocoState()).toBe('idle');
+  });
+
+  it('walking when moving without sprint', async () => {
+    await player.spawn(new Vector3(0, 0, 0));
+    input.handleKeyDown('KeyW');
+    player.update(1);
+    expect(player.getLocoState()).toBe('walk');
+  });
+
+  it('running when moving with sprint', async () => {
+    await player.spawn(new Vector3(0, 0, 0));
+    input.handleKeyDown('KeyW');
+    input.handleKeyDown('ShiftLeft');
+    player.update(1);
+    expect(player.getLocoState()).toBe('run');
+  });
+
+  it('interacting overrides movement', async () => {
+    await player.spawn(new Vector3(0, 0, 0));
+    input.handleKeyDown('KeyW');
+    player.setInteracting(true);
+    player.update(1);
+    expect(player.getLocoState()).toBe('interact');
+  });
+
+  it('dt≈0 keeps the player idle (NullEngine guard)', async () => {
+    await player.spawn(new Vector3(0, 0, 0));
+    input.handleKeyDown('KeyW');
+    player.update(0);
+    expect(player.getLocoState()).toBe('idle');
+  });
+
+  it('animation state change is idempotent across frames', async () => {
+    await player.spawn(new Vector3(0, 0, 0));
+    input.handleKeyDown('KeyW');
+    player.update(1);
+    player.update(1); // same state — exercises the no-change early return
+    expect(player.getLocoState()).toBe('walk');
+  });
+
   // ─── getters / dispose ────────────────────────────────────────────────────
 
   it('getRoot returns the root transform node', () => {

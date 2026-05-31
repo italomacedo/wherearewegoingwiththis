@@ -2,9 +2,10 @@ import {
   Scene, Vector3, TransformNode, AbstractMesh, MeshBuilder,
 } from '@babylonjs/core';
 import { InputSystem, MovementAxis } from '@systems/InputSystem';
-import { CharacterAssembler } from '@systems/CharacterAssembler';
+import { CharacterAssembler, AssembledCharacter } from '@systems/CharacterAssembler';
 import { CharacterAppearance, DEFAULT_APPEARANCE } from '@entities/CharacterData';
 import { Health, HealthState } from '@entities/Health';
+import { LocoState, selectLocoState } from '@entities/Locomotion';
 
 export interface PlayerConfig {
   walkSpeed: number;        // units/sec
@@ -35,12 +36,16 @@ export class PlayerController {
   private config: PlayerConfig;
   private root: TransformNode;
   private parts: AbstractMesh[] = [];
+  private assembled: AssembledCharacter | null = null;
   private cameraYaw = 0;
   private facing = 0; // radians, last movement heading
   private health = new Health(100);
   private verticalVelocity = 0;
   private grounded = true;
   private lastFallDamage = 0; // impact damage applied on the most recent landing
+  private locoState: LocoState = 'idle';
+  private playingState: LocoState | null = null;
+  private interacting = false;
 
   constructor(scene: Scene, input: InputSystem, config?: Partial<PlayerConfig>) {
     this.scene = scene;
@@ -70,6 +75,7 @@ export class PlayerController {
   async spawn(position: Vector3, appearance: CharacterAppearance = DEFAULT_APPEARANCE): Promise<void> {
     const assembler = new CharacterAssembler(this.scene);
     const assembled = await assembler.assemble(appearance);
+    this.assembled = assembled;
     this.parts = assembled.meshes;
     // Parent a simple anchor so the whole rig moves with the root
     const anchor = MeshBuilder.CreateBox('player-anchor', { size: 0.01 }, this.scene);
@@ -104,6 +110,16 @@ export class PlayerController {
     this.cameraYaw = yaw;
   }
 
+  /** Mark the player as performing an interaction (drives the interact anim). */
+  setInteracting(interacting: boolean): void {
+    this.interacting = interacting;
+  }
+
+  /** Current locomotion animation state (idle/walk/run/interact). */
+  getLocoState(): LocoState {
+    return this.locoState;
+  }
+
   /** Advance one frame: compute displacement from input and apply it. */
   update(dt: number): void {
     const axis = this.input.getMovementAxis();
@@ -119,6 +135,36 @@ export class PlayerController {
     }
 
     this.updateVertical(dt);
+
+    // Locomotion state (dt≈0 under NullEngine → speed 0 → idle).
+    const speed = dt > 1e-6 ? displacement.length() / dt : 0;
+    this.locoState = selectLocoState(speed, sprint, this.interacting);
+    this.updateAnimation();
+  }
+
+  /** Plays the active locomotion clip when it changes (browser-only playback). */
+  private updateAnimation(): void {
+    if (this.locoState === this.playingState) return;
+    this.playingState = this.locoState;
+    if (typeof document === 'undefined') return;
+    /* istanbul ignore next — AnimationGroup playback is browser/Electron only */
+    this.playLocoAnimation(this.locoState);
+  }
+
+  /* istanbul ignore next — browser-only AnimationGroup playback */
+  private playLocoAnimation(state: LocoState): void {
+    const groups = this.assembled?.getAnimationGroups?.() ?? [];
+    let played = false;
+    for (const g of groups) {
+      const match = g.name.toLowerCase().includes(state);
+      if (match) {
+        g.start(true); // loop
+        played = true;
+      } else {
+        g.stop();
+      }
+    }
+    void played;
   }
 
   /** Gravity + landing + fall damage. No-op while grounded. */
