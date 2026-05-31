@@ -25,6 +25,24 @@ describe('SaveService', () => {
     expect(save.world.zone).toBe('mercado_sombras');
   });
 
+  it('createNewSave includes default player + vehicle health', () => {
+    const save = SaveService.createNewSave(testCharacter);
+    expect(save.playerHealth).toEqual({ current: 100, max: 100 });
+    expect(save.vehicle.health).toEqual({ current: 100, max: 100 });
+    expect(save.vehicle.destroyed).toBe(false);
+  });
+
+  it('load migrates a legacy save missing health/vehicle fields', () => {
+    const save = SaveService.createNewSave(testCharacter);
+    // Simulate a save written before the health fields existed.
+    delete (save as Partial<SaveGame>).playerHealth;
+    delete (save as Partial<SaveGame>).vehicle;
+    SaveService.save(save);
+    const loaded = SaveService.load(save.saveId)!;
+    expect(loaded.playerHealth).toEqual({ current: 100, max: 100 });
+    expect(loaded.vehicle.destroyed).toBe(false);
+  });
+
   it('createNewSave with custom name uses it', () => {
     const save = SaveService.createNewSave(testCharacter, 'My Save');
     expect(save.saveName).toBe('My Save');

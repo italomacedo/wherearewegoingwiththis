@@ -42,6 +42,23 @@ describe('GameSession', () => {
     expect(session.world).not.toBe(save.world);
   });
 
+  it('defaults player + vehicle health when constructed minimally', () => {
+    const session = new GameSession('s', character);
+    expect(session.playerHealth).toEqual({ current: 100, max: 100 });
+    expect(session.vehicle.destroyed).toBe(false);
+    expect(session.vehicle.health.current).toBe(100);
+  });
+
+  it('fromSave carries player + vehicle health', () => {
+    const save = SaveService.createNewSave(character);
+    save.playerHealth = { current: 50, max: 120 };
+    save.vehicle = { health: { current: 30, max: 100 }, destroyed: true };
+    const session = GameSession.fromSave(save);
+    expect(session.playerHealth).toEqual({ current: 50, max: 120 });
+    expect(session.vehicle.destroyed).toBe(true);
+    expect(session.vehicle.health.current).toBe(30);
+  });
+
   it('fromSave tolerates a save with no npcMemory', () => {
     const save = SaveService.createNewSave(character);
     // simulate a legacy save missing npcMemory

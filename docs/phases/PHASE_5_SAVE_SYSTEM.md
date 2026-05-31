@@ -1,7 +1,10 @@
 # Phase 5 — Save System
 
-**Status:** ✅ Complete (commit fdca3e6; npcMemory added in Phase 8). GAP:
-autosave + new-game save creation not yet wired (see CLAUDE.md gaps).  
+**Status:** ✅ Complete (commit fdca3e6; npcMemory added in Phase 8). New-game save
+creation + autosave-on-exit wired via GameSession (gaps #2/#3). **In-game save** now
+reachable: press **ESC** in the world → Pause menu → **Save Game** (`PauseMenu` →
+`GameWorldScene.persistSession` → `SaveService.updateWorldState`/`updateNpcMemory`).
+This is the on-screen evidence of the save system during play.  
 **Goal:** Full save/load/delete system with UI.
 
 ---

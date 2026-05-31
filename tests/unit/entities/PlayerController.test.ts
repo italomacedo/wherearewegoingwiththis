@@ -151,4 +151,54 @@ describe('PlayerController', () => {
   it('DEFAULT_PLAYER_CONFIG: run is faster than walk', () => {
     expect(DEFAULT_PLAYER_CONFIG.runSpeed).toBeGreaterThan(DEFAULT_PLAYER_CONFIG.walkSpeed);
   });
+
+  // ─── Gravity + fall damage ─────────────────────────────────────────────────
+
+  it('starts grounded at full health', async () => {
+    await player.spawn(new Vector3(0, 0, 0));
+    expect(player.isGrounded()).toBe(true);
+    expect(player.getHealth().current).toBe(100);
+  });
+
+  function fallUntilGrounded(p: PlayerController): void {
+    for (let i = 0; i < 400 && !p.isGrounded(); i++) p.update(0.05);
+  }
+
+  it('a short drop deals no fall damage', async () => {
+    await player.spawn(new Vector3(0, 0, 0));
+    player.startFalling(1);
+    fallUntilGrounded(player);
+    expect(player.isGrounded()).toBe(true);
+    expect(player.getHealth().current).toBe(100);
+    expect(player.getLastFallDamage()).toBe(0);
+  });
+
+  it('a high drop deals fall damage and lands the player', async () => {
+    await player.spawn(new Vector3(0, 0, 0));
+    player.startFalling(30);
+    fallUntilGrounded(player);
+    expect(player.isGrounded()).toBe(true);
+    expect(player.getPosition().y).toBeCloseTo(0, 4);
+    expect(player.getHealth().current).toBeLessThan(100);
+    expect(player.getLastFallDamage()).toBeGreaterThan(0);
+  });
+
+  it('a lethal fall kills the player', async () => {
+    await player.spawn(new Vector3(0, 0, 0));
+    player.startFalling(80);
+    fallUntilGrounded(player);
+    expect(player.isDead()).toBe(true);
+  });
+
+  it('setHealthState applies persisted HP', async () => {
+    await player.spawn(new Vector3(0, 0, 0));
+    player.setHealthState({ current: 42, max: 100 });
+    expect(player.getHealth().current).toBe(42);
+  });
+
+  it('startFalling at ground level stays grounded', async () => {
+    await player.spawn(new Vector3(0, 0, 0));
+    player.startFalling(0);
+    expect(player.isGrounded()).toBe(true);
+  });
 });

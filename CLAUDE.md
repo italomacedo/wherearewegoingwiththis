@@ -8,7 +8,21 @@ This is the primary entry point for all AI agents working on this project. Read 
 
 ## Current Status (keep this updated)
 
-**Phases 0–8 COMPLETE** (+ integration gaps #1/#2/#3 closed) · 427 tests · ~99.6% coverage (gated 95% lines/stmts/funcs, 90% branches) · typecheck + build green.
+**Phases 0–8 COMPLETE** (+ integration gaps #1/#2/#3 closed) · **Phase 9 MVP** (flying motorcycle) · **pause/save + HUD + camera-relative WASD + MMB orbit** · **health system (fall damage, bike crash → smoke → explode, game-over, persisted)** · 513 tests · ~99.5% coverage (gated 95% lines/stmts/funcs, 90% branches) · typecheck + build green.
+
+### Health & damage (player + vehicle)
+- [`src/entities/Health.ts`](src/entities/Health.ts) — pure HP value object (`applyDamage`/`heal`/`fraction`/`isDead`/`isCritical`/`toState`), shared by player and bike.
+- **Player gravity + fall damage:** dismounting in mid-air drops the hero (`PlayerController.startFalling`); landing above `safeFallSpeed` costs HP scaled by impact speed. HP **0 → game over → Main Menu** (`GameWorldScene.checkGameOver`).
+- **Bike crash model:** an *unpiloted* bike has its engine off, so it free-falls (no vertical drag) and crashes; impact above `safeImpactSpeed` damages it. Critical HP (≤30%) → smoke particles; **0 HP → explode** (destroyed = unmountable wreck).
+- **Persisted:** `SaveGame.playerHealth` + `SaveGame.vehicle {health,destroyed}` (with `SaveService.migrate` backfilling legacy saves); carried across scenes by `GameSession`.
+- HUD shows a hero HP bar (green→amber→red) + a `BIKE n%` / `BIKE DESTROYED` status (`WorldHud`).
+
+### Controls (in game world)
+- **WASD** — move, **relative to the camera** (W = where the camera faces). Hold **Shift** to sprint.
+- **Z / C (hold)** — orbit the camera left / right 360° around the hero (`KEY_ORBIT_SPEED`, continuous). **Middle-mouse drag** also orbits (`ORBIT_SENSITIVITY`) but its native-canvas wiring is browser-only/untested — Z/C is the reliable, tested path. Q/E/R do not rotate.
+- **E** — talk to a nearby NPC (opens dialog). **F** — enter/exit the flying bike. **Space/Ctrl** — bike altitude up/down.
+- **ESC** — pause menu (Resume / Save Game / Load Game / Quit to Main Menu). While a dialog is open, ESC closes the dialog instead.
+- On-screen: floating name labels over NPC/vehicle + a contextual `[E]/[F]` prompt + a persistent control hint (`WorldHud`).
 
 | Phase | What | State |
 |---|---|---|
@@ -21,7 +35,7 @@ This is the primary entry point for all AI agents working on this project. Read 
 | 6 | World: zone system + isometric camera | ✅ |
 | 7 | Player controller + Havok physics + input | ✅ |
 | 8 | **NPC + Claude CLI (Zara) — MVP** | ✅ |
-| 9 | Vehicles (flying car + Harley) | ⬜ next |
+| 9 | Vehicles — flying motorcycle MVP (lift/drag flight, F to mount, vehicle camera) | 🟡 MVP (car + ambient traffic deferred) |
 | 10+ | Combat, implants, world expansion | ⬜ |
 
 **Verified working in Electron:** splash → studio → publisher → menu → options → character creator → game world (player moves, camera follows, Zara visible).
@@ -45,6 +59,13 @@ These cost real debugging time — internalize them:
 5. **`tsconfig.jest.json` is laxer than the build configs.** Jest passing ≠ typecheck passing. ALWAYS run `npm run typecheck` (checks renderer + electron + node) before committing.
 6. **One Electron instance.** `vite-plugin-electron` auto-launches Electron via `onstart`; do NOT also launch it with concurrently. `npm run dev` is the single dev command.
 7. **Browser-only code pattern:** guard with `if (typeof document === 'undefined') return;` + `/* istanbul ignore next */` on the browser branch, keep pure logic separate and 100% tested. This is how every system stays at coverage target without a GPU/DOM.
+8. **Don't set a `layerMask` on a fullscreen GUI layer.** `AdvancedDynamicTexture.CreateFullscreenUI(...).layer.layerMask = 0x10000000` is OUTSIDE the camera's default mask `0x0FFFFFFF` → the GUI silently never renders (invisible dialog). Leave the default mask. Tests can't catch this (NullEngine renders nothing) — it only shows in Electron.
+9. **Camera-relative WASD needs a +90° yaw offset.** `ArcRotateCamera.alpha` is the orbit angle of the camera *position*; the direction it *looks* is `alpha + π/2`. `CameraSystem.getYaw()` returns that offset so `PlayerController/VehicleController.computeDisplacement` point W where the camera faces. Unit tests pass with raw `alpha` because they assert with self-consistent yaw values, but the real camera default (`alpha = -π/2`) made W move sideways until the offset was added.
+10. **Babylon GUI controls are drawn on the canvas, not the DOM.** DOM-based automation (Preview MCP `preview_click`, querySelector) can't click `Button`/`InputText` — they have no DOM nodes. Driving the UI for screenshots requires canvas-coordinate clicks or programmatic scene calls. Plan manual verification accordingly.
+11. **Linear drag caps terminal velocity — watch it vs. damage thresholds.** With `v *= (1 - drag·dt)` the terminal fall speed is ≈ `gravity/drag` (~4.9 at drag 2). If that's below your crash-damage threshold, falls *never* deal damage. Fix: don't apply drag to the vertical axis during free-fall (engine-off bike free-falls; player fall uses no drag at all). Always sanity-check terminal speed against any speed-gated effect.
+12. **NullEngine `getDeltaTime()` is ~0 in tests.** Movement/physics that integrate `dt` won't progress; assert `>=` or `jest.spyOn(engine,'getDeltaTime').mockReturnValue(100)` when a test needs real motion.
+13. **Spawning the `claude` CLI from Electron on Windows: run `cli.js` with Electron-as-Node.** The npm `claude.cmd` shim calls `node cli.js`, but the Electron child often lacks Node on its PATH → `"...cli.js" is not recognized` (exit 1). `electron/main.ts` `resolveClaudeInvocation()` locates `node_modules/@anthropic-ai/claude-code/cli.js` (from the shim dir or `%APPDATA%\npm`) and runs it via `process.execPath` + `ELECTRON_RUN_AS_NODE=1` — no shim, no Node-on-PATH dependency. Always capture and surface the child's stderr; the generic "unavailable" message hid the real cause for two rounds.
+14. **NPC names are hidden until introduced (anti-metagaming).** `NPCAgent.getDisplayName()` returns `'Unknown'` until `revealNameIfMentioned(reply)` matches the NPC's name in its own dialogue; only then do the floating label, dialog header, and `[E] Talk` prompt show the real name. (Currently runtime-only — resets on reload; persisting the discovery flag is a follow-up.)
 
 ---
 
@@ -111,23 +132,27 @@ src/
     CharacterCreatorScene.ts  360° preview, body/hair/skin/clothes/implants
     LoadGameScene.ts  Save list, load, delete
     OptionsScene.ts   Tabs: Game / Display / Video / Audio
-    GameWorldScene.ts Wires camera+input+zone+player+NPC+dialog (camera FIRST)
+    GameWorldScene.ts Wires camera+input+zone+player+vehicle+NPC+dialog+pause+HUD (camera FIRST); ESC pause freezes world
   entities/         Game objects (data + behavior, no GUI)
     CharacterData.ts      Appearance model, DEFAULT_APPEARANCE, BODY_BASES
     WorldZone.ts          Abstract zone (load/unload/spawn/bounds)
     zones/MercadoSombrasZone.ts  Starting district (procedural)
-    PlayerController.ts   Pure computeDisplacement + spawn + movement
+    PlayerController.ts   Pure computeDisplacement + spawn + movement + gravity/fall damage + Health
+    VehicleController.ts  Pure computeFlightStep (lift/drag) + mount/pilot/park + fall/crash/smoke/explode + Health (Phase 9 MVP)
+    Health.ts             Pure HP value object (damage/heal/fraction/isDead/isCritical) for player + vehicle
     NPCAgent.ts           Persona + state machine + proximity (pure)
     npcs/zara.ts          Zara definition (first NPC)
   systems/          Game systems
     InputSystem.ts        Keyboard → action map + movement axis (pure core)
-    CameraSystem.ts       Isometric ArcRotateCamera, follow, rotate, zoom
+    CameraSystem.ts       Isometric ArcRotateCamera, follow, MMB-drag 360° orbit, getYaw (+90° offset), vehicle mode
     PhysicsService.ts     Havok WASM init (browser-only, guarded)
     SettingsService.ts    Settings load/save/validate (localStorage + memory)
-    SaveService.ts        SaveGame JSON CRUD + npcMemory
+    SaveService.ts        SaveGame JSON CRUD + npcMemory + playerHealth + vehicle{health,destroyed} (migrate() backfills)
     CharacterAssembler.ts GLTF/placeholder character assembly (useGltf flag)
     ZoneManager.ts        Zone registry + load/unload
-    DialogSystem.ts       Dialog state machine (GUI render = STUB, gap #1)
+    DialogSystem.ts       Dialog state machine + bottom speech-bubble GUI (NPC name, streaming text, input+SEND)
+    PauseMenu.ts          ESC pause overlay: Resume / Save Game / Load / Quit (pure state + browser GUI)
+    WorldHud.ts           Floating NPC/vehicle labels + contextual [E]/[F] prompt + control hint
     ClaudeNPCService.ts   Orchestrates an NPC turn via Electron IPC (streaming)
     NPCManager.ts         Spawns agents, proximity/cooldown, memory serialize
     npc/

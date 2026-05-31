@@ -1,4 +1,4 @@
-import { NullEngine } from '@babylonjs/core';
+import { NullEngine, Vector3 } from '@babylonjs/core';
 import { GameWorldScene } from '../../../src/scenes/GameWorldScene';
 import { ServiceLocator } from '../../../src/core/ServiceLocator';
 import { GameSession } from '../../../src/core/GameSession';
@@ -93,22 +93,20 @@ describe('GameWorldScene', () => {
     expect(player.getPosition().z).toBeGreaterThanOrEqual(before);
   });
 
-  it('Q rotates the camera left', async () => {
+  it('holding Z and C orbit the camera in opposite directions', async () => {
     await scene.onEnter();
+    jest.spyOn(engine, 'getDeltaTime').mockReturnValue(100);
     const cam = scene.getCameraSystem()!;
-    const before = cam.getYaw();
-    scene.getInputSystem()!.handleKeyDown('KeyQ');
+    const input = scene.getInputSystem()!;
+    const start = cam.getCamera().alpha;
+    input.handleKeyDown('KeyZ');
     scene.update();
-    expect(cam.getYaw()).toBeLessThan(before);
-  });
-
-  it('R rotates the camera right', async () => {
-    await scene.onEnter();
-    const cam = scene.getCameraSystem()!;
-    const before = cam.getYaw();
-    scene.getInputSystem()!.handleKeyDown('KeyR');
+    const afterZ = cam.getCamera().alpha;
+    expect(afterZ).toBeGreaterThan(start); // Z orbits one way
+    input.handleKeyUp('KeyZ');
+    input.handleKeyDown('KeyC');
     scene.update();
-    expect(cam.getYaw()).toBeGreaterThan(before);
+    expect(cam.getCamera().alpha).toBeLessThan(afterZ); // C orbits the other way
   });
 
   it('getters return null before onEnter', () => {
@@ -206,6 +204,257 @@ describe('GameWorldScene', () => {
   it('getNpcManager and getDialog return null before onEnter', () => {
     expect(scene.getNpcManager()).toBeNull();
     expect(scene.getDialog()).toBeNull();
+  });
+
+  // ─── Pause menu + HUD (Phase 5 evidence / UX) ──────────────────────────────
+
+  it('onEnter creates the pause menu and HUD', async () => {
+    await scene.onEnter();
+    expect(scene.getPauseMenu()).not.toBeNull();
+    expect(scene.getHud()).not.toBeNull();
+    expect(scene.getPauseMenu()!.isOpen()).toBe(false);
+  });
+
+  it('getPauseMenu and getHud return null before onEnter', () => {
+    expect(scene.getPauseMenu()).toBeNull();
+    expect(scene.getHud()).toBeNull();
+  });
+
+  it('ESC toggles the pause menu', async () => {
+    await scene.onEnter();
+    const input = scene.getInputSystem()!;
+    input.handleKeyDown('Escape');
+    scene.update();
+    expect(scene.getPauseMenu()!.isOpen()).toBe(true);
+    input.handleKeyUp('Escape');
+    input.handleKeyDown('Escape');
+    scene.update();
+    expect(scene.getPauseMenu()!.isOpen()).toBe(false);
+  });
+
+  it('freezes player movement while paused', async () => {
+    await scene.onEnter();
+    jest.spyOn(engine, 'getDeltaTime').mockReturnValue(100);
+    const input = scene.getInputSystem()!;
+    input.handleKeyDown('Escape');
+    scene.update(); // pause
+    const z = scene.getPlayer()!.getPosition().z;
+    input.handleKeyDown('KeyW');
+    scene.update();
+    scene.update();
+    expect(scene.getPlayer()!.getPosition().z).toBeCloseTo(z);
+  });
+
+  it('ESC closes the dialog instead of pausing when a dialog is open', async () => {
+    await scene.onEnter();
+    const input = scene.getInputSystem()!;
+    scene.getPlayer()!.getRoot().position.set(4, 0, 3);
+    input.handleKeyDown('KeyE');
+    scene.update(); // open dialog
+    expect(scene.getDialog()!.isOpen()).toBe(true);
+    input.handleKeyDown('Escape');
+    scene.update();
+    expect(scene.getDialog()!.isOpen()).toBe(false);
+    expect(scene.getPauseMenu()!.isOpen()).toBe(false);
+  });
+
+  it('pause menu Save persists the session to disk', async () => {
+    const session = makeSession();
+    ServiceLocator.register('gameSession', session);
+    await scene.onEnter();
+    scene.getPlayer()!.getRoot().position.set(2, 0, 6);
+    scene.getPauseMenu()!.save();
+    const reloaded = SaveService.load(session.saveId)!;
+    expect(reloaded.world.position[0]).toBeCloseTo(2);
+    expect(reloaded.world.position[2]).toBeCloseTo(6);
+  });
+
+  it('HUD shows a generic talk prompt near an unintroduced NPC', async () => {
+    await scene.onEnter();
+    scene.getPlayer()!.getRoot().position.set(4, 0, 3);
+    scene.update();
+    // Name is hidden until the NPC introduces itself (no metagaming).
+    expect(scene.getHud()!.getActionPrompt()).toBe('[E] Talk');
+    expect(scene.getHud()!.getLabelText('npc')).toBe('Unknown');
+  });
+
+  it('reveals the NPC name once it introduces itself in a reply', async () => {
+    const { service } = makeInjectedService('Name’s Zara. What do you want?');
+    scene.setClaudeService(service);
+    await scene.onEnter();
+    scene.getPlayer()!.getRoot().position.set(4, 0, 3);
+    await scene.sendToActiveNPC('who are you?');
+    const agent = scene.getNpcManager()!.getAgent('npc_zara_vendor_01')!;
+    expect(agent.isNameKnown()).toBe(true);
+    expect(scene.getDialog()!.getState().npcName).toBe('Zara');
+    expect(scene.getHud()!.getLabelText('npc')).toBe('Zara');
+    // Now the prompt uses the real name.
+    scene.update();
+    expect(scene.getHud()!.getActionPrompt()).toBe('[E] Talk to Zara');
+  });
+
+  it('keeps the NPC name hidden when the reply does not mention it', async () => {
+    const { service } = makeInjectedService('What do you want?');
+    scene.setClaudeService(service);
+    await scene.onEnter();
+    scene.getPlayer()!.getRoot().position.set(4, 0, 3);
+    await scene.sendToActiveNPC('hey');
+    expect(scene.getNpcManager()!.getAgent('npc_zara_vendor_01')!.isNameKnown()).toBe(false);
+    expect(scene.getHud()!.getLabelText('npc')).toBe('Unknown');
+  });
+
+  it('HUD shows an enter prompt near the vehicle and exit prompt while piloting', async () => {
+    await scene.onEnter();
+    const v = scene.getVehicle()!;
+    scene.getPlayer()!.getRoot().position.copyFrom(v.getPosition());
+    scene.update();
+    expect(scene.getHud()!.getActionPrompt()).toBe('[F] Enter bike');
+    // mount, then the prompt becomes exit
+    scene.getInputSystem()!.handleKeyDown('KeyF');
+    scene.update();
+    expect(scene.getHud()!.getActionPrompt()).toBe('[F] Exit bike');
+  });
+
+  it('HUD prompt is null far from anything interactive', async () => {
+    await scene.onEnter();
+    scene.getPlayer()!.getRoot().position.set(-25, 0, -25);
+    scene.update();
+    expect(scene.getHud()!.getActionPrompt()).toBeNull();
+  });
+
+  // ─── Health / fall / game over (HP feature) ────────────────────────────────
+
+  it('adopts player + bike health from the session', async () => {
+    const session = makeSession();
+    session.playerHealth = { current: 25, max: 100 };
+    session.vehicle = { health: { current: 40, max: 100 }, destroyed: false };
+    ServiceLocator.register('gameSession', session);
+    await scene.onEnter();
+    expect(scene.getPlayer()!.getHealth().current).toBe(25);
+    expect(scene.getVehicle()!.getHealth().current).toBe(40);
+  });
+
+  it('a session with a destroyed bike spawns it wrecked', async () => {
+    const session = makeSession();
+    session.vehicle = { health: { current: 0, max: 100 }, destroyed: true };
+    ServiceLocator.register('gameSession', session);
+    await scene.onEnter();
+    expect(scene.getVehicle()!.isDestroyed()).toBe(true);
+  });
+
+  it('dismounting in the air drops the hero (not grounded)', async () => {
+    await scene.onEnter();
+    jest.spyOn(engine, 'getDeltaTime').mockReturnValue(100);
+    const v = scene.getVehicle()!;
+    const input = scene.getInputSystem()!;
+    scene.getPlayer()!.getRoot().position.copyFrom(v.getPosition());
+    input.handleKeyDown('KeyF');
+    scene.update(); // mount
+    input.handleKeyDown('Space'); // climb
+    for (let i = 0; i < 12; i++) scene.update();
+    expect(v.getPosition().y).toBeGreaterThan(1);
+    input.handleKeyUp('Space');
+    input.handleKeyUp('KeyF');
+    input.handleKeyDown('KeyF');
+    scene.update(); // dismount
+    expect(v.isOccupied()).toBe(false);
+    expect(scene.getPlayer()!.isGrounded()).toBe(false); // hero is falling
+  });
+
+  it('HUD shows bike HP status while piloting', async () => {
+    await scene.onEnter();
+    const v = scene.getVehicle()!;
+    scene.getPlayer()!.getRoot().position.copyFrom(v.getPosition());
+    scene.getInputSystem()!.handleKeyDown('KeyF');
+    scene.update();
+    expect(scene.getHud()!.getVehicleStatus()).toBe('BIKE 100%');
+  });
+
+  it('returns to the main menu when the hero dies (game over)', async () => {
+    const sm = { loadScene: jest.fn().mockResolvedValue(undefined), transitionDurationMs: 0 };
+    ServiceLocator.register('sceneManager', sm);
+    await scene.onEnter();
+    scene.getPlayer()!.getHealth().applyDamage(1000);
+    scene.update();
+    expect(sm.loadScene).toHaveBeenCalledWith('main-menu');
+  });
+
+  it('persists player health to the save', async () => {
+    const session = makeSession();
+    ServiceLocator.register('gameSession', session);
+    await scene.onEnter();
+    scene.getPlayer()!.getHealth().applyDamage(40); // 60 left
+    scene.getPauseMenu()!.save();
+    const reloaded = SaveService.load(session.saveId)!;
+    expect(reloaded.playerHealth.current).toBe(60);
+  });
+
+  // ─── Vehicles (Phase 9 MVP) ────────────────────────────────────────────────
+
+  function mountVehicle() {
+    const v = scene.getVehicle()!;
+    scene.getPlayer()!.getRoot().position.copyFrom(v.getPosition());
+    scene.getInputSystem()!.handleKeyDown('KeyF');
+    scene.update();
+    return v;
+  }
+
+  it('onEnter parks a vehicle in the world', async () => {
+    await scene.onEnter();
+    expect(scene.getVehicle()).not.toBeNull();
+    expect(scene.getVehicle()!.getPartCount()).toBeGreaterThan(0);
+    expect(scene.getVehicle()!.isOccupied()).toBe(false);
+    expect(ServiceLocator.has('vehicle')).toBe(true);
+  });
+
+  it('pressing F near the vehicle mounts it and switches camera mode', async () => {
+    await scene.onEnter();
+    const v = mountVehicle();
+    expect(v.isOccupied()).toBe(true);
+    expect(scene.getCameraSystem()!.isVehicleMode()).toBe(true);
+  });
+
+  it('cannot mount when far from the vehicle', async () => {
+    await scene.onEnter();
+    scene.getPlayer()!.getRoot().position.set(-50, 0, -50);
+    scene.getInputSystem()!.handleKeyDown('KeyF');
+    scene.update();
+    expect(scene.getVehicle()!.isOccupied()).toBe(false);
+  });
+
+  it('piloting moves the vehicle and not the player', async () => {
+    await scene.onEnter();
+    // NullEngine reports ~0 delta time; force a real dt so flight integrates.
+    jest.spyOn(engine, 'getDeltaTime').mockReturnValue(100);
+    const v = mountVehicle();
+    const playerBefore = scene.getPlayer()!.getPosition();
+    const vehBefore = v.getPosition();
+    const input = scene.getInputSystem()!;
+    input.handleKeyDown('KeyW');
+    for (let i = 0; i < 10; i++) scene.update();
+    const vehAfter = v.getPosition();
+    expect(Vector3Distance(vehBefore, vehAfter)).toBeGreaterThan(0.1);
+    // player stays parked where it mounted
+    expect(Vector3Distance(playerBefore, scene.getPlayer()!.getPosition())).toBeCloseTo(0);
+  });
+
+  it('pressing F while piloting dismounts and restores camera/player', async () => {
+    await scene.onEnter();
+    const v = mountVehicle();
+    const input = scene.getInputSystem()!;
+    input.handleKeyUp('KeyF');
+    input.handleKeyDown('KeyF');
+    scene.update();
+    expect(v.isOccupied()).toBe(false);
+    expect(scene.getCameraSystem()!.isVehicleMode()).toBe(false);
+    expect(scene.getPlayer()!.getRoot().isEnabled()).toBe(true);
+  });
+
+  it('onExit unregisters the vehicle service', async () => {
+    await scene.onEnter();
+    await scene.onExit();
+    expect(ServiceLocator.has('vehicle')).toBe(false);
+    expect(scene.getVehicle()).toBeNull();
   });
 
   // ─── GameSession glue (Phase 8 integration) ───────────────────────────────
@@ -322,6 +571,11 @@ describe('GameWorldScene', () => {
     expect(scene.getDialog()!.getState().npcText).toBe('');
   });
 });
+
+// Distance between two Babylon Vector3.
+function Vector3Distance(a: Vector3, b: Vector3): number {
+  return Vector3.Distance(a, b);
+}
 
 // Builds a ClaudeNPCService backed by a mock bridge for injection into the scene.
 function makeInjectedService(reply: string) {

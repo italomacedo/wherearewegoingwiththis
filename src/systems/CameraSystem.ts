@@ -1,4 +1,6 @@
-import { Scene, ArcRotateCamera, Vector3, TransformNode, Scalar } from '@babylonjs/core';
+import {
+  Scene, ArcRotateCamera, Vector3, TransformNode, Scalar,
+} from '@babylonjs/core';
 import { SettingsService } from '@systems/SettingsService';
 
 export interface CameraConfig {
@@ -19,6 +21,12 @@ export const DEFAULT_CAMERA_CONFIG: CameraConfig = {
   followDamping: 0.1,
 };
 
+/** Radians of camera orbit per pixel of horizontal mouse drag. */
+export const ORBIT_SENSITIVITY = 0.008;
+
+/** Radians per second when orbiting with the keyboard (Z / C held). */
+export const KEY_ORBIT_SPEED = 1.8;
+
 /**
  * Isometric-style camera using ArcRotateCamera locked to a fixed elevation.
  * Follows a target mesh with damping. Q/E rotate the view in 45° snaps.
@@ -28,6 +36,10 @@ export class CameraSystem {
   private config: CameraConfig;
   private target: TransformNode | null = null;
   private followPoint: Vector3;
+  private vehicleMode = false;
+  private savedRadius = 0;
+  private savedDamping = 0;
+  private detachPointer: (() => void) | null = null;
 
   constructor(scene: Scene, config?: Partial<CameraConfig>) {
     this.config = {
@@ -51,6 +63,12 @@ export class CameraSystem {
     this.camera.lowerBetaLimit = this.degToRad(90 - 60);
     this.camera.upperBetaLimit = this.degToRad(90 - 30);
     scene.activeCamera = this.camera;
+
+    // 360° orbit via middle-mouse drag (browser/Electron only).
+    /* istanbul ignore next — pointer wiring needs a real DOM */
+    if (typeof document !== 'undefined') {
+      this.setupPointerControls(scene);
+    }
   }
 
   getCamera(): ArcRotateCamera {
@@ -61,9 +79,20 @@ export class CameraSystem {
     this.target = node;
   }
 
-  /** Current view yaw (radians) — used for camera-relative player movement. */
+  /**
+   * Movement yaw (radians) for camera-relative WASD. ArcRotateCamera.alpha is
+   * the orbit angle of the camera *position*; the direction it looks (and thus
+   * "forward" for the player) is offset by +90°. Returning that offset lets the
+   * pure rotation in PlayerController/VehicleController point W where the camera
+   * faces, A/D to its sides, regardless of orbit.
+   */
   getYaw(): number {
-    return this.camera.alpha;
+    return this.camera.alpha + Math.PI / 2;
+  }
+
+  /** Continuously orbit the view around the target (used by middle-mouse drag). */
+  orbit(deltaRadians: number): void {
+    this.camera.alpha += deltaRadians;
   }
 
   clearTarget(): void {
@@ -87,12 +116,40 @@ export class CameraSystem {
     this.camera.beta = this.degToRad(90 - clamped);
   }
 
+  /**
+   * Switch to vehicle framing: pull the camera further out and lower the follow
+   * damping so it lags behind speed. Idempotent. Restored by exitVehicleMode().
+   */
+  enterVehicleMode(): void {
+    if (this.vehicleMode) return;
+    this.vehicleMode = true;
+    this.savedRadius = this.camera.radius;
+    this.savedDamping = this.config.followDamping;
+    this.camera.radius = this.config.zoomMax;
+    this.config.followDamping = Math.min(this.savedDamping, 0.06);
+  }
+
+  /** Restore on-foot framing. Idempotent. */
+  exitVehicleMode(): void {
+    if (!this.vehicleMode) return;
+    this.vehicleMode = false;
+    this.camera.radius = this.savedRadius;
+    this.config.followDamping = this.savedDamping;
+  }
+
+  isVehicleMode(): boolean {
+    return this.vehicleMode;
+  }
+
   /** Called each frame — smoothly follow the target. */
   update(): void {
     if (!this.target) return;
     const desired = this.target.position.add(new Vector3(0, 1, 0));
     this.followPoint = Vector3.Lerp(this.followPoint, desired, this.config.followDamping);
-    this.camera.setTarget(this.followPoint.clone());
+    // Mutate the pivot in place. Using setTarget() here would call
+    // rebuildAnglesAndRadius() and reset alpha/beta every frame — destroying the
+    // middle-mouse orbit. copyFrom moves the focus while preserving the orbit.
+    this.camera.target.copyFrom(this.followPoint);
   }
 
   getConfig(): CameraConfig {
@@ -100,8 +157,50 @@ export class CameraSystem {
   }
 
   dispose(): void {
+    /* istanbul ignore next — pointer listeners only exist in browser */
+    if (this.detachPointer) {
+      this.detachPointer();
+      this.detachPointer = null;
+    }
     this.camera.dispose();
     this.target = null;
+  }
+
+  /**
+   * Middle-mouse-drag orbit via native canvas listeners. We avoid Babylon's
+   * scene.onPointerObservable because it only fires once a camera/scene
+   * attachControl has run — the iso camera never attaches, so those events
+   * never arrived. Native listeners on the canvas always fire.
+   */
+  /* istanbul ignore next — browser pointer wiring */
+  private setupPointerControls(scene: Scene): void {
+    const canvas = scene.getEngine().getRenderingCanvas();
+    if (!canvas) return;
+
+    let dragging = false;
+    const onDown = (e: MouseEvent): void => {
+      if (e.button === 1) { dragging = true; e.preventDefault(); } // middle button
+    };
+    const onUp = (e: MouseEvent): void => {
+      if (e.button === 1) dragging = false;
+    };
+    const onMove = (e: MouseEvent): void => {
+      if (dragging) this.orbit((e.movementX || 0) * ORBIT_SENSITIVITY);
+    };
+    const onAux = (e: MouseEvent): void => {
+      if (e.button === 1) e.preventDefault(); // suppress middle-click autoscroll
+    };
+
+    canvas.addEventListener('mousedown', onDown);
+    canvas.addEventListener('auxclick', onAux);
+    window.addEventListener('mouseup', onUp);
+    window.addEventListener('mousemove', onMove);
+    this.detachPointer = () => {
+      canvas.removeEventListener('mousedown', onDown);
+      canvas.removeEventListener('auxclick', onAux);
+      window.removeEventListener('mouseup', onUp);
+      window.removeEventListener('mousemove', onMove);
+    };
   }
 
   private degToRad(deg: number): number {

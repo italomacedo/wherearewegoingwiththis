@@ -58,6 +58,12 @@ describe('DialogSystem', () => {
     expect(dialog.getState().thinking).toBe(false);
   });
 
+  it('setNpcName updates the speaker name', () => {
+    dialog.open('Unknown');
+    dialog.setNpcName('Zara');
+    expect(dialog.getState().npcName).toBe('Zara');
+  });
+
   it('setNpcText replaces text', () => {
     dialog.open('Zara');
     dialog.appendChunk('old');
@@ -108,18 +114,6 @@ describe('DialogSystem', () => {
     dialog.open('Zara');
     dialog.close();
     expect(dialog.isInputFocused()).toBe(false);
-  });
-
-  it('dispose clears the submit handler', () => {
-    const handler = jest.fn();
-    dialog.onSubmit(handler);
-    dialog.dispose();
-    dialog.open('Zara');
-    dialog.submit('hi');
-    expect(handler).not.toHaveBeenCalled();
-  });
-});
-toBe(false);
   });
 
   it('dispose clears the submit handler', () => {

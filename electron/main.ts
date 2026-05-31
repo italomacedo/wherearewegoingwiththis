@@ -1,7 +1,159 @@
 import { app, BrowserWindow, ipcMain, shell } from 'electron';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { spawn, ChildProcess } from 'node:child_process';
+import fs from 'node:fs';
+import { spawn, ChildProcess, SpawnOptions } from 'node:child_process';
+
+interface ClaudeInvocation {
+  command: string;
+  spawnArgs: string[];
+  options: SpawnOptions;
+}
+
+/**
+ * Resolves how to launch the Claude CLI robustly across platforms.
+ *
+ * On Windows, `claude` is a `.cmd` shim that calls `node cli.js` — but if Node
+ * isn't on the PATH the Electron child inherits (common), the shim fails with
+ * "...cli.js is not recognized". To avoid both the shim and the Node-on-PATH
+ * dependency, we locate the package's `cli.js` and run it with Electron's own
+ * bundled Node (`ELECTRON_RUN_AS_NODE=1`, via process.execPath).
+ */
+function resolveClaudeInvocation(claudePath: string, args: string[]): ClaudeInvocation {
+  // Resolve the real entry point (a .js to run with Node, or a native .exe).
+  const entry = resolveEntry(claudePath);
+  if (entry) {
+    if (/\.[cm]?js$/i.test(entry)) {
+      // Run the JS entry with Electron's bundled Node — no shim, no Node-on-PATH.
+      return {
+        command: process.execPath,
+        spawnArgs: [entry, ...args],
+        options: { env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' } },
+      };
+    }
+    // A native executable (e.g. bin/claude.exe) — spawn it directly.
+    return { command: entry, spawnArgs: args, options: { env: { ...process.env } } };
+  }
+
+  if (process.platform === 'win32') {
+    // Last resort: let cmd.exe resolve the .cmd shim (needs Node on PATH).
+    const command = /\s/.test(claudePath) ? `"${claudePath}"` : claudePath;
+    return { command, spawnArgs: args, options: { env: { ...process.env }, shell: true } };
+  }
+
+  // macOS/Linux: the `claude` bin is an executable (shebang) — spawn directly.
+  return { command: claudePath, spawnArgs: args, options: { env: { ...process.env } } };
+}
+
+/**
+ * Resolve the Claude Code entry point (`cli.js` or a native `claude.exe`) from
+ * whatever the user configured — handling clean paths, a typo'd suffix, and
+ * reading the shim on PATH. Returns an existing file path or null.
+ */
+function resolveEntry(claudePath: string): string | null {
+  // A clean path straight to a JS or EXE entry.
+  if (/\.([cm]?js|exe)$/i.test(claudePath)) {
+    try { if (fs.existsSync(claudePath)) return claudePath; } catch { /* ignore */ }
+  }
+  // A path that points *inside* the claude-code package but has a typo/suffix
+  // (e.g. "...\@anthropic-ai\claude-code\cli.jsclaude") → recover a real entry.
+  const marker = `@anthropic-ai${path.sep}claude-code`;
+  const idx = claudePath.indexOf(marker);
+  if (idx !== -1) {
+    const pkgDir = claudePath.slice(0, idx + marker.length);
+    for (const rel of ['cli.js', path.join('bin', 'claude.exe'), 'cli.mjs']) {
+      const cand = path.join(pkgDir, rel);
+      try { if (fs.existsSync(cand)) return cand; } catch { /* ignore */ }
+    }
+  }
+  // Otherwise locate it from the shim on PATH (Windows npm-global installs).
+  if (process.platform === 'win32') return findWindowsClaudeCli(claudePath);
+  return null;
+}
+
+/** Synchronous `which`: find an executable on PATH honoring PATHEXT (Windows). */
+function whichSync(name: string): string | null {
+  // Already an absolute/relative path with a separator → use as-is.
+  if (name.includes('\\') || name.includes('/')) {
+    try { if (fs.existsSync(name)) return name; } catch { /* ignore */ }
+  }
+  // On Windows try real extensions FIRST so we resolve `claude.cmd` (whose
+  // `%dp0%` entry path we can read) before the extension-less bash shim.
+  const exts = process.platform === 'win32'
+    ? [...(process.env.PATHEXT || '.COM;.EXE;.BAT;.CMD').split(';'), '']
+    : [''];
+  const dirs = (process.env.PATH || '').split(path.delimiter).filter(Boolean);
+  for (const dir of dirs) {
+    for (const ext of exts) {
+      const candidate = path.join(dir, name + ext);
+      try { if (fs.existsSync(candidate)) return candidate; } catch { /* ignore */ }
+    }
+  }
+  return null;
+}
+
+/**
+ * Reads a Windows `.cmd`/`.bat` npm shim and extracts the real JS entry it
+ * invokes (ground truth — no guessing the file name/location). The shim's line
+ * looks like `"%_prog%"  "%dp0%\node_modules\...\cli.js" %*`.
+ */
+function readShimEntry(shimPath: string): string | null {
+  try {
+    const content = fs.readFileSync(shimPath, 'utf8');
+    const dir = path.dirname(shimPath);
+    // First quoted path ending in .js/.mjs/.cjs or .exe (the package entry).
+    const m = content.match(/"([^"]*\.(?:[cm]?js|exe))"/i);
+    if (!m) return null;
+    let entry = m[1]
+      .replace(/%~?dp0%?/gi, dir + path.sep) // dp0 → shim directory
+      .replace(/[\\/]{2,}/g, path.sep);      // collapse doubled separators
+    if (!path.isAbsolute(entry)) entry = path.join(dir, entry);
+    return fs.existsSync(entry) ? entry : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Locate the Claude Code JS entry on Windows. Finds the `claude` shim on PATH
+ * (independent of any mis-typed configured path), reads it for the true entry,
+ * then falls back to dirname/well-known derivations. Does NOT depend on
+ * %APPDATA% nor on the configured path being correct.
+ */
+function findWindowsClaudeCli(claudePath: string): string | null {
+  const shims: string[] = [];
+  if (/\.(cmd|bat|ps1)$/i.test(claudePath)) {
+    try { if (fs.existsSync(claudePath)) shims.push(claudePath); } catch { /* ignore */ }
+  }
+  const onPath = whichSync('claude'); // search PATH for the shim by bare name
+  if (onPath) shims.push(onPath);
+
+  const rels = [
+    path.join('node_modules', '@anthropic-ai', 'claude-code', 'cli.js'),
+    path.join('node_modules', '@anthropic-ai', 'claude-code', 'bin', 'claude.exe'),
+    path.join('node_modules', '@anthropic-ai', 'claude-code', 'cli.mjs'),
+  ];
+  for (const shim of shims) {
+    const fromShim = readShimEntry(shim);
+    if (fromShim) return fromShim;
+    for (const rel of rels) {
+      const derived = path.join(path.dirname(shim), rel);
+      try { if (fs.existsSync(derived)) return derived; } catch { /* ignore */ }
+    }
+  }
+
+  const baseDirs = [
+    process.env.APPDATA ? path.join(process.env.APPDATA, 'npm') : null,
+    process.env.ProgramFiles ? path.join(process.env.ProgramFiles, 'nodejs') : null,
+  ].filter((d): d is string => d !== null);
+  for (const base of baseDirs) {
+    for (const rel of rels) {
+      const candidate = path.join(base, rel);
+      try { if (fs.existsSync(candidate)) return candidate; } catch { /* ignore */ }
+    }
+  }
+  return null;
+}
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -56,25 +208,40 @@ ipcMain.handle(
     useSession?: boolean;
   }) => {
     return new Promise<void>((resolve, reject) => {
-      const args = ['--print', '--no-markdown'];
+      // `--print` runs Claude non-interactively and emits plain text to stdout
+      // (no markdown rendering when piped), reading the prompt from stdin.
+      const args = ['--print'];
       if (useSession && sessionId) {
         args.unshift('--session-id', sessionId);
       }
-      const proc = spawn(claudePath, args, {
-        env: { ...process.env },
-      });
+      // Resolve a robust launch strategy (prefers running cli.js with Electron's
+      // bundled Node). The prompt is fed via stdin — never interpolated into the
+      // command line — so there's no shell-injection risk.
+      const { command, spawnArgs, options } = resolveClaudeInvocation(claudePath, args);
+      let configuredExists = false;
+      try { configuredExists = fs.existsSync(claudePath); } catch { /* ignore */ }
+      console.log(
+        `[Claude NPC] claudePath=${JSON.stringify(claudePath)} exists=${configuredExists} | ` +
+        `whichClaude=${JSON.stringify(whichSync('claude'))} | command=${JSON.stringify(command)} | ` +
+        `args=${JSON.stringify(spawnArgs)} | mode=${options.shell ? 'SHELL' : 'direct(node)'}`
+      );
+      const proc = spawn(command, spawnArgs, options);
 
       claudeProcesses.set(npcId, proc);
 
-      proc.stdin.write(prompt);
-      proc.stdin.end();
+      proc.stdin?.write(prompt);
+      proc.stdin?.end();
 
-      proc.stdout.on('data', (chunk: Buffer) => {
+      let stderrBuf = '';
+
+      proc.stdout?.on('data', (chunk: Buffer) => {
         win?.webContents.send('claude-response-chunk', { npcId, chunk: chunk.toString() });
       });
 
-      proc.stderr.on('data', (chunk: Buffer) => {
-        console.error(`[Claude NPC ${npcId}] stderr:`, chunk.toString());
+      proc.stderr?.on('data', (chunk: Buffer) => {
+        const text = chunk.toString();
+        stderrBuf += text;
+        console.error(`[Claude NPC ${npcId}] stderr:`, text);
       });
 
       proc.on('close', (code) => {
@@ -83,12 +250,21 @@ ipcMain.handle(
         if (code === 0 || code === null) {
           resolve();
         } else {
-          reject(new Error(`Claude process exited with code ${code}`));
+          // Surface the real reason (invalid flag, not logged in, etc.).
+          const detail = stderrBuf.trim().slice(0, 300);
+          reject(new Error(`Claude exited with code ${code}${detail ? `: ${detail}` : ''}`));
         }
       });
 
-      proc.on('error', (err) => {
+      proc.on('error', (err: NodeJS.ErrnoException) => {
         claudeProcesses.delete(npcId);
+        if (err.code === 'ENOENT') {
+          reject(new Error(
+            `Claude CLI not found (tried "${claudePath}"). Install it and/or set the ` +
+            `full path in Options → Game → Claude CLI path.`
+          ));
+          return;
+        }
         reject(err);
       });
     });

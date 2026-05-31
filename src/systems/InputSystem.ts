@@ -4,7 +4,10 @@ export type GameAction =
   | 'move.left'
   | 'move.right'
   | 'move.sprint'
+  | 'move.up'
+  | 'move.down'
   | 'interact'
+  | 'vehicle.enter'
   | 'camera.rotateLeft'
   | 'camera.rotateRight'
   | 'pause';
@@ -21,10 +24,15 @@ export const DEFAULT_BINDINGS: Record<string, GameAction> = {
   ArrowRight: 'move.right',
   ShiftLeft: 'move.sprint',
   ShiftRight: 'move.sprint',
+  Space: 'move.up',
+  ControlLeft: 'move.down',
+  ControlRight: 'move.down',
   KeyE: 'interact',
-  KeyQ: 'camera.rotateLeft',
-  KeyR: 'camera.rotateRight',
+  KeyF: 'vehicle.enter',
   Escape: 'pause',
+  // Camera orbit: hold Z / C to rotate left / right (also middle-mouse drag).
+  KeyZ: 'camera.rotateLeft',
+  KeyC: 'camera.rotateRight',
 };
 
 export interface MovementAxis {
@@ -90,6 +98,14 @@ export class InputSystem {
 
   isSprinting(): boolean {
     return this.active.has('move.sprint');
+  }
+
+  /** Vertical flight axis: +1 ascend (up), -1 descend (down), 0 neither. */
+  getVerticalAxis(): number {
+    let y = 0;
+    if (this.active.has('move.up')) y += 1;
+    if (this.active.has('move.down')) y -= 1;
+    return y;
   }
 
   /** Clears per-frame just-pressed state. Call at end of each frame. */

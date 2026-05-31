@@ -80,6 +80,38 @@ describe('InputSystem', () => {
     expect(input.isSprinting()).toBe(true);
   });
 
+  // ─── Vertical flight axis ─────────────────────────────────────────────────
+
+  it('getVerticalAxis is zero by default', () => {
+    expect(input.getVerticalAxis()).toBe(0);
+  });
+
+  it('Space ascends (+1), Ctrl descends (-1)', () => {
+    input.handleKeyDown('Space');
+    expect(input.getVerticalAxis()).toBe(1);
+    input.handleKeyUp('Space');
+    input.handleKeyDown('ControlLeft');
+    expect(input.getVerticalAxis()).toBe(-1);
+  });
+
+  it('ascend + descend cancel out', () => {
+    input.handleKeyDown('Space');
+    input.handleKeyDown('ControlLeft');
+    expect(input.getVerticalAxis()).toBe(0);
+  });
+
+  it('F maps to vehicle.enter', () => {
+    input.handleKeyDown('KeyF');
+    expect(input.wasJustPressed('vehicle.enter')).toBe(true);
+  });
+
+  it('Z / C map to camera rotation', () => {
+    input.handleKeyDown('KeyZ');
+    expect(input.isActionActive('camera.rotateLeft')).toBe(true);
+    input.handleKeyDown('KeyC');
+    expect(input.isActionActive('camera.rotateRight')).toBe(true);
+  });
+
   // ─── Just-pressed ───────────────────────────────────────────────────────
 
   it('wasJustPressed is true on first press', () => {

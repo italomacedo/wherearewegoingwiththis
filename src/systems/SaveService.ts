@@ -1,7 +1,19 @@
 import { CharacterData, DEFAULT_APPEARANCE } from '@entities/CharacterData';
 import { ConversationState } from '@systems/npc/ConversationContext';
+import { HealthState } from '@entities/Health';
 
 export type NPCMemory = Record<string, ConversationState>;
+
+export interface VehicleSaveState {
+  health: HealthState;
+  destroyed: boolean;
+}
+
+export const DEFAULT_PLAYER_HEALTH: HealthState = { current: 100, max: 100 };
+export const DEFAULT_VEHICLE_STATE: VehicleSaveState = {
+  health: { current: 100, max: 100 },
+  destroyed: false,
+};
 
 export interface SaveGame {
   saveId: string;
@@ -15,6 +27,8 @@ export interface SaveGame {
     position: [number, number, number];
     rotation: number;
   };
+  playerHealth: HealthState;
+  vehicle: VehicleSaveState;
   flags: Record<string, boolean | number | string>;
   npcMemory: NPCMemory;
 }
@@ -50,6 +64,8 @@ export class SaveService {
         position: [0, 0, 0],
         rotation: 0,
       },
+      playerHealth: { ...DEFAULT_PLAYER_HEALTH },
+      vehicle: { health: { ...DEFAULT_VEHICLE_STATE.health }, destroyed: false },
       flags: {},
       npcMemory: {},
     };
@@ -78,16 +94,14 @@ export class SaveService {
   static load(saveId: string): SaveGame | null {
     if (SaveService.memoryStore.has(saveId)) {
       const copy = JSON.parse(JSON.stringify(SaveService.memoryStore.get(saveId)!)) as SaveGame;
-      // Backwards-compat: saves created before npcMemory existed
-      if (!copy.npcMemory) copy.npcMemory = {};
-      return copy;
+      return SaveService.migrate(copy);
     }
     /* istanbul ignore next */
     if (typeof localStorage !== 'undefined') {
       const raw = localStorage.getItem(`${STORAGE_KEY_PREFIX}${saveId}`);
       if (raw) {
         try {
-          return JSON.parse(raw) as SaveGame;
+          return SaveService.migrate(JSON.parse(raw) as SaveGame);
         } catch {
           return null;
         }
@@ -152,6 +166,16 @@ export class SaveService {
       );
       keys.forEach((k) => localStorage.removeItem(k));
     }
+  }
+
+  /** Backfills fields added after a save was first written. */
+  private static migrate(save: SaveGame): SaveGame {
+    if (!save.npcMemory) save.npcMemory = {};
+    if (!save.playerHealth) save.playerHealth = { ...DEFAULT_PLAYER_HEALTH };
+    if (!save.vehicle) {
+      save.vehicle = { health: { ...DEFAULT_VEHICLE_STATE.health }, destroyed: false };
+    }
+    return save;
   }
 
   private static generateId(): string {

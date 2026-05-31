@@ -87,6 +87,12 @@ export class DialogSystem {
     this.render();
   }
 
+  /** Update the speaker name live (e.g. once the NPC introduces itself). */
+  setNpcName(name: string): void {
+    this.state = { ...this.state, npcName: name };
+    this.render();
+  }
+
   onSubmit(handler: (message: string) => void): void {
     this.onSubmitHandler = handler;
   }
@@ -126,7 +132,6 @@ export class DialogSystem {
   /* istanbul ignore next — browser GUI only */
   private buildUIBrowser(): void {
     const gui = AdvancedDynamicTexture.CreateFullscreenUI('dialog-ui', true, this.scene);
-    gui.layer!.layerMask = 0x10000000;
     this.gui = gui;
 
     // Bottom speech panel.

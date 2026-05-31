@@ -4,12 +4,19 @@ import {
 import { BaseScene } from './BaseScene';
 import { ServiceLocator } from '@core/ServiceLocator';
 import { GameSession } from '@core/GameSession';
-import { SaveService } from '@systems/SaveService';
+import { SceneManager } from '@core/SceneManager';
+import {
+  SaveService, VehicleSaveState, DEFAULT_PLAYER_HEALTH, DEFAULT_VEHICLE_STATE,
+} from '@systems/SaveService';
+import { HealthState } from '@entities/Health';
 import { ZoneManager } from '@systems/ZoneManager';
-import { CameraSystem } from '@systems/CameraSystem';
+import { PauseMenu } from '@systems/PauseMenu';
+import { WorldHud } from '@systems/WorldHud';
+import { CameraSystem, KEY_ORBIT_SPEED } from '@systems/CameraSystem';
 import { InputSystem } from '@systems/InputSystem';
 import { PhysicsService } from '@systems/PhysicsService';
 import { PlayerController } from '@entities/PlayerController';
+import { VehicleController } from '@entities/VehicleController';
 import { MercadoSombrasZone } from '@entities/zones/MercadoSombrasZone';
 import { CharacterAppearance, DEFAULT_APPEARANCE } from '@entities/CharacterData';
 import { NPCManager, NPCMemoryMap } from '@systems/NPCManager';
@@ -26,9 +33,12 @@ export class GameWorldScene extends BaseScene {
   private inputSystem: InputSystem | null = null;
   private physics: PhysicsService | null = null;
   private player: PlayerController | null = null;
+  private vehicle: VehicleController | null = null;
   private npcManager: NPCManager | null = null;
   private injectedService: ClaudeNPCService | null = null;
   private dialog: DialogSystem | null = null;
+  private pauseMenu: PauseMenu | null = null;
+  private hud: WorldHud | null = null;
   private npcMeshes: AbstractMesh[] = [];
   private detachInput: (() => void) | null = null;
   private startZoneId = 'mercado_sombras';
@@ -38,6 +48,11 @@ export class GameWorldScene extends BaseScene {
   private gameTimeSeconds = 0;
   private saveId = '';
   private spawnOverride: Vector3 | null = null;
+  private playerHealthState: HealthState = { ...DEFAULT_PLAYER_HEALTH };
+  private vehicleState: VehicleSaveState = {
+    health: { ...DEFAULT_VEHICLE_STATE.health }, destroyed: false,
+  };
+  private gameOver = false;
 
   constructor(engine: Engine) {
     super(engine);
@@ -64,6 +79,10 @@ export class GameWorldScene extends BaseScene {
     this.playerName = session.character.name;
     this.npcMemory = session.npcMemory ?? {};
     this.gameTimeSeconds = session.gameTimeSeconds;
+    this.playerHealthState = session.playerHealth ?? { ...DEFAULT_PLAYER_HEALTH };
+    this.vehicleState = session.vehicle ?? {
+      health: { ...DEFAULT_VEHICLE_STATE.health }, destroyed: false,
+    };
     if (session.world?.zone) this.startZoneId = session.world.zone;
     const [x, y, z] = session.world?.position ?? [0, 0, 0];
     // Treat an all-zero saved position as "use the zone's spawn point".
@@ -72,9 +91,12 @@ export class GameWorldScene extends BaseScene {
     }
   }
 
-  /** Writes current world position + NPC memory back to the session and disk. */
+  /** Writes world position + NPC memory + health (player & bike) back to disk. */
   private persistSession(): void {
     if (!this.saveId) return;
+    const save = SaveService.load(this.saveId);
+    if (!save) return;
+
     const memory = this.npcManager?.serializeMemory() ?? {};
     const pos = this.player?.getPosition();
     const world = {
@@ -82,14 +104,22 @@ export class GameWorldScene extends BaseScene {
       position: (pos ? [pos.x, pos.y, pos.z] : [0, 0, 0]) as [number, number, number],
       rotation: 0,
     };
-    SaveService.updateWorldState(this.saveId, world, this.gameTimeSeconds);
-    SaveService.updateNpcMemory(this.saveId, memory);
+    const playerHealth = this.player?.getHealth().toState() ?? this.playerHealthState;
+    const vehicle: VehicleSaveState = this.vehicle
+      ? { health: this.vehicle.getHealth().toState(), destroyed: this.vehicle.isDestroyed() }
+      : this.vehicleState;
+
+    SaveService.save({
+      ...save, world, gameTimeSeconds: this.gameTimeSeconds, npcMemory: memory, playerHealth, vehicle,
+    });
 
     const session = ServiceLocator.tryGet<GameSession>('gameSession');
     if (session) {
       session.world = world;
       session.npcMemory = memory;
       session.gameTimeSeconds = this.gameTimeSeconds;
+      session.playerHealth = playerHealth;
+      session.vehicle = vehicle;
     }
   }
 
@@ -118,9 +148,30 @@ export class GameWorldScene extends BaseScene {
     ServiceLocator.register('player', this.player);
     this.cameraSystem.setTarget(this.player.getRoot());
 
+    this.player.setHealthState(this.playerHealthState);
+
+    // Park a flying motorcycle near the spawn point.
+    this.vehicle = new VehicleController(this.babylonScene);
+    this.vehicle.spawn(zone.getSpawnPoint().add(new Vector3(4, 0, 0)));
+    this.vehicle.setHealthState(this.vehicleState.health);
+    this.vehicle.setDestroyed(this.vehicleState.destroyed);
+    ServiceLocator.register('vehicle', this.vehicle);
+
     this.setupNPCs();
     this.dialog = new DialogSystem(this.babylonScene);
     this.wireDialog();
+
+    // HUD: floating labels + contextual action prompts (Phase 8/9 evidence).
+    this.hud = new WorldHud(this.babylonScene);
+    const zaraMesh = this.npcMeshes[0];
+    const npc = this.npcManager?.getAgents()[0];
+    // Show the NPC's name only after it introduces itself (no metagaming).
+    if (zaraMesh && npc) this.hud.addLabel(zaraMesh, npc.getDisplayName(), 'npc');
+    if (this.vehicle) this.hud.addLabel(this.vehicle.getRoot(), 'Flying Bike', 'vehicle');
+
+    // Pause menu (ESC) with in-game Save (Phase 5 evidence).
+    this.pauseMenu = new PauseMenu(this.babylonScene);
+    this.wirePauseMenu();
 
     // Physics LAST and resilient — Havok WASM load failure must never block
     // the world from rendering. PlayerController falls back to direct movement.
@@ -138,42 +189,74 @@ export class GameWorldScene extends BaseScene {
     this.persistSession();
     this.detachInput?.();
     this.player?.dispose();
+    this.vehicle?.dispose();
     this.zoneManager?.dispose();
     this.cameraSystem?.dispose();
     this.npcManager?.dispose();
     this.dialog?.dispose();
+    this.pauseMenu?.dispose();
+    this.hud?.dispose();
     this.npcMeshes.forEach((m) => m.dispose());
     this.npcMeshes = [];
     this.player = null;
+    this.vehicle = null;
     this.zoneManager = null;
     this.cameraSystem = null;
     this.inputSystem = null;
     this.physics = null;
     this.npcManager = null;
     this.dialog = null;
+    this.pauseMenu = null;
+    this.hud = null;
     this.detachInput = null;
-    ['physics', 'cameraSystem', 'inputSystem', 'zoneManager', 'player', 'npcManager'].forEach((k) =>
+    ['physics', 'cameraSystem', 'inputSystem', 'zoneManager', 'player', 'vehicle', 'npcManager'].forEach((k) =>
       ServiceLocator.unregister(k)
     );
   }
 
   update(): void {
     const dt = this.engine.getDeltaTime() / 1000;
+
+    // ESC toggles the pause menu (unless the dialog owns the keyboard). While
+    // paused, the world is frozen — only the menu (and camera follow) live on.
+    this.handlePauseInput();
+    if (this.pauseMenu?.isOpen()) {
+      this.cameraSystem?.update();
+      this.inputSystem?.endFrame();
+      return;
+    }
+
     // While the dialog is open the keyboard belongs to the text input — freeze
-    // player movement and camera rotation so typing doesn't move the character.
+    // player movement so typing doesn't move the character.
     const dialogOpen = this.dialog?.isOpen() ?? false;
     if (!dialogOpen) {
-      this.handleCameraInput();
-      if (this.cameraSystem && this.player) {
-        this.player.setCameraYaw(this.cameraSystem.getYaw());
+      this.handleCameraKeys(dt);
+      this.handleVehicleInput();
+      const driving = this.vehicle?.isOccupied() ?? false;
+      if (!driving) {
+        // On foot: camera-relative movement + gravity (fall damage on landing).
+        if (this.cameraSystem && this.player) {
+          this.player.setCameraYaw(this.cameraSystem.getYaw());
+        }
+        this.player?.update(dt);
       }
-      this.player?.update(dt);
     }
+    // Vehicle physics run every frame: piloted it flies; abandoned it falls.
+    this.tickVehicle(dt);
     this.cameraSystem?.update();
     this.updateNPCs(dt);
-    this.handleInteractInput();
+    if (!(this.vehicle?.isOccupied() ?? false)) this.handleInteractInput();
+    this.updateHud(dialogOpen);
+    this.checkGameOver();
     this.inputSystem?.endFrame();
     this.gameTimeSeconds += dt;
+  }
+
+  /** When the hero dies, end the run and return to the main menu. */
+  private checkGameOver(): void {
+    if (this.gameOver || !this.player?.isDead()) return;
+    this.gameOver = true;
+    void ServiceLocator.get<SceneManager>('sceneManager').loadScene('main-menu');
   }
 
   // ─── NPCs ──────────────────────────────────────────────────────────────────
@@ -210,8 +293,9 @@ export class GameWorldScene extends BaseScene {
     const body = MeshBuilder.CreateCapsule(`npc-${id}`, { height: 1.7, radius: 0.3 }, this.babylonScene);
     body.position = new Vector3(position[0], 0.85, position[2]);
     const mat = new StandardMaterial(`npc-mat-${id}`, this.babylonScene);
-    mat.diffuseColor = new Color3(0.5, 0.2, 0.4);
-    mat.emissiveColor = new Color3(0.2, 0.05, 0.15);
+    mat.diffuseColor = new Color3(0.7, 0.3, 0.55);
+    // Bright emissive so the NPC reads clearly against the dark market.
+    mat.emissiveColor = new Color3(0.55, 0.15, 0.45);
     body.material = mat;
     return body;
   }
@@ -241,7 +325,7 @@ export class GameWorldScene extends BaseScene {
     }
     const agent = this.npcManager.getConversableAgent(this.player.getPosition());
     if (agent) {
-      this.dialog.open(agent.definition.name);
+      this.dialog.open(agent.getDisplayName());
     }
   }
 
@@ -270,8 +354,18 @@ export class GameWorldScene extends BaseScene {
       await this.npcManager.sendMessage(agent.definition.id, world, message, (chunk) =>
         this.dialog?.appendChunk(chunk)
       );
-    } catch {
-      this.dialog.setNpcText('...');
+      // If nothing streamed back, show a hint instead of an empty bubble.
+      if (!this.dialog.getState().npcText) {
+        this.dialog.setNpcText('( … no reply. Is the Claude CLI path set in Options → Game? )');
+      } else if (agent.revealNameIfMentioned(this.dialog.getState().npcText)) {
+        // The NPC just introduced itself — reveal the name in the UI.
+        this.dialog.setNpcName(agent.definition.name);
+        this.hud?.setLabelText('npc', agent.definition.name);
+      }
+    } catch (err) {
+      // Surface the real error (CLI exit code + stderr) to help diagnose.
+      const msg = err instanceof Error ? err.message : String(err);
+      this.dialog.setNpcText(`( Claude error: ${msg.slice(0, 180)} )`);
     }
   }
 
@@ -282,14 +376,114 @@ export class GameWorldScene extends BaseScene {
     return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}, day 1`;
   }
 
-  private handleCameraInput(): void {
+  // ─── Vehicles ───────────────────────────────────────────────────────────────
+
+  /**
+   * Step the vehicle physics every frame. While piloted it flies from input;
+   * while abandoned the engine is off so it falls and crashes (handled inside
+   * VehicleController.update).
+   */
+  private tickVehicle(dt: number): void {
+    if (!this.vehicle || !this.cameraSystem) return;
+    const driving = this.vehicle.isOccupied();
+    const input = driving && this.inputSystem
+      ? { axis: this.inputSystem.getMovementAxis(), vertical: this.inputSystem.getVerticalAxis() }
+      : { axis: { x: 0, z: 0 }, vertical: 0 };
+    this.vehicle.update(dt, input, this.cameraSystem.getYaw());
+  }
+
+  /** Mount on F when near a parked vehicle; dismount on F while piloting. */
+  private handleVehicleInput(): void {
+    if (!this.inputSystem || !this.vehicle || !this.player || !this.cameraSystem) return;
+    if (!this.inputSystem.wasJustPressed('vehicle.enter')) return;
+
+    if (this.vehicle.isOccupied()) {
+      // Dismount beside the bike at its current altitude, then fall (gravity +
+      // fall damage). The abandoned bike loses lift and falls too.
+      this.vehicle.exit();
+      const p = this.vehicle.getPosition();
+      this.player.getRoot().position.set(p.x + 1.5, p.y, p.z);
+      this.player.getRoot().setEnabled(true);
+      this.player.startFalling(p.y);
+      this.cameraSystem.setTarget(this.player.getRoot());
+      this.cameraSystem.exitVehicleMode();
+    } else if (this.vehicle.canEnter(this.player.getPosition())) {
+      this.vehicle.enter();
+      this.player.getRoot().setEnabled(false);
+      this.cameraSystem.setTarget(this.vehicle.getRoot());
+      this.cameraSystem.enterVehicleMode();
+    }
+  }
+
+  /** Hold Z / C to orbit the camera left / right around the hero (also MMB-drag). */
+  private handleCameraKeys(dt: number): void {
     if (!this.inputSystem || !this.cameraSystem) return;
-    if (this.inputSystem.wasJustPressed('camera.rotateLeft')) {
-      this.cameraSystem.rotate(-1);
+    if (this.inputSystem.isActionActive('camera.rotateLeft')) {
+      this.cameraSystem.orbit(KEY_ORBIT_SPEED * dt);
     }
-    if (this.inputSystem.wasJustPressed('camera.rotateRight')) {
-      this.cameraSystem.rotate(1);
+    if (this.inputSystem.isActionActive('camera.rotateRight')) {
+      this.cameraSystem.orbit(-KEY_ORBIT_SPEED * dt);
     }
+  }
+
+  // ─── Pause + HUD ─────────────────────────────────────────────────────────────
+
+  /** ESC toggles pause, except while the dialog field is focused. */
+  private handlePauseInput(): void {
+    if (!this.inputSystem || !this.pauseMenu) return;
+    if (!this.inputSystem.wasJustPressed('pause')) return;
+    if (this.dialog?.isOpen()) {
+      // ESC closes the dialog rather than pausing.
+      if (!this.dialog.isInputFocused()) this.dialog.close();
+      return;
+    }
+    this.pauseMenu.toggle();
+  }
+
+  private wirePauseMenu(): void {
+    if (!this.pauseMenu) return;
+    this.pauseMenu.setHandlers({
+      onResume: () => {},
+      onSave: () => this.persistSession(),
+      onLoad: () => {
+        this.persistSession();
+        void ServiceLocator.get<SceneManager>('sceneManager').loadScene('load-game');
+      },
+      onMainMenu: () => {
+        void ServiceLocator.get<SceneManager>('sceneManager').loadScene('main-menu');
+      },
+    });
+  }
+
+  /** Refresh the HUD each frame: hero HP, bike status, and the action prompt. */
+  private updateHud(dialogOpen: boolean): void {
+    if (!this.hud) return;
+
+    if (this.player) this.hud.setPlayerHealth(this.player.getHealth().fraction());
+    this.hud.setVehicleStatus(this.deriveVehicleStatus());
+    this.hud.setActionPrompt(this.deriveActionPrompt(dialogOpen));
+  }
+
+  /** Bike status line: destroyed / live HP% while relevant, else hidden. */
+  private deriveVehicleStatus(): string | null {
+    if (!this.vehicle) return null;
+    if (this.vehicle.isDestroyed()) return 'BIKE DESTROYED';
+    if (this.vehicle.isOccupied() || this.vehicle.isSmoking()) {
+      return `BIKE ${Math.round(this.vehicle.getHealth().fraction() * 100)}%`;
+    }
+    return null;
+  }
+
+  private deriveActionPrompt(dialogOpen: boolean): string | null {
+    if (dialogOpen) return null;
+    if (this.vehicle?.isOccupied()) return '[F] Exit bike';
+    if (this.player && this.vehicle?.canEnter(this.player.getPosition())) return '[F] Enter bike';
+    if (this.npcManager && this.player) {
+      const agent = this.npcManager.getConversableAgent(this.player.getPosition());
+      // Don't leak the name in the prompt before the NPC introduces itself.
+      if (agent) return agent.isNameKnown() ? `[E] Talk to ${agent.definition.name}` : '[E] Talk';
+    }
+    return null;
   }
 
   // ─── Getters ────────────────────────────────────────────────────────────────
@@ -297,7 +491,10 @@ export class GameWorldScene extends BaseScene {
   getZoneManager(): ZoneManager | null { return this.zoneManager; }
   getCameraSystem(): CameraSystem | null { return this.cameraSystem; }
   getPlayer(): PlayerController | null { return this.player; }
+  getVehicle(): VehicleController | null { return this.vehicle; }
   getInputSystem(): InputSystem | null { return this.inputSystem; }
   getNpcManager(): NPCManager | null { return this.npcManager; }
   getDialog(): DialogSystem | null { return this.dialog; }
+  getPauseMenu(): PauseMenu | null { return this.pauseMenu; }
+  getHud(): WorldHud | null { return this.hud; }
 }

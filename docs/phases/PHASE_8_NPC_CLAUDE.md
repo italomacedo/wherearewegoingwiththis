@@ -1,8 +1,13 @@
 # Phase 8 — NPC + Claude CLI (MVP)
 
-**Status:** ✅ Complete (logic) — commit 99b9cc9. Conversation context per
-ADR-0010. GAP: dialog GUI rendering is a stub, so conversation isn't yet
-visible on screen (see CLAUDE.md gap #1).  
+**Status:** ✅ Complete — commit 99b9cc9 (logic) + dialog GUI (gap #1). Conversation
+context per ADR-0010. Zara renders as a bright emissive capsule; pressing **E** opens
+the speech-bubble dialog. **Anti-metagaming:** her name is hidden (label/header/prompt
+show "Unknown" / "[E] Talk") until she introduces herself in a reply
+(`NPCAgent.revealNameIfMentioned`). **Windows launch fix:** the CLI runs via
+`cli.js` + Electron-as-Node (`resolveClaudeInvocation`) so the npm `.cmd` shim's
+Node-on-PATH dependency no longer breaks NPC chat; real CLI stderr is surfaced in the
+bubble for diagnosis.  
 **Goal:** 1 NPC (Zara) powered by Claude CLI subprocess. Natural conversation + reaction to player actions.
 
 ---

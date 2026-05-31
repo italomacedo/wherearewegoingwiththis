@@ -35,11 +35,41 @@ export class NPCAgent {
 
   private state: NPCState = 'idle';
   private mood: NPCMood;
+  private nameKnown = false;
 
   constructor(definition: NPCDefinition, conversation?: ConversationContext) {
     this.definition = definition;
     this.mood = definition.defaultMood;
     this.conversation = conversation ?? new ConversationContext();
+  }
+
+  /** True once the NPC has revealed its name to the player. */
+  isNameKnown(): boolean {
+    return this.nameKnown;
+  }
+
+  /** Name to show in UI: the real name only after the NPC introduces itself. */
+  getDisplayName(): string {
+    return this.nameKnown ? this.definition.name : 'Unknown';
+  }
+
+  markNameKnown(): void {
+    this.nameKnown = true;
+  }
+
+  /**
+   * Reveal the name if the NPC's own name appears in the given text (e.g. it
+   * just introduced itself). Returns true only on the first reveal — anti-
+   * metagaming: the player shouldn't see "Zara" before she says it.
+   */
+  revealNameIfMentioned(text: string): boolean {
+    if (this.nameKnown) return false;
+    const escaped = this.definition.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    if (new RegExp(`\\b${escaped}\\b`, 'i').test(text)) {
+      this.nameKnown = true;
+      return true;
+    }
+    return false;
   }
 
   getState(): NPCState {

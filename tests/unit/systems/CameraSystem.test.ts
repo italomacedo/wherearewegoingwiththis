@@ -116,6 +116,70 @@ describe('CameraSystem', () => {
     expect(() => cam.update()).not.toThrow();
   });
 
+  it('getYaw returns the camera orbit angle offset by +90° (camera-relative forward)', () => {
+    const cam = new CameraSystem(scene);
+    expect(cam.getYaw()).toBeCloseTo(cam.getCamera().alpha + Math.PI / 2, 6);
+  });
+
+  it('orbit rotates the view continuously (for middle-mouse drag)', () => {
+    const cam = new CameraSystem(scene);
+    const before = cam.getCamera().alpha;
+    cam.orbit(0.5);
+    expect(cam.getCamera().alpha).toBeCloseTo(before + 0.5, 6);
+    cam.orbit(-1.2);
+    expect(cam.getCamera().alpha).toBeCloseTo(before - 0.7, 6);
+  });
+
+  it('following the target preserves the orbit angle (MMB rotation is not reset each frame)', () => {
+    const cam = new CameraSystem(scene);
+    const mesh = MeshBuilder.CreateBox('hero', { size: 1 }, scene);
+    mesh.position = new Vector3(5, 0, 5);
+    cam.setTarget(mesh);
+    cam.update();
+    const a = cam.getCamera().alpha;
+    cam.orbit(0.7);          // simulate a middle-mouse drag
+    cam.update();            // follow must NOT undo the orbit
+    expect(cam.getCamera().alpha).toBeCloseTo(a + 0.7, 5);
+    // and the focus still tracks the hero
+    for (let i = 0; i < 80; i++) cam.update();
+    const t = cam.getCamera().getTarget();
+    expect(t.x).toBeGreaterThan(4);
+    expect(t.z).toBeGreaterThan(4);
+  });
+
+  it('enterVehicleMode widens the view and softens damping', () => {
+    const cam = new CameraSystem(scene, { zoomDefault: 25, zoomMax: 50, followDamping: 0.1 });
+    cam.enterVehicleMode();
+    expect(cam.isVehicleMode()).toBe(true);
+    expect(cam.getCamera().radius).toBe(50);
+    expect(cam.getConfig().followDamping).toBeLessThanOrEqual(0.06);
+  });
+
+  it('exitVehicleMode restores the previous radius and damping', () => {
+    const cam = new CameraSystem(scene, { zoomDefault: 25, zoomMax: 50, followDamping: 0.1 });
+    const radius = cam.getCamera().radius;
+    cam.enterVehicleMode();
+    cam.exitVehicleMode();
+    expect(cam.isVehicleMode()).toBe(false);
+    expect(cam.getCamera().radius).toBe(radius);
+    expect(cam.getConfig().followDamping).toBeCloseTo(0.1);
+  });
+
+  it('enterVehicleMode is idempotent (no double-save of state)', () => {
+    const cam = new CameraSystem(scene, { zoomDefault: 25, zoomMax: 50, followDamping: 0.1 });
+    const radius = cam.getCamera().radius;
+    cam.enterVehicleMode();
+    cam.enterVehicleMode(); // second call must not overwrite saved radius with zoomMax
+    cam.exitVehicleMode();
+    expect(cam.getCamera().radius).toBe(radius);
+  });
+
+  it('exitVehicleMode without entering is a no-op', () => {
+    const cam = new CameraSystem(scene);
+    expect(() => cam.exitVehicleMode()).not.toThrow();
+    expect(cam.isVehicleMode()).toBe(false);
+  });
+
   it('DEFAULT_CAMERA_CONFIG has sane values', () => {
     expect(DEFAULT_CAMERA_CONFIG.zoomMin).toBeLessThan(DEFAULT_CAMERA_CONFIG.zoomMax);
     expect(DEFAULT_CAMERA_CONFIG.followDamping).toBeGreaterThan(0);

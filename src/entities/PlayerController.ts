@@ -4,15 +4,24 @@ import {
 import { InputSystem, MovementAxis } from '@systems/InputSystem';
 import { CharacterAssembler } from '@systems/CharacterAssembler';
 import { CharacterAppearance, DEFAULT_APPEARANCE } from '@entities/CharacterData';
+import { Health, HealthState } from '@entities/Health';
 
 export interface PlayerConfig {
-  walkSpeed: number;   // units/sec
-  runSpeed: number;    // units/sec
+  walkSpeed: number;        // units/sec
+  runSpeed: number;         // units/sec
+  gravity: number;          // units/sec² (downward) while airborne
+  safeFallSpeed: number;    // impact speed (units/sec) below which no damage
+  fallDamagePerSpeed: number; // HP lost per unit of impact speed above the safe threshold
+  groundY: number;          // resting ground height
 }
 
 export const DEFAULT_PLAYER_CONFIG: PlayerConfig = {
   walkSpeed: 4,
   runSpeed: 8,
+  gravity: 22,
+  safeFallSpeed: 9,
+  fallDamagePerSpeed: 6,
+  groundY: 0,
 };
 
 /**
@@ -28,12 +37,33 @@ export class PlayerController {
   private parts: AbstractMesh[] = [];
   private cameraYaw = 0;
   private facing = 0; // radians, last movement heading
+  private health = new Health(100);
+  private verticalVelocity = 0;
+  private grounded = true;
+  private lastFallDamage = 0; // impact damage applied on the most recent landing
 
   constructor(scene: Scene, input: InputSystem, config?: Partial<PlayerConfig>) {
     this.scene = scene;
     this.input = input;
     this.config = { ...DEFAULT_PLAYER_CONFIG, ...config };
     this.root = new TransformNode('player-root', scene);
+  }
+
+  getHealth(): Health { return this.health; }
+  isDead(): boolean { return this.health.isDead(); }
+  isGrounded(): boolean { return this.grounded; }
+  /** HP applied on the last landing (0 if none) — for tests / feedback. */
+  getLastFallDamage(): number { return this.lastFallDamage; }
+
+  setHealthState(state: HealthState): void {
+    this.health = Health.fromState(state);
+  }
+
+  /** Drop the player from a given altitude; gravity + fall damage take over. */
+  startFalling(fromY: number): void {
+    this.root.position.y = fromY;
+    this.verticalVelocity = 0;
+    this.grounded = fromY <= this.config.groundY;
   }
 
   /** Builds the character meshes and parents them to the player root. */
@@ -60,7 +90,7 @@ export class PlayerController {
     sprint: boolean,
     cameraYaw: number,
     dt: number,
-    config: PlayerConfig = DEFAULT_PLAYER_CONFIG
+    config: Pick<PlayerConfig, 'walkSpeed' | 'runSpeed'> = DEFAULT_PLAYER_CONFIG
   ): Vector3 {
     const speed = sprint ? config.runSpeed : config.walkSpeed;
     const cos = Math.cos(cameraYaw);
@@ -86,6 +116,28 @@ export class PlayerController {
       this.applyMovement(displacement);
       this.facing = Math.atan2(displacement.x, displacement.z);
       this.root.rotation.y = this.facing;
+    }
+
+    this.updateVertical(dt);
+  }
+
+  /** Gravity + landing + fall damage. No-op while grounded. */
+  private updateVertical(dt: number): void {
+    if (this.grounded) return;
+    this.verticalVelocity -= this.config.gravity * dt;
+    this.root.position.y += this.verticalVelocity * dt;
+
+    if (this.root.position.y <= this.config.groundY) {
+      const impactSpeed = -this.verticalVelocity; // downward speed at touchdown
+      this.root.position.y = this.config.groundY;
+      this.verticalVelocity = 0;
+      this.grounded = true;
+      if (impactSpeed > this.config.safeFallSpeed) {
+        this.lastFallDamage = (impactSpeed - this.config.safeFallSpeed) * this.config.fallDamagePerSpeed;
+        this.health.applyDamage(this.lastFallDamage);
+      } else {
+        this.lastFallDamage = 0;
+      }
     }
   }
 

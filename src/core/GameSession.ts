@@ -1,5 +1,8 @@
 import { CharacterData } from '@entities/CharacterData';
-import { NPCMemory, SaveGame } from '@systems/SaveService';
+import {
+  NPCMemory, SaveGame, VehicleSaveState, DEFAULT_PLAYER_HEALTH, DEFAULT_VEHICLE_STATE,
+} from '@systems/SaveService';
+import { HealthState } from '@entities/Health';
 
 export interface WorldState {
   zone: string;
@@ -24,6 +27,10 @@ export class GameSession {
     public npcMemory: NPCMemory = {},
     public world: WorldState = { zone: 'mercado_sombras', position: [0, 0, 0], rotation: 0 },
     public gameTimeSeconds: number = 0,
+    public playerHealth: HealthState = { ...DEFAULT_PLAYER_HEALTH },
+    public vehicle: VehicleSaveState = {
+      health: { ...DEFAULT_VEHICLE_STATE.health }, destroyed: false,
+    },
   ) {}
 
   /** Builds a session from a persisted save. */
@@ -34,6 +41,8 @@ export class GameSession {
       save.npcMemory ?? {},
       { ...save.world },
       save.gameTimeSeconds,
+      save.playerHealth ?? { ...DEFAULT_PLAYER_HEALTH },
+      save.vehicle ?? { health: { ...DEFAULT_VEHICLE_STATE.health }, destroyed: false },
     );
   }
 }

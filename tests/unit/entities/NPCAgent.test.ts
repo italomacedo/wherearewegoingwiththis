@@ -33,6 +33,34 @@ describe('NPCAgent', () => {
     expect(agent.distanceTo(new Vector3(3, 0, 4))).toBeCloseTo(5, 5);
   });
 
+  // ─── Name discovery (anti-metagaming) ─────────────────────────────────────
+
+  it('hides the name until introduced', () => {
+    expect(agent.isNameKnown()).toBe(false);
+    expect(agent.getDisplayName()).toBe('Unknown');
+  });
+
+  it('reveals the name when it appears in the NPC reply', () => {
+    expect(agent.revealNameIfMentioned("They call me Zara, stranger.")).toBe(true);
+    expect(agent.isNameKnown()).toBe(true);
+    expect(agent.getDisplayName()).toBe('Zara');
+  });
+
+  it('reveal is case-insensitive and only fires once', () => {
+    expect(agent.revealNameIfMentioned('the name is zara')).toBe(true);
+    expect(agent.revealNameIfMentioned('Zara again')).toBe(false); // already known
+  });
+
+  it('does not reveal when the name is absent', () => {
+    expect(agent.revealNameIfMentioned('What do you want?')).toBe(false);
+    expect(agent.isNameKnown()).toBe(false);
+  });
+
+  it('markNameKnown forces the reveal', () => {
+    agent.markNameKnown();
+    expect(agent.getDisplayName()).toBe('Zara');
+  });
+
   // ─── Proximity state machine ──────────────────────────────────────────────
 
   it('becomes aware when player within interaction radius', () => {
