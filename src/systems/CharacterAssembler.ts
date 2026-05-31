@@ -286,10 +286,18 @@ export class CharacterAssembler {
 
   /* istanbul ignore next — browser-only material/texture wiring */
   private applySkinTexture(meshes: AbstractMesh[], plan: CharacterPlan): void {
-    void meshes; void plan;
-    // Real implementation (phase 6, once skin PNGs exist): swap PBRMaterial
-    // albedoTexture to plan.skinTexturePath, multiply albedoColor by plan.skinTone,
-    // and composite plan.makeup over the face material via a DynamicTexture.
+    const color = Color3.FromHexString(plan.skinTone.padEnd(7, '0'));
+    for (const mesh of meshes) {
+      const mat = mesh.material as (StandardMaterial & { albedoColor?: Color3 }) | null;
+      if (!mat) continue;
+      if ('albedoColor' in mat) {
+        mat.albedoColor = color;           // glTF PBRMaterial
+      } else if (mat instanceof StandardMaterial) {
+        mat.diffuseColor = color;
+      }
+    }
+    // Skin-texture PNG swap + makeup compositing deferred until those PNGs exist
+    // (plan.skinTexturePath / plan.makeup).
   }
 
   /* istanbul ignore next — browser-only material tint */
