@@ -7,7 +7,7 @@ import {
   CharacterAppearance, SlotId, SlotCategory, ColorKey, MorphId,
   DEFAULT_COLORS, MORPH_REGISTRY, resolveLayers, getSkinTone, clampMorph,
 } from '@entities/CharacterData';
-import { CharacterAssets, resolveAssetPath, resolveBasePath, mapMorphName } from '@assets/AssetManifest';
+import { CharacterAssets, resolveAssetPath, resolveBasePath, mapMorphName, diffMorphCoverage } from '@assets/AssetManifest';
 
 export interface AssembledCharacter {
   rootMesh: AbstractMesh;
@@ -156,6 +156,16 @@ export class CharacterAssembler {
    */
   static useGltf = false;
 
+  /**
+   * Enable/disable real GLB loading at runtime — e.g. from Options once the
+   * owner has dropped exported GLBs into public/assets/. Kept false by default
+   * (and a no-op under Jest, where canLoadGltf() is false) so tests stay on
+   * the procedural placeholder path.
+   */
+  static setUseGltf(enabled: boolean): void {
+    CharacterAssembler.useGltf = enabled;
+  }
+
   /** Returns true when SceneLoader is available (browser/Electron only) */
   static canLoadGltf(): boolean {
     return typeof document !== 'undefined';
@@ -199,6 +209,14 @@ export class CharacterAssembler {
           available.push(t.name);
         }
       }
+      // Dev verification: surface morph-name mismatches so MORPH_TARGET_NAMES
+      // aliases can be tuned to the actual MakeHuman/MPFB2 export (phase 6).
+      const coverage = diffMorphCoverage(available);
+      if (coverage.unmappedSliders.length > 0) {
+        // eslint-disable-next-line no-console
+        console.warn('[Avatar] unmapped morph sliders:', coverage.unmappedSliders.join(', '));
+      }
+
       // Apply the planned morph weights to their matching targets.
       for (const { name, weight } of resolveMorphInfluences(plan.morphs, available)) {
         const target = morphByName.get(name);

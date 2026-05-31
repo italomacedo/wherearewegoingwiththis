@@ -4,15 +4,27 @@
 
 The player character is assembled from modular GLTF parts at runtime. Every combination is valid — from a completely nude base body to a fully augmented, armored operative.
 
-> **Implementation status (this cycle).**
-> - Assembly currently uses **procedural placeholder geometry** — `CharacterAssembler`
->   has the GLTF path (`assembleGltf`, per-part fallback) but `useGltf=false` because the
->   project ships zero `.glb` files (see gap #4 / [docs/systems/ASSET_LOADING.md](../systems/ASSET_LOADING.md)).
-> - **Health:** the player now has HP (`entities/Health.ts`) with **fall damage**
->   (`PlayerController.startFalling` + gravity); reaching **0 HP = game over → Main Menu**.
->   HP is persisted in `SaveGame.playerHealth` (with migration for legacy saves).
-> - Appearance/name flow into the world via the `GameSession` holder
->   (CharacterCreator → save → GameWorldScene).
+> **Implementation status (avatar overhaul — [ADR-0014](../ADR/0014-avatar-pipeline-makehuman-morphs.md)).**
+> - **Data-driven appearance model** (`entities/CharacterData.ts`):
+>   `CharacterAppearance { bodyBase, slots, morphs, colors, skinTexture, accessories,
+>   implants }` backed by `SLOT_REGISTRY` + `MORPH_REGISTRY`. Pure rules `applySlot`
+>   (exclusion), `resolveLayers` (layer order), `clampMorph`, accessors, and idempotent
+>   `migrateAppearance` (legacy flat → new), wired into `SaveService.migrate`.
+> - **Assembler** (`systems/CharacterAssembler.ts`): pure `buildCharacterPlan` →
+>   placeholder renders every layered slot per-slot; `assembleGltf` (browser-only) loads
+>   the MakeHuman base via `LoadAssetContainerAsync`, applies morph influences, shares the
+>   skeleton with attached clothing/hair, per-part fallback. `useGltf=false` (toggle via
+>   `setUseGltf`) until real GLBs exist — see [ASSET_LOADING.md](../systems/ASSET_LOADING.md)
+>   and `public/assets/README.md`.
+> - **Morph names**: `MORPH_TARGET_NAMES` alias lists + `mapMorphName` + `diffMorphCoverage`
+>   make MakeHuman/MPFB2 target-name differences a manifest-only fix (graceful no-op).
+> - **Animation**: pure `selectLocoState` (`entities/Locomotion.ts`) drives idle/walk/run/
+>   interact from `PlayerController.update` (dt≈0 guard); playback browser-only.
+> - **Creator UI**: pure `buildCreatorSchema` + generic schema-driven widget factory
+>   (scrollable categories, cyclers, morph sliders, native colour pickers, skin swatches).
+> - **Health:** the player has HP (`entities/Health.ts`) with **fall damage**; **0 HP =
+>   game over → Main Menu**; persisted in `SaveGame.playerHealth`.
+> - Appearance/name flow into the world via the `GameSession` holder.
 
 ---
 

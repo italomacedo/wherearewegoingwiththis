@@ -4,16 +4,19 @@
 
 Centralized asset management: GLTF models, textures, audio. Prevents duplicate loads and provides typed references.
 
-> **Implementation status (this cycle) — gap #4, next target.** The pipeline is
-> **dormant**: `AssetManifest` lists intended `public/assets/...` paths but **no files
-> exist**; `CharacterAssembler.useGltf=false` (procedural placeholders), though an
-> `assembleGltf` path exists (SceneLoader, per-part fallback to placeholder);
-> `MercadoSombrasZone.loadRealAssets` is a no-op.
-> **Constraint:** the coding agent cannot download/commit binaries here (no asset MCP;
-> `WebFetch` returns text). Plan: build+test the loading pipeline so dropping real files
-> in "just works", then source assets via owner-supplied files OR runtime CC0 CDN loading
-> (Poly Haven) — a decision to confirm. See [WORLD_DESIGN.md](../design/WORLD_DESIGN.md)
-> for the curated catalog and [ADR-0005](../ADR/0005-asset-pipeline.md).
+> **Implementation status — avatar pipeline built ([ADR-0014](../ADR/0014-avatar-pipeline-makehuman-morphs.md)).**
+> The character loading pipeline is now **built and tested** (procedural-fallback-first):
+> `AssetManifest` carries the full character categories (bases, skin textures, hair,
+> eyebrows/beard/eyes/teeth/makeup, layered clothing, footwear, animations) plus pure
+> `resolveAssetPath`/`resolveBasePath`/`listAssetKeys` and the morph-name map
+> (`MORPH_TARGET_NAMES`/`mapMorphName`/`diffMorphCoverage`). `CharacterAssembler` has a pure
+> `buildCharacterPlan` + a browser `assembleGltf` (skeleton, morph targets, attached layers,
+> per-part fallback). `CharacterAssembler.useGltf=false` by default (toggle `setUseGltf`).
+> **The `public/assets/` tree is scaffolded** (folders + `README.md`); it still ships **no
+> binaries** — the coding agent cannot download/commit them. Owner action: export a rigged
+> GLB from MakeHuman/MPFB2 + drop files (see `public/assets/README.md`), confirm morph-target
+> names, then flip `useGltf`. Environment/world assets (gap #4) still pending; see
+> [WORLD_DESIGN.md](../design/WORLD_DESIGN.md) and [ADR-0005](../ADR/0005-asset-pipeline.md).
 
 ---
 

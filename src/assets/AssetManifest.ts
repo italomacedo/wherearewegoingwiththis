@@ -9,7 +9,7 @@
  * per-part until the files exist.
  */
 
-import type { MorphId } from '@entities/CharacterData';
+import { MORPH_REGISTRY, type MorphId } from '@entities/CharacterData';
 
 export const CharacterAssets = {
   bases: {
@@ -256,6 +256,40 @@ export function mapMorphName(morphId: MorphId, availableNames: string[]): string
     if (match) return match;
   }
   return null;
+}
+
+export interface MorphCoverageReport {
+  /** Morph slider ids that matched an available glTF target. */
+  mapped: string[];
+  /** Morph slider ids with no matching target name (will no-op). */
+  unmappedSliders: string[];
+  /** Available glTF target names not used by any slider. */
+  unusedTargets: string[];
+}
+
+/**
+ * Diffs the morph-slider registry against the morph-target names actually
+ * present on a loaded base mesh. Used (phase 6) to confirm the MakeHuman/MPFB2
+ * export's target names and tune MORPH_TARGET_NAMES aliases. Pure + testable.
+ */
+export function diffMorphCoverage(availableTargetNames: string[]): MorphCoverageReport {
+  const mapped: string[] = [];
+  const unmappedSliders: string[] = [];
+  const used = new Set<string>();
+  for (const morphId of Object.keys(MORPH_REGISTRY)) {
+    const name = mapMorphName(morphId, availableTargetNames);
+    if (name) {
+      mapped.push(morphId);
+      used.add(name);
+    } else {
+      unmappedSliders.push(morphId);
+    }
+  }
+  return {
+    mapped,
+    unmappedSliders,
+    unusedTargets: availableTargetNames.filter((n) => !used.has(n)),
+  };
 }
 
 /** Whether an asset has a real GLTF file (not just a manifest entry) */

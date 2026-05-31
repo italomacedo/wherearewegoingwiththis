@@ -1,7 +1,8 @@
 import {
   CharacterAssets, assetExists, resolveAssetPath, resolveBasePath,
-  mapMorphName, MORPH_TARGET_NAMES, listAssetKeys,
+  mapMorphName, MORPH_TARGET_NAMES, listAssetKeys, diffMorphCoverage,
 } from '../../../src/assets/AssetManifest';
+import { MORPH_REGISTRY } from '../../../src/entities/CharacterData';
 
 describe('AssetManifest', () => {
   it('CharacterAssets.bases contains 8 entries', () => {
@@ -116,6 +117,24 @@ describe('AssetManifest', () => {
 
     it('returns [] when the path resolves to a string leaf', () => {
       expect(listAssetKeys('clothes.jacket.jacket_leather')).toEqual([]);
+    });
+  });
+
+  describe('diffMorphCoverage', () => {
+    it('reports mapped sliders, unmapped sliders and unused targets', () => {
+      const report = diffMorphCoverage(['nose-scale-horiz', 'mystery-target']);
+      expect(report.mapped).toContain('nose_width'); // alias of nose-scale-horiz
+      expect(report.unusedTargets).toContain('mystery-target');
+      // every registry morph is accounted for as mapped or unmapped
+      expect(report.mapped.length + report.unmappedSliders.length)
+        .toBe(Object.keys(MORPH_REGISTRY).length);
+    });
+
+    it('all sliders unmapped when no target names are present', () => {
+      const report = diffMorphCoverage([]);
+      expect(report.mapped).toEqual([]);
+      expect(report.unmappedSliders.length).toBe(Object.keys(MORPH_REGISTRY).length);
+      expect(report.unusedTargets).toEqual([]);
     });
   });
 

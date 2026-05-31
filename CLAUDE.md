@@ -8,7 +8,7 @@ This is the primary entry point for all AI agents working on this project. Read 
 
 ## Current Status (keep this updated)
 
-**Phases 0–8 COMPLETE** (+ gaps #1/#2/#3 closed) · **Phase 9 MVP** (flying motorcycle) · **pause/save + HUD + camera-relative WASD + Z/C & MMB orbit** · **health system (fall damage, bike crash → smoke → explode, game-over, persisted)** · **playable MVP verified in Electron (live Claude NPC chat)** · 540 tests · ~99.6% coverage (gated 95% lines/stmts/funcs, 90% branches) · typecheck + build green.
+**Phases 0–8 COMPLETE** (+ gaps #1/#2/#3 closed) · **Phase 9 MVP** (flying motorcycle) · **pause/save + HUD + camera-relative WASD + Z/C & MMB orbit** · **health system (fall damage, bike crash → smoke → explode, game-over, persisted)** · **playable MVP verified in Electron (live Claude NPC chat)** · **Avatar overhaul phases 1–6 (code) — [ADR-0014](docs/ADR/0014-avatar-pipeline-makehuman-morphs.md): slot/morph data model + migration, data-driven assembler (procedural-fallback-first) + GLB skeleton/morphs, locomotion anim, schema-driven Creator UI; awaiting owner-exported MakeHuman GLBs to flip `useGltf`** · 609 tests · ~99.7% coverage (gated 95% lines/stmts/funcs, 90% branches) · typecheck + build green.
 
 > **Marco "MVP jogável" fechado.** Loop completo: splash→menu→criação→mundo; herói anda (WASD relativo à câmera), conversa com a Zara (Claude CLI ao vivo, com pré-moderação), pilota a moto, toma dano, salva. Aberto: Phase 9 follow-ups (carro/ tráfego), Phase 10 (combate), gap #4 (assets reais).
 
@@ -145,10 +145,11 @@ src/
     OptionsScene.ts   Tabs: Game / Display / Video / Audio
     GameWorldScene.ts Wires camera+input+zone+player+vehicle+NPC+dialog+pause+HUD (camera FIRST); ESC pause freezes world
   entities/         Game objects (data + behavior, no GUI)
-    CharacterData.ts      Appearance model, DEFAULT_APPEARANCE, BODY_BASES
+    CharacterData.ts      Appearance model (slots/morphs/colors/skinTexture) + SLOT/MORPH registries + pure rules (applySlot/resolveLayers/clampMorph) + migrateAppearance
     WorldZone.ts          Abstract zone (load/unload/spawn/bounds)
     zones/MercadoSombrasZone.ts  Starting district (procedural)
-    PlayerController.ts   Pure computeDisplacement + spawn + movement + gravity/fall damage + Health
+    PlayerController.ts   Pure computeDisplacement + spawn + movement + gravity/fall damage + Health + locomotion anim state
+    Locomotion.ts         Pure selectLocoState (idle/walk/run/interact) for animation playback
     VehicleController.ts  Pure computeFlightStep (lift/drag) + mount/pilot/park + fall/crash/smoke/explode + Health (Phase 9 MVP)
     Health.ts             Pure HP value object (damage/heal/fraction/isDead/isCritical) for player + vehicle
     NPCAgent.ts           Persona + state machine + proximity (pure)
@@ -159,7 +160,7 @@ src/
     PhysicsService.ts     Havok WASM init (browser-only, guarded)
     SettingsService.ts    Settings load/save/validate (localStorage + memory)
     SaveService.ts        SaveGame JSON CRUD + npcMemory + playerHealth + vehicle{health,destroyed} (migrate() backfills)
-    CharacterAssembler.ts GLTF/placeholder character assembly (useGltf flag)
+    CharacterAssembler.ts Pure buildCharacterPlan + GLTF(skeleton/morphs/layers)/placeholder assembly (useGltf flag, setUseGltf)
     ZoneManager.ts        Zone registry + load/unload
     DialogSystem.ts       Chat: pure state (player/npc/system lines, *emote* vs "speech" parse) + scrollable cinematic GUI + native DOM <input>
     PauseMenu.ts          ESC pause overlay: Resume / Save Game / Load / Quit (pure state + browser GUI)

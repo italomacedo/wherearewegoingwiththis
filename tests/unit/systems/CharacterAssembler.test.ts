@@ -98,6 +98,19 @@ describe('CharacterAssembler', () => {
     expect(CharacterAssembler.canLoadGltf()).toBe(false);
   });
 
+  it('setUseGltf toggles the flag but stays on placeholder in Node', async () => {
+    try {
+      CharacterAssembler.setUseGltf(true);
+      expect(CharacterAssembler.useGltf).toBe(true);
+      const spy = jest.spyOn(assembler, 'assemblePlaceholder');
+      const char = await assembler.assemble(DEFAULT_APPEARANCE);
+      expect(spy).toHaveBeenCalled(); // canLoadGltf() false → placeholder
+      char.dispose();
+    } finally {
+      CharacterAssembler.setUseGltf(false);
+    }
+  });
+
   it('assembles a placeholder character with default appearance', async () => {
     const char = await assembler.assemble(DEFAULT_APPEARANCE);
     expect(char.rootMesh).toBeDefined();
