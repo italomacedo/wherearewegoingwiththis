@@ -226,7 +226,7 @@ export class CharacterAssembler {
       this.applySkinTexture(container.meshes, plan);
     } catch {
       // Base GLB missing — fall back to placeholder body.
-      const placeholderBody = this.buildPlaceholderBody();
+      const placeholderBody = this.buildPlaceholderBody(appearance.bodyBase);
       this.applySkinTone(placeholderBody, plan.skinTone);
       meshes.push(...placeholderBody);
     }
@@ -290,7 +290,7 @@ export class CharacterAssembler {
     const plan = buildCharacterPlan(appearance);
     const meshes: AbstractMesh[] = [];
 
-    const bodyMeshes = this.buildPlaceholderBody();
+    const bodyMeshes = this.buildPlaceholderBody(appearance.bodyBase);
     this.applySkinTone(bodyMeshes, plan.skinTone);
     meshes.push(...bodyMeshes);
 
@@ -343,36 +343,50 @@ export class CharacterAssembler {
     return mesh;
   }
 
-  private buildPlaceholderBody(): Mesh[] {
+  /**
+   * Procedural body. Proportions vary by the body-base key so cycling the body
+   * gives visible feedback even in placeholder mode (real silhouettes come from
+   * the GLB). `_male_` bases are broader/taller; others are narrower.
+   */
+  private buildPlaceholderBody(bodyBase = ''): Mesh[] {
     const meshes: Mesh[] = [];
+    const male = bodyBase.includes('_male_');
+
+    const headDia = male ? 0.26 : 0.235;
+    const torsoDia = male ? 0.40 : 0.30;
+    const torsoH = male ? 0.64 : 0.56;
+    const armDia = male ? 0.12 : 0.09;
+    const armOffset = male ? 0.28 : 0.22;
+    const legDia = male ? 0.15 : 0.115;
+    const legOffset = male ? 0.10 : 0.085;
 
     const mat = new StandardMaterial('skin-mat', this.scene);
     mat.diffuseColor = new Color3(0.8, 0.7, 0.6); // neutral — overridden by applySkinTone
 
     // Head
-    const head = MeshBuilder.CreateSphere('head', { diameter: 0.25 }, this.scene);
+    const head = MeshBuilder.CreateSphere('head', { diameter: headDia }, this.scene);
     head.position = new Vector3(0, 1.7, 0);
     head.material = mat;
     meshes.push(head);
 
     // Torso
-    const torso = MeshBuilder.CreateCylinder('torso', { height: 0.6, diameter: 0.35 }, this.scene);
+    const torso = MeshBuilder.CreateCylinder('torso', { height: torsoH, diameter: torsoDia }, this.scene);
     torso.position = new Vector3(0, 1.2, 0);
     torso.material = mat;
     meshes.push(torso);
 
     // Arms
     ['arm_l', 'arm_r'].forEach((name, i) => {
-      const arm = MeshBuilder.CreateCylinder(name, { height: 0.55, diameter: 0.1 }, this.scene);
-      arm.position = new Vector3(i === 0 ? -0.25 : 0.25, 1.2, 0);
+      const arm = MeshBuilder.CreateCylinder(name, { height: 0.55, diameter: armDia }, this.scene);
+      arm.position = new Vector3(i === 0 ? -armOffset : armOffset, 1.2, 0);
       arm.material = mat;
       meshes.push(arm);
     });
 
     // Legs
     ['leg_l', 'leg_r'].forEach((name, i) => {
-      const leg = MeshBuilder.CreateCylinder(name, { height: 0.7, diameter: 0.12 }, this.scene);
-      leg.position = new Vector3(i === 0 ? -0.1 : 0.1, 0.65, 0);
+      const leg = MeshBuilder.CreateCylinder(name, { height: 0.7, diameter: legDia }, this.scene);
+      leg.position = new Vector3(i === 0 ? -legOffset : legOffset, 0.65, 0);
       leg.material = mat;
       meshes.push(leg);
     });

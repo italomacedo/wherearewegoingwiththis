@@ -183,6 +183,16 @@ describe('CharacterAssembler', () => {
     char.dispose();
   });
 
+  it('body proportions vary by gender (placeholder feedback)', async () => {
+    const male = await assembler.assemble({ ...DEFAULT_APPEARANCE, bodyBase: 'body_male_white' });
+    const female = await assembler.assemble({ ...DEFAULT_APPEARANCE, bodyBase: 'body_female_white' });
+    const mW = male.meshes.find((m) => m.name === 'torso')!.getBoundingInfo().boundingBox.extendSize.x;
+    const fW = female.meshes.find((m) => m.name === 'torso')!.getBoundingInfo().boundingBox.extendSize.x;
+    expect(mW).toBeGreaterThan(fW);
+    male.dispose();
+    female.dispose();
+  });
+
   it('different skin tones produce valid characters', async () => {
     for (const tone of ['#FFFFFF', '#8B6355', '#2D1B0E']) {
       const char = await assembler.assemble(withSkin(tone));

@@ -19,7 +19,7 @@ import { CharacterAssets, listAssetKeys } from '@assets/AssetManifest';
 export type ControlSpec =
   | { kind: 'bodyCycler'; label: string }
   | { kind: 'swatch'; label: string; skinTextures: SkinTextureId[] }
-  | { kind: 'color'; label: string; colorKey: ColorKey }
+  | { kind: 'color'; label: string; colorKey: ColorKey; presets: string[] }
   | { kind: 'cycler'; label: string; slot: SlotId; options: (string | null)[] }
   | { kind: 'slider'; label: string; morph: MorphId };
 
@@ -28,8 +28,24 @@ export interface CategorySpec {
   controls: ControlSpec[];
 }
 
+/** In-canvas colour palettes per region (native DOM pickers are unreliable over
+ * the Babylon canvas — see CLAUDE.md Lesson 10). Free-form picking returns once
+ * a real material/UI pass needs it. */
+export const COLOR_PRESETS: Record<ColorKey, string[]> = {
+  skin: ['#3B2219', '#5A3825', '#7A5230', '#8B6355', '#A57350', '#C68642', '#D7A07A', '#F0C8A0'],
+  hair: ['#0A0A0A', '#1A1A1A', '#3B2A1A', '#6A4A2A', '#A86B3C', '#C9A24B', '#9A9A9A', '#E6E6E6', '#5A2A6A', '#1E6F8A'],
+  eyebrow: ['#0A0A0A', '#1A1A1A', '#3B2A1A', '#6A4A2A', '#A86B3C', '#9A9A9A'],
+  beard: ['#0A0A0A', '#1A1A1A', '#3B2A1A', '#6A4A2A', '#A86B3C', '#9A9A9A'],
+  eye: ['#3A2A1A', '#5A4A2A', '#2A4A6A', '#3A6A4A', '#6A6A6A', '#8A3A3A', '#00A0A0'],
+  makeup: ['#A03050', '#C04060', '#3A2A6A', '#202020', '#A0A030', '#00A0A0'],
+};
+
 function slotCycler(slot: SlotId, label: string): ControlSpec {
   return { kind: 'cycler', label, slot, options: [null, ...listAssetKeys(SLOT_REGISTRY[slot].manifestKey)] };
+}
+
+function colorControl(colorKey: ColorKey, label: string): ControlSpec {
+  return { kind: 'color', label, colorKey, presets: COLOR_PRESETS[colorKey] };
 }
 
 /**
@@ -51,7 +67,7 @@ export function buildCreatorSchema(): CategorySpec[] {
       controls: [
         { kind: 'bodyCycler', label: 'Body' },
         { kind: 'swatch', label: 'Skin Texture', skinTextures },
-        { kind: 'color', label: 'Skin Tone', colorKey: 'skin' },
+        colorControl('skin', 'Skin Tone'),
       ],
     },
     { title: 'Face', controls: faceSliders },
@@ -59,21 +75,21 @@ export function buildCreatorSchema(): CategorySpec[] {
       title: 'Hair & Facial Hair',
       controls: [
         slotCycler('hair', 'Hair'),
-        { kind: 'color', label: 'Hair Color', colorKey: 'hair' },
+        colorControl('hair', 'Hair Color'),
         slotCycler('eyebrows', 'Eyebrows'),
-        { kind: 'color', label: 'Eyebrow Color', colorKey: 'eyebrow' },
+        colorControl('eyebrow', 'Eyebrow Color'),
         slotCycler('beard', 'Beard'),
-        { kind: 'color', label: 'Beard Color', colorKey: 'beard' },
+        colorControl('beard', 'Beard Color'),
       ],
     },
     {
       title: 'Eyes & Makeup',
       controls: [
         slotCycler('eyes', 'Eyes'),
-        { kind: 'color', label: 'Eye Color', colorKey: 'eye' },
+        colorControl('eye', 'Eye Color'),
         slotCycler('teeth', 'Teeth'),
         slotCycler('makeup', 'Makeup'),
-        { kind: 'color', label: 'Makeup Color', colorKey: 'makeup' },
+        colorControl('makeup', 'Makeup Color'),
       ],
     },
     {
@@ -230,7 +246,11 @@ export class CharacterCreatorScene extends BaseScene {
     await this.rebuildCharacter();
   }
 
-  /** Set a morph slider value (0..1). */
+  /**
+   * Set a morph slider value (0..1). Morphs are applied LIVE to the assembled
+   * character (no full rebuild) — in placeholder mode there are no morph targets,
+   * so this is a visible no-op until a real GLB base is loaded.
+   */
   async setMorph(morph: string, value: number): Promise<void> {
     this.characterData = {
       ...this.characterData,
@@ -239,7 +259,7 @@ export class CharacterCreatorScene extends BaseScene {
         morphs: { ...this.characterData.appearance.morphs, [morph]: value },
       },
     };
-    await this.rebuildCharacter();
+    this.assembled?.setMorph?.(morph, value);
   }
 
   async setClothingSlot(
@@ -289,9 +309,22 @@ export class CharacterCreatorScene extends BaseScene {
     };
   }
 
+  private rebuildSeq = 0;
+
+  /**
+   * Reassemble the preview. Serialized so rapid edits (cycling, swatches) can't
+   * race: each call takes a sequence number, and a build whose number is stale
+   * by the time it resolves is discarded instead of disposing the live one.
+   */
   private async rebuildCharacter(): Promise<void> {
+    const seq = ++this.rebuildSeq;
+    const next = await this.assembler!.assemble(this.characterData.appearance);
+    if (seq !== this.rebuildSeq) {
+      next.dispose(); // a newer rebuild superseded this one
+      return;
+    }
     this.assembled?.dispose();
-    this.assembled = await this.assembler!.assemble(this.characterData.appearance);
+    this.assembled = next;
   }
 
   // ─── Setup (called on enter) ───────────────────────────────────────────────
@@ -382,6 +415,16 @@ export class CharacterCreatorScene extends BaseScene {
       header.fontStyle = 'bold';
       header.height = '26px';
       panel.addControl(header);
+      if (category.title === 'Face' && !CharacterAssembler.useGltf) {
+        const note = new TextBlock('face-note');
+        note.text = '(facial sliders apply to the 3D model — load a real base to see them)';
+        note.color = '#778899';
+        note.fontSize = 10;
+        note.fontFamily = 'monospace';
+        note.textWrapping = true;
+        note.height = '28px';
+        panel.addControl(note);
+      }
       for (const control of category.controls) this.buildControl(control, panel);
     }
 
@@ -455,18 +498,18 @@ export class CharacterCreatorScene extends BaseScene {
     }
 
     if (spec.kind === 'color') {
-      const btn = Button.CreateSimpleButton(`col-${spec.colorKey}`, '🎨 pick');
-      btn.height = '30px'; btn.width = '260px';
-      btn.color = '#00FFCC'; btn.background = 'rgba(0,30,40,0.8)';
-      const dom = document.createElement('input');
-      dom.type = 'color';
-      dom.style.position = 'absolute';
-      dom.style.left = '-9999px';
-      dom.value = this.characterData.appearance.colors[spec.colorKey] ?? '#888888';
-      dom.addEventListener('input', () => void this.setColorValue(spec.colorKey, dom.value));
-      document.body.appendChild(dom);
-      btn.onPointerUpObservable.add(() => dom.click());
-      parent.addControl(btn);
+      // In-canvas swatch row (reliable; native DOM colour pickers don't play
+      // well over the Babylon canvas — CLAUDE.md Lesson 10).
+      const row = new StackPanel(`col-${spec.colorKey}`);
+      row.isVertical = false; row.height = '26px'; row.spacing = 3;
+      for (const hex of spec.presets) {
+        const sw = Button.CreateSimpleButton(`sw-${spec.colorKey}-${hex}`, '');
+        sw.width = '26px'; sw.height = '26px';
+        sw.background = hex; sw.color = '#00000000'; sw.thickness = 1;
+        sw.onPointerUpObservable.add(() => void this.setColorValue(spec.colorKey, hex));
+        row.addControl(sw);
+      }
+      parent.addControl(row);
       return;
     }
 

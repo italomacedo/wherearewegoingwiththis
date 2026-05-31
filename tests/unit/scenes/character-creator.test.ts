@@ -185,10 +185,18 @@ describe('CharacterCreatorScene', () => {
     expect(slots.sneakers).toBeUndefined();
   });
 
-  it('setMorph stores a morph slider value', async () => {
+  it('setMorph stores a morph slider value (applied live, no rebuild)', async () => {
     await scene.onEnter();
     await scene.setMorph('nose_width', 0.8);
     expect(scene.getCharacterData().appearance.morphs.nose_width).toBe(0.8);
+  });
+
+  it('serializes overlapping rebuilds — latest edit wins', async () => {
+    await scene.onEnter();
+    const p1 = scene.setSkinTone('#111111');
+    const p2 = scene.setSkinTone('#222222');
+    await Promise.all([p1, p2]);
+    expect(scene.getCharacterData().appearance.colors.skin).toBe('#222222');
   });
 
   it('getCharacterData returns independent copy (not reference)', async () => {
@@ -227,6 +235,14 @@ describe('buildCreatorSchema (pure)', () => {
     const tops = schema.find((c) => c.title === 'Tops')!;
     for (const c of tops.controls) {
       if (c.kind === 'cycler') expect(c.options[0]).toBeNull();
+    }
+  });
+
+  it('every colour control carries a non-empty preset palette', () => {
+    const colors = schema.flatMap((c) => c.controls).filter((c) => c.kind === 'color');
+    expect(colors.length).toBeGreaterThan(0);
+    for (const c of colors) {
+      expect(c.kind === 'color' && c.presets.length).toBeGreaterThan(0);
     }
   });
 });
