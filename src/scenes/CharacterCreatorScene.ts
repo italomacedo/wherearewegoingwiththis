@@ -9,14 +9,16 @@ import { ServiceLocator } from '@core/ServiceLocator';
 import { GameSession } from '@core/GameSession';
 import {
   CharacterData, CharacterAppearance, DEFAULT_APPEARANCE, BODY_BASES,
-  SlotId, ColorKey, SkinTextureId, MorphId, SLOT_REGISTRY, MORPH_REGISTRY,
-  applySlot, getHair, cloneAppearance,
+  SlotId, ColorKey, SkinTextureId, MorphId, Ethnicity, ETHNICITIES,
+  SLOT_REGISTRY, MORPH_REGISTRY, applySlot, getHair, cloneAppearance,
 } from '@entities/CharacterData';
 import { CharacterAssets, listAssetKeys } from '@assets/AssetManifest';
 
 // ─── Character-creator UI schema (pure, data-driven) ────────────────────────────
 
 export type ControlSpec =
+  | { kind: 'gender'; label: string }
+  | { kind: 'ethnicity'; label: string }
   | { kind: 'bodyCycler'; label: string }
   | { kind: 'swatch'; label: string; skinTextures: SkinTextureId[] }
   | { kind: 'color'; label: string; colorKey: ColorKey; presets: string[] }
@@ -56,21 +58,16 @@ function colorControl(colorKey: ColorKey, label: string): ControlSpec {
 export function buildCreatorSchema(): CategorySpec[] {
   const skinTextures = Object.keys(CharacterAssets.skinTextures) as SkinTextureId[];
 
-  const faceSliders: ControlSpec[] = Object.values(MORPH_REGISTRY)
-    .slice()
-    .sort((a, b) => (a.group === b.group ? a.label.localeCompare(b.label) : a.group.localeCompare(b.group)))
-    .map((m) => ({ kind: 'slider', label: m.label, morph: m.id }));
-
   return [
     {
       title: 'Body & Skin',
       controls: [
-        { kind: 'bodyCycler', label: 'Body' },
+        { kind: 'gender', label: 'Gender' },
+        { kind: 'ethnicity', label: 'Ethnicity' },
         { kind: 'swatch', label: 'Skin Texture', skinTextures },
         colorControl('skin', 'Skin Tone'),
       ],
     },
-    { title: 'Face', controls: faceSliders },
     {
       title: 'Hair & Facial Hair',
       controls: [
@@ -83,13 +80,11 @@ export function buildCreatorSchema(): CategorySpec[] {
       ],
     },
     {
-      title: 'Eyes & Makeup',
+      title: 'Eyes',
       controls: [
         slotCycler('eyes', 'Eyes'),
         colorControl('eye', 'Eye Color'),
         slotCycler('teeth', 'Teeth'),
-        slotCycler('makeup', 'Makeup'),
-        colorControl('makeup', 'Makeup Color'),
       ],
     },
     {
@@ -235,6 +230,32 @@ export class CharacterCreatorScene extends BaseScene {
   async setColorValue(key: ColorKey, hex: string): Promise<void> {
     this.setColor(key, hex);
     await this.rebuildCharacter();
+  }
+
+  /** Switch the body between male/female, preserving the current ethnicity key. */
+  async setGender(gender: 'male' | 'female'): Promise<void> {
+    const parts = this.characterData.appearance.bodyBase.split('_'); // body_<gender>_<eth>
+    const ethnicity = parts[2] ?? 'black';
+    this.setAppearance('bodyBase', `body_${gender}_${ethnicity}`);
+    await this.rebuildCharacter();
+  }
+
+  /** Current gender parsed from the body-base key. */
+  getGender(): 'male' | 'female' {
+    return this.characterData.appearance.bodyBase.includes('_male_') ? 'male' : 'female';
+  }
+
+  /** Set ethnic morphology (drives the MakeHuman macro morph). Applied live. */
+  async setEthnicity(ethnicity: Ethnicity): Promise<void> {
+    this.characterData = {
+      ...this.characterData,
+      appearance: { ...this.characterData.appearance, ethnicity },
+    };
+    this.assembled?.setEthnicity?.(ethnicity);
+  }
+
+  getEthnicity(): Ethnicity {
+    return this.characterData.appearance.ethnicity ?? 'universal';
   }
 
   /** Choose one of the four skin textures and rebuild. */
@@ -436,10 +457,10 @@ export class CharacterCreatorScene extends BaseScene {
     nameInput.background = 'rgba(0,30,40,0.8)';
     nameInput.fontSize = 16;
     nameInput.fontFamily = 'monospace';
-    nameInput.verticalAlignment = 2;
-    nameInput.horizontalAlignment = 2;
-    nameInput.paddingBottom = '100px';
-    nameInput.paddingRight = '20px';
+    nameInput.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+    nameInput.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+    nameInput.paddingBottom = '90px';
+    nameInput.paddingRight = '24px';
     nameInput.onBlurObservable.add(() => this.setPlayerName(nameInput.text));
     gui.addControl(nameInput);
 
@@ -452,10 +473,10 @@ export class CharacterCreatorScene extends BaseScene {
     beginBtn.fontFamily = '"Courier New", monospace';
     beginBtn.fontStyle = 'bold';
     beginBtn.thickness = 1;
-    beginBtn.verticalAlignment = 2;
-    beginBtn.horizontalAlignment = 2;
-    beginBtn.paddingBottom = '40px';
-    beginBtn.paddingRight = '20px';
+    beginBtn.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+    beginBtn.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+    beginBtn.paddingBottom = '30px';
+    beginBtn.paddingRight = '24px';
     beginBtn.onPointerUpObservable.add(() => void this.onBegin(nameInput.text));
     gui.addControl(beginBtn);
 
@@ -467,7 +488,7 @@ export class CharacterCreatorScene extends BaseScene {
     backBtn.fontSize = 14;
     backBtn.fontFamily = 'monospace';
     backBtn.thickness = 1;
-    backBtn.verticalAlignment = 2;
+    backBtn.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
     backBtn.horizontalAlignment = 0;
     backBtn.paddingBottom = '40px';
     backBtn.paddingLeft = '20px';
@@ -523,6 +544,36 @@ export class CharacterCreatorScene extends BaseScene {
         b.onPointerUpObservable.add(() => void this.setSkinTextureChoice(id));
         row.addControl(b);
       }
+      parent.addControl(row);
+      return;
+    }
+
+    if (spec.kind === 'gender') {
+      const row = new StackPanel('gender-row');
+      row.isVertical = false; row.height = '32px'; row.spacing = 6;
+      (['female', 'male'] as const).forEach((g) => {
+        const b = Button.CreateSimpleButton(`gender-${g}`, g === 'male' ? 'MALE' : 'FEMALE');
+        b.width = '120px'; b.height = '32px';
+        b.color = '#00FFCC'; b.background = 'rgba(0,40,60,0.9)';
+        b.fontFamily = 'monospace';
+        b.onPointerUpObservable.add(() => void this.setGender(g));
+        row.addControl(b);
+      });
+      parent.addControl(row);
+      return;
+    }
+
+    if (spec.kind === 'ethnicity') {
+      const row = new StackPanel('ethnicity-row');
+      row.isVertical = false; row.height = '30px'; row.spacing = 4;
+      ETHNICITIES.forEach((e) => {
+        const b = Button.CreateSimpleButton(`eth-${e}`, e.slice(0, 3).toUpperCase());
+        b.width = '58px'; b.height = '30px';
+        b.color = '#00FFCC'; b.background = 'rgba(0,40,60,0.9)';
+        b.fontFamily = 'monospace';
+        b.onPointerUpObservable.add(() => void this.setEthnicity(e));
+        row.addControl(b);
+      });
       parent.addControl(row);
       return;
     }

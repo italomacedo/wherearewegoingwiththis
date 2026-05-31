@@ -4,7 +4,7 @@ import {
 } from '@babylonjs/core';
 import type { Skeleton, AnimationGroup } from '@babylonjs/core';
 import {
-  CharacterAppearance, SlotId, SlotCategory, ColorKey, MorphId,
+  CharacterAppearance, SlotId, SlotCategory, ColorKey, MorphId, Ethnicity, ETHNICITIES,
   DEFAULT_COLORS, MORPH_REGISTRY, resolveLayers, getSkinTone, clampMorph,
 } from '@entities/CharacterData';
 import { CharacterAssets, resolveAssetPath, resolveBasePath, mapMorphName, diffMorphCoverage } from '@assets/AssetManifest';
@@ -15,6 +15,8 @@ export interface AssembledCharacter {
   dispose(): void;
   /** Live-update a facial morph (GLB mode only; no-op/undefined for placeholders). */
   setMorph?(morphId: MorphId, weight: number): void;
+  /** Blend the ethnic morphology to a MakeHuman macro target (GLB mode only). */
+  setEthnicity?(ethnicity: Ethnicity): void;
   /** Shared humanoid skeleton (GLB mode only). */
   getSkeleton?(): Skeleton | null;
   /** Locomotion animation groups from the rigged base (GLB mode only). */
@@ -107,6 +109,30 @@ export function resolveMorphInfluences(
   return out;
 }
 
+export interface MacroTargets {
+  ethnicity: Partial<Record<Ethnicity, string>>;
+  bust: string | null;
+}
+
+/**
+ * Classifies the MakeHuman macro morph-target names a GLB exports into the
+ * ones we can drive: ethnicity (asian/caucasian/african/universal) and bust.
+ * MPFB's compressed names look like `$md-$as-$fe-$yn` / `...maxcup...`. Pure.
+ */
+export function classifyMacroTargets(names: string[]): MacroTargets {
+  const ethnicity: Partial<Record<Ethnicity, string>> = {};
+  let bust: string | null = null;
+  for (const name of names) {
+    const l = name.toLowerCase();
+    if (l.includes('cup')) { bust = bust ?? name; continue; }
+    if (l.includes('universal')) ethnicity.universal = name;
+    else if (/\$as|-as-|asian/.test(l)) ethnicity.asian = name;
+    else if (/\$ca|-ca-|caucasian/.test(l)) ethnicity.caucasian = name;
+    else if (/\$af|-af-|african/.test(l)) ethnicity.african = name;
+  }
+  return { ethnicity, bust };
+}
+
 // Placeholder tints for clothing/footwear slots that carry no color picker.
 const CLOTHING_TINTS: Partial<Record<SlotId, string>> = {
   t_shirt: '#2A3A4A', shirt: '#223344', long_sleeve: '#1E2E3E',
@@ -150,11 +176,12 @@ export class CharacterAssembler {
   }
 
   /**
-   * Whether to load real GLTF assets. Defaults to false because the project
-   * currently ships zero .glb files — only procedural placeholders. Flip to
-   * true (per-environment) once real character GLBs are placed in public/assets/.
+   * Whether to load real GLTF assets. Enabled now that real base GLBs are being
+   * dropped into public/assets/; any part whose GLB is still missing falls back
+   * to procedural placeholder per-part. A no-op under Jest (canLoadGltf() false),
+   * so tests stay on the placeholder path.
    */
-  static useGltf = false;
+  static useGltf = true;
 
   /**
    * Enable/disable real GLB loading at runtime — e.g. from Options once the
@@ -182,6 +209,7 @@ export class CharacterAssembler {
   /* istanbul ignore next — browser/Electron only; exercised via manual verification (phase 6) */
   private async assembleGltf(appearance: CharacterAppearance): Promise<AssembledCharacter> {
     const { SceneLoader } = await import('@babylonjs/core');
+    await import('@babylonjs/loaders/glTF'); // registers the .glb/.gltf loader plugin
     const plan = buildCharacterPlan(appearance);
     const meshes: AbstractMesh[] = [];
 
@@ -189,6 +217,16 @@ export class CharacterAssembler {
     let animationGroups: AnimationGroup[] = [];
     // morph-target lookup by resolved glTF name, for live slider updates
     const morphByName = new Map<string, { influence: number }>();
+    let macros: MacroTargets = { ethnicity: {}, bust: null };
+
+    // Blend toward a single ethnicity macro target (the others to 0).
+    const applyEthnicity = (eth: Ethnicity): void => {
+      for (const key of ETHNICITIES) {
+        const tname = macros.ethnicity[key];
+        const t = tname ? morphByName.get(tname) : undefined;
+        if (t) t.influence = key === eth ? 1 : 0;
+      }
+    };
 
     // ─── Base body (carries the skeleton, morph targets, animations) ──────────
     try {
@@ -197,6 +235,10 @@ export class CharacterAssembler {
       meshes.push(...container.meshes);
       skeleton = container.skeletons[0] ?? null;
       animationGroups = container.animationGroups;
+
+      // MPFB/glTF exports face away from our default camera — turn 180° to face it.
+      const gltfRoot = container.meshes.find((m) => m.name === '__root__');
+      gltfRoot?.addRotation(0, Math.PI, 0);
 
       // Collect morph targets from any mesh that has a manager.
       const available: string[] = [];
@@ -209,19 +251,33 @@ export class CharacterAssembler {
           available.push(t.name);
         }
       }
-      // Dev verification: surface morph-name mismatches so MORPH_TARGET_NAMES
-      // aliases can be tuned to the actual MakeHuman/MPFB2 export (phase 6).
+      // Dev verification: dump what the GLB actually contains so we can filter
+      // stray meshes (e.g. MPFB helper geometry) and tune MORPH_TARGET_NAMES.
+      /* eslint-disable no-console */
+      const meshNames = container.meshes.map((m) => m.name).filter((n) => n && n !== '__root__');
+      console.warn('[Avatar] GLB meshes:', meshNames.join(', ') || '(none)');
+      console.warn(
+        `[Avatar] GLB morph targets (${available.length}):`,
+        available.length ? available.join(', ') : '(none — export has no shape keys)',
+      );
       const coverage = diffMorphCoverage(available);
+      if (coverage.unusedTargets.length > 0) {
+        console.warn('[Avatar] GLB targets with no matching slider:', coverage.unusedTargets.join(', '));
+      }
       if (coverage.unmappedSliders.length > 0) {
-        // eslint-disable-next-line no-console
         console.warn('[Avatar] unmapped morph sliders:', coverage.unmappedSliders.join(', '));
       }
+      /* eslint-enable no-console */
 
       // Apply the planned morph weights to their matching targets.
       for (const { name, weight } of resolveMorphInfluences(plan.morphs, available)) {
         const target = morphByName.get(name);
         if (target) target.influence = weight;
       }
+
+      // Ethnicity from the macro morphs the GLB actually exports.
+      macros = classifyMacroTargets(available);
+      applyEthnicity(appearance.ethnicity ?? 'universal');
 
       this.applySkinTexture(container.meshes, plan);
     } catch {
@@ -232,11 +288,10 @@ export class CharacterAssembler {
     }
 
     // ─── Attached layers (clothing/hair/etc.), sharing the base skeleton ──────
+    // In real-GLB mode a missing part is SKIPPED (not replaced by a floating
+    // placeholder proxy) so the loaded model stays clean.
     for (const entry of plan.layers) {
-      if (!entry.manifestPath) {
-        meshes.push(this.buildPlaceholderPart(entry, plan.colors));
-        continue;
-      }
+      if (!entry.manifestPath) continue;
       try {
         const part = await SceneLoader.LoadAssetContainerAsync('/assets/', entry.manifestPath, this.scene);
         part.addAllToScene();
@@ -246,7 +301,7 @@ export class CharacterAssembler {
           meshes.push(m);
         }
       } catch {
-        meshes.push(this.buildPlaceholderPart(entry, plan.colors));
+        // part GLB missing/unreachable — skip it (no placeholder in GLB mode)
       }
     }
 
@@ -264,6 +319,7 @@ export class CharacterAssembler {
         const target = name ? morphByName.get(name) : undefined;
         if (target) target.influence = clampMorph(weight);
       },
+      setEthnicity: (e: Ethnicity) => applyEthnicity(e),
       getSkeleton: () => skeleton,
       getAnimationGroups: () => animationGroups,
     };

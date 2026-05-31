@@ -165,7 +165,16 @@ export interface CharacterAppearance {
   skinTexture: SkinTextureId;
   accessories: string[];
   implants: string[];
+  /**
+   * Ethnic morphology, driven by the MakeHuman macro morph targets that the GLB
+   * actually exports (asian/caucasian/african/universal). Independent of the
+   * skin-tone colour.
+   */
+  ethnicity?: Ethnicity;
 }
+
+export type Ethnicity = 'asian' | 'caucasian' | 'african' | 'universal';
+export const ETHNICITIES: Ethnicity[] = ['asian', 'caucasian', 'african', 'universal'];
 
 export interface CharacterData {
   name: string;
@@ -189,6 +198,7 @@ export const DEFAULT_APPEARANCE: CharacterAppearance = {
   skinTexture: 'skin_01',
   accessories: [],
   implants: [],
+  ethnicity: 'universal',
 };
 
 export const BODY_BASES = [
@@ -285,6 +295,7 @@ export function cloneAppearance(a: CharacterAppearance): CharacterAppearance {
     skinTexture: a.skinTexture,
     accessories: [...a.accessories],
     implants: [...a.implants],
+    ethnicity: a.ethnicity ?? 'universal',
   };
 }
 
@@ -324,6 +335,7 @@ export function migrateAppearance(raw: unknown): CharacterAppearance {
       skinTexture: (r.skinTexture as SkinTextureId) ?? 'skin_01',
       accessories: Array.isArray(r.accessories) ? [...r.accessories] : [],
       implants: Array.isArray(r.implants) ? [...r.implants] : [],
+      ethnicity: r.ethnicity ?? 'universal',
     };
   }
 
@@ -347,5 +359,6 @@ export function migrateAppearance(raw: unknown): CharacterAppearance {
     skinTexture: 'skin_01',
     accessories: Array.isArray(r.accessories) ? [...r.accessories] : [],
     implants: Array.isArray(r.implants) ? [...r.implants] : [],
+    ethnicity: r.ethnicity ?? 'universal',
   };
 }

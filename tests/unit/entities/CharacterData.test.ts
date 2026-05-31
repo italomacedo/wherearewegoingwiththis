@@ -13,6 +13,7 @@ describe('CharacterData', () => {
     expect(DEFAULT_APPEARANCE.skinTexture).toBe('skin_01');
     expect(DEFAULT_APPEARANCE.slots.hair).toBe('hair_short_01');
     expect(DEFAULT_APPEARANCE.slots.eyes).toBe('eyes_default');
+    expect(DEFAULT_APPEARANCE.ethnicity).toBe('universal');
     expect(Array.isArray(DEFAULT_APPEARANCE.accessories)).toBe(true);
     expect(Array.isArray(DEFAULT_APPEARANCE.implants)).toBe(true);
   });

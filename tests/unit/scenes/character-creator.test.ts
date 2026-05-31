@@ -170,6 +170,24 @@ describe('CharacterCreatorScene', () => {
     expect(scene.getCharacterData().appearance.colors.eye).toBe('#00FF00');
   });
 
+  it('setGender switches the body base male/female and keeps ethnicity', async () => {
+    await scene.onEnter();
+    await scene.setGender('male');
+    expect(scene.getCharacterData().appearance.bodyBase).toBe('body_male_black');
+    expect(scene.getGender()).toBe('male');
+    await scene.setGender('female');
+    expect(scene.getCharacterData().appearance.bodyBase).toBe('body_female_black');
+    expect(scene.getGender()).toBe('female');
+  });
+
+  it('setEthnicity updates the ethnicity', async () => {
+    await scene.onEnter();
+    expect(scene.getEthnicity()).toBe('universal');
+    await scene.setEthnicity('african');
+    expect(scene.getCharacterData().appearance.ethnicity).toBe('african');
+    expect(scene.getEthnicity()).toBe('african');
+  });
+
   it('setSkinTextureChoice updates the skin texture', async () => {
     await scene.onEnter();
     await scene.setSkinTextureChoice('skin_03');
@@ -213,22 +231,16 @@ describe('buildCreatorSchema (pure)', () => {
 
   it('has the expected categories', () => {
     expect(schema.map((c) => c.title)).toEqual([
-      'Body & Skin', 'Face', 'Hair & Facial Hair', 'Eyes & Makeup',
+      'Body & Skin', 'Hair & Facial Hair', 'Eyes',
       'Tops', 'Bottoms & Belt', 'Footwear',
     ]);
   });
 
-  it('Body & Skin exposes body cycler, skin swatch and skin color', () => {
+  it('Body & Skin exposes gender, ethnicity, skin swatch and skin color', () => {
     const kinds = schema[0]!.controls.map((c) => c.kind);
-    expect(kinds).toEqual(['bodyCycler', 'swatch', 'color']);
+    expect(kinds).toEqual(['gender', 'ethnicity', 'swatch', 'color']);
     const swatch = schema[0]!.controls.find((c) => c.kind === 'swatch');
     expect(swatch && swatch.kind === 'swatch' && swatch.skinTextures.length).toBe(4);
-  });
-
-  it('Face is all morph sliders', () => {
-    const face = schema.find((c) => c.title === 'Face')!;
-    expect(face.controls.length).toBeGreaterThanOrEqual(30);
-    expect(face.controls.every((c) => c.kind === 'slider')).toBe(true);
   });
 
   it('clothing cyclers offer a "none" (null) option first', () => {
