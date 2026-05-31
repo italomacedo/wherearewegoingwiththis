@@ -4,19 +4,24 @@
 
 Centralized asset management: GLTF models, textures, audio. Prevents duplicate loads and provides typed references.
 
-> **Implementation status — avatar pipeline built ([ADR-0014](../ADR/0014-avatar-pipeline-makehuman-morphs.md)).**
-> The character loading pipeline is now **built and tested** (procedural-fallback-first):
-> `AssetManifest` carries the full character categories (bases, skin textures, hair,
-> eyebrows/beard/eyes/teeth/makeup, layered clothing, footwear, animations) plus pure
-> `resolveAssetPath`/`resolveBasePath`/`listAssetKeys` and the morph-name map
-> (`MORPH_TARGET_NAMES`/`mapMorphName`/`diffMorphCoverage`). `CharacterAssembler` has a pure
-> `buildCharacterPlan` + a browser `assembleGltf` (skeleton, morph targets, attached layers,
-> per-part fallback). `CharacterAssembler.useGltf=false` by default (toggle `setUseGltf`).
-> **The `public/assets/` tree is scaffolded** (folders + `README.md`); it still ships **no
-> binaries** — the coding agent cannot download/commit them. Owner action: export a rigged
-> GLB from MakeHuman/MPFB2 + drop files (see `public/assets/README.md`), confirm morph-target
-> names, then flip `useGltf`. Environment/world assets (gap #4) still pending; see
-> [WORLD_DESIGN.md](../design/WORLD_DESIGN.md) and [ADR-0005](../ADR/0005-asset-pipeline.md).
+> **Implementation status — avatar pipeline LIVE ([ADR-0014](../ADR/0014-avatar-pipeline-makehuman-morphs.md) + addendum).**
+> Real MakeHuman/MPFB2 base GLBs load in Electron: `CharacterAssembler.useGltf=true`, the
+> glTF loader is registered (`import '@babylonjs/loaders/glTF'`), the base is rotated 180°
+> to face the camera, and missing per-slot GLBs are skipped. `AssetManifest` carries the
+> character categories (8 bases keyed `body_<gender>_<african|asian|caucasian|universal>`,
+> skin textures, hair, eyebrows/beard/eyes/teeth, layered clothing, footwear, animations)
+> plus pure `resolveAssetPath`/`resolveBasePath`/`listAssetKeys`. `CharacterAssembler` has a
+> pure `buildCharacterPlan` + browser `assembleGltf` (skeleton, attached layers, skin-tone
+> tint via `applySkinTexture`, per-part fallback).
+> **Customization is by whole-GLB swap, not morphs** — MPFB exports no fine shape keys and
+> `Apply Modifiers` strips the macro ones (see Lesson 17 / ADR-0014 addendum), so the
+> morph-name map (`MORPH_TARGET_NAMES`/`mapMorphName`/`diffMorphCoverage`) and `morphs` are
+> **dormant** (kept for a future shape-key base). `public/assets/characters/base/` holds 8
+> base GLBs (currently copies of one MPFB export). **Owner follow-ups:** distinct
+> per-ethnicity exports, hair/clothing GLBs, skin-texture PNGs, rig + Mixamo animation
+> clips — drop into the matching folders (see `public/assets/README.md`). Environment/world
+> assets (gap #4) still pending; see [WORLD_DESIGN.md](../design/WORLD_DESIGN.md) and
+> [ADR-0005](../ADR/0005-asset-pipeline.md).
 
 ---
 
