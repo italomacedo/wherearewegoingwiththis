@@ -550,7 +550,23 @@ describe('GameWorldScene', () => {
     await scene.onEnter();
     scene.getPlayer()!.getRoot().position.set(4, 0, 3);
     await scene.sendToActiveNPC('hi');
-    expect(prompts[0]).toContain('Rei');
+    // A moderation prompt now precedes the NPC prompt; the player name is in the latter.
+    expect(prompts.some((p) => p.includes('Rei'))).toBe(true);
+  });
+
+  it('blocks an out-of-policy message before it reaches the NPC', async () => {
+    const { service, prompts } = makeInjectedService('BLOCK');
+    scene.setClaudeService(service);
+    await scene.onEnter();
+    scene.getPlayer()!.getRoot().position.set(4, 0, 3);
+    await scene.sendToActiveNPC('something disallowed');
+    const lines = scene.getDialog()!.getState().lines;
+    expect(lines.some((l) => l.role === 'system' && l.text.includes("can't say or do"))).toBe(true);
+    // The NPC never replied and the player's text was not shown/sent.
+    expect(scene.getDialog()!.getState().npcText).toBe('');
+    expect(lines.some((l) => l.role === 'player')).toBe(false);
+    // Only the moderation call happened — no NPC turn.
+    expect(prompts).toHaveLength(1);
   });
 
   it('sendToActiveNPC streams the reply into the dialog via injected service', async () => {

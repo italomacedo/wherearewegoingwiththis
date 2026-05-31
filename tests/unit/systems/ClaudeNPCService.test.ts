@@ -194,4 +194,32 @@ describe('ClaudeNPCService', () => {
     const reply = await service.query(agent, world, 'hi');
     expect(reply).toBe('right');
   });
+
+  // ─── Pre-moderation ─────────────────────────────────────────────────────────
+
+  it('moderate allows a message the classifier marks ALLOW', async () => {
+    const { bridge, lastParams } = makeBridge('ALLOW');
+    const service = new ClaudeNPCService({ claudePath: 'claude', bridge });
+    await expect(service.moderate('npc_zara', 'got chips?')).resolves.toBe(true);
+    const params = lastParams.value as { npcId: string; prompt: string };
+    expect(params.npcId).toBe('npc_zara::moderation');
+    expect(params.prompt).toContain('ALLOW or BLOCK');
+  });
+
+  it('moderate blocks a message the classifier marks BLOCK', async () => {
+    const { bridge } = makeBridge('BLOCK');
+    const service = new ClaudeNPCService({ claudePath: 'claude', bridge });
+    await expect(service.moderate('npc_zara', 'disallowed thing')).resolves.toBe(false);
+  });
+
+  it('moderate fails open (allows) when the CLI errors', async () => {
+    const bridge: ClaudeBridge = {
+      claudeQuery: jest.fn(async () => { throw new Error('cli down'); }),
+      claudeCancel: jest.fn(async () => {}),
+      onClaudeResponseChunk: jest.fn(() => () => {}),
+      onClaudeResponseDone: jest.fn(() => () => {}),
+    };
+    const service = new ClaudeNPCService({ claudePath: 'claude', bridge });
+    await expect(service.moderate('npc_zara', 'whatever')).resolves.toBe(true);
+  });
 });

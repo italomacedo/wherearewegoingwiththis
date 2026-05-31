@@ -89,6 +89,15 @@ export class NPCManager {
     return reply;
   }
 
+  /**
+   * Pre-moderate a player message before it reaches the NPC. Returns true
+   * (allow) when there is no Claude service configured.
+   */
+  async moderate(npcId: string, message: string): Promise<boolean> {
+    if (!this.service) return true;
+    return this.service.moderate(npcId, message);
+  }
+
   // ─── Save / load memory ───────────────────────────────────────────────────
 
   serializeMemory(): NPCMemoryMap {

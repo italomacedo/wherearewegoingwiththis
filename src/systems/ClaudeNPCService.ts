@@ -82,6 +82,33 @@ export class ClaudeNPCService {
     return text;
   }
 
+  /**
+   * Pre-screen a player message against Anthropic's Usage Policy via a one-word
+   * ALLOW/BLOCK classifier call. Returns true if the message is allowed.
+   * Fails OPEN (returns true) on any error so a moderation hiccup never blocks play.
+   */
+  async moderate(npcId: string, message: string): Promise<boolean> {
+    const modId = `${npcId}::moderation`;
+    let response = '';
+    const offChunk = this.bridge.onClaudeResponseChunk((data) => {
+      if (data.npcId !== modId) return;
+      response += data.chunk;
+    });
+    try {
+      await this.bridge.claudeQuery({
+        npcId: modId,
+        prompt: PromptBuilder.buildModerationPrompt(message),
+        claudePath: this.claudePath,
+      });
+    } catch {
+      return true; // fail-open
+    } finally {
+      offChunk();
+    }
+    // Blocked only on an explicit BLOCK verdict; anything else allows play.
+    return !/\bBLOCK\b/i.test(response);
+  }
+
   /** Cancel an in-flight NPC response. */
   async cancel(agent: NPCAgent): Promise<void> {
     await this.bridge.claudeCancel(agent.definition.id);

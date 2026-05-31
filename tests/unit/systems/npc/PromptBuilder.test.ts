@@ -93,6 +93,26 @@ describe('PromptBuilder', () => {
       expect(p).toContain('English');
       expect(p).toContain('Do not mention being an AI');
     });
+
+    it('explains that *asterisks* are player actions/emotes', () => {
+      const p = PromptBuilder.buildStateless(baseInputs);
+      expect(p).toContain('*asterisks*');
+      expect(p).toContain('action');
+    });
+  });
+
+  describe('buildModerationPrompt', () => {
+    it('asks for a one-word ALLOW/BLOCK verdict and includes the message', () => {
+      const p = PromptBuilder.buildModerationPrompt('got any chips?');
+      expect(p).toContain('ALLOW or BLOCK');
+      expect(p).toContain('Usage Policy');
+      expect(p).toContain('got any chips?');
+    });
+
+    it('allows fictional cyberpunk content explicitly', () => {
+      const p = PromptBuilder.buildModerationPrompt('x');
+      expect(p).toContain('ALLOWED');
+    });
   });
 
   describe('buildSessionPrimer', () => {

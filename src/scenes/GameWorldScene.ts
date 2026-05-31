@@ -21,7 +21,7 @@ import { MercadoSombrasZone } from '@entities/zones/MercadoSombrasZone';
 import { CharacterAppearance, DEFAULT_APPEARANCE } from '@entities/CharacterData';
 import { NPCManager, NPCMemoryMap } from '@systems/NPCManager';
 import { ClaudeNPCService, ClaudeBridge } from '@systems/ClaudeNPCService';
-import { DialogSystem } from '@systems/DialogSystem';
+import { DialogSystem, DialogLine } from '@systems/DialogSystem';
 import { createZara } from '@entities/npcs/zara';
 import { PlayerAction } from '@entities/NPCAgent';
 import { WorldSnapshot } from '@systems/npc/PromptBuilder';
@@ -325,7 +325,12 @@ export class GameWorldScene extends BaseScene {
     }
     const agent = this.npcManager.getConversableAgent(this.player.getPosition());
     if (agent) {
-      this.dialog.open(agent.getDisplayName());
+      // Seed the transcript with the prior conversation so history is visible.
+      const seed: DialogLine[] = agent.conversation.getFullHistory().flatMap((ex) => [
+        { role: 'player' as const, text: ex.player },
+        { role: 'npc' as const, text: ex.npc },
+      ]);
+      this.dialog.open(agent.getDisplayName(), seed);
     }
   }
 
@@ -340,6 +345,16 @@ export class GameWorldScene extends BaseScene {
     const agent = this.npcManager.getConversableAgent(this.player.getPosition());
     if (!agent) return;
 
+    // Pre-moderation: screen the player's input against Anthropic's Usage Policy
+    // BEFORE it ever reaches the NPC. Out-of-policy input is refused up front and
+    // never shown/sent. Fails open (allows) on any moderation error.
+    this.dialog.setThinking(true);
+    const allowed = await this.npcManager.moderate(agent.definition.id, message);
+    if (!allowed) {
+      this.dialog.addSystemLine("You can't say or do that.");
+      return;
+    }
+
     const world: WorldSnapshot = {
       cityName: 'NeoBeiraRio',
       gameTime: this.formatGameTime(),
@@ -349,18 +364,23 @@ export class GameWorldScene extends BaseScene {
       recentEvents: [],
     };
 
+    // Show what the player said, then stream the reply beneath it.
+    this.dialog.addPlayerLine(message);
     this.dialog.setThinking(true);
     try {
-      await this.npcManager.sendMessage(agent.definition.id, world, message, (chunk) =>
+      const reply = await this.npcManager.sendMessage(agent.definition.id, world, message, (chunk) =>
         this.dialog?.appendChunk(chunk)
       );
-      // If nothing streamed back, show a hint instead of an empty bubble.
-      if (!this.dialog.getState().npcText) {
+      if (!reply) {
+        // Nothing came back — show a hint instead of an empty bubble.
         this.dialog.setNpcText('( … no reply. Is the Claude CLI path set in Options → Game? )');
-      } else if (agent.revealNameIfMentioned(this.dialog.getState().npcText)) {
-        // The NPC just introduced itself — reveal the name in the UI.
-        this.dialog.setNpcName(agent.definition.name);
-        this.hud?.setLabelText('npc', agent.definition.name);
+      } else {
+        // Replace the streamed raw text with the sanitized (in-character) reply.
+        this.dialog.setNpcText(reply);
+        if (agent.revealNameIfMentioned(reply)) {
+          this.dialog.setNpcName(agent.definition.name);
+          this.hud?.setLabelText('npc', agent.definition.name);
+        }
       }
     } catch (err) {
       // Surface the real error (CLI exit code + stderr) to help diagnose.

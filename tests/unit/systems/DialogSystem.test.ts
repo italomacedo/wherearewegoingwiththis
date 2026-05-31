@@ -124,4 +124,73 @@ describe('DialogSystem', () => {
     dialog.submit('hi');
     expect(handler).not.toHaveBeenCalled();
   });
+
+  // ─── Conversation history ──────────────────────────────────────────────────
+
+  it('records player and NPC lines in order', () => {
+    dialog.open('Zara');
+    dialog.addPlayerLine('got chips?');
+    dialog.appendChunk('Maybe.');
+    const lines = dialog.getState().lines;
+    expect(lines).toEqual([
+      { role: 'player', text: 'got chips?' },
+      { role: 'npc', text: 'Maybe.' },
+    ]);
+  });
+
+  it('appendChunk after a player line starts a new NPC line', () => {
+    dialog.open('Zara');
+    dialog.addPlayerLine('hi');
+    dialog.appendChunk('Yo');
+    dialog.addPlayerLine('you ok?');
+    dialog.appendChunk('Fine.');
+    expect(dialog.getState().lines).toHaveLength(4);
+    expect(dialog.getState().npcText).toBe('Fine.');
+  });
+
+  it('open seeds prior conversation lines', () => {
+    dialog.open('Zara', [
+      { role: 'player', text: 'hey' },
+      { role: 'npc', text: 'what.' },
+    ]);
+    expect(dialog.getState().lines).toHaveLength(2);
+    expect(dialog.getState().npcText).toBe('what.');
+  });
+
+  it('getState lines are an independent copy', () => {
+    dialog.open('Zara');
+    dialog.addPlayerLine('hi');
+    const lines = dialog.getState().lines;
+    lines[0]!.text = 'mutated';
+    lines.push({ role: 'npc', text: 'x' });
+    expect(dialog.getState().lines).toEqual([{ role: 'player', text: 'hi' }]);
+  });
+
+  // ─── Segment parsing (emote vs speech) ─────────────────────────────────────
+
+  it('parseSegments returns plain speech as a single speech segment', () => {
+    expect(DialogSystem.parseSegments('Just words.')).toEqual([
+      { kind: 'speech', text: 'Just words.' },
+    ]);
+  });
+
+  it('parseSegments extracts *emotes* and keeps order', () => {
+    const segs = DialogSystem.parseSegments('*she looks up* "Oi." *back to the chips*');
+    expect(segs).toEqual([
+      { kind: 'emote', text: 'she looks up' },
+      { kind: 'speech', text: '"Oi."' },
+      { kind: 'emote', text: 'back to the chips' },
+    ]);
+  });
+
+  it('parseSegments handles an emote-only line', () => {
+    expect(DialogSystem.parseSegments('*shrugs*')).toEqual([
+      { kind: 'emote', text: 'shrugs' },
+    ]);
+  });
+
+  it('parseSegments returns nothing for empty/whitespace text', () => {
+    expect(DialogSystem.parseSegments('')).toEqual([]);
+    expect(DialogSystem.parseSegments('   ')).toEqual([]);
+  });
 });
