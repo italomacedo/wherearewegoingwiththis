@@ -1,6 +1,11 @@
 import { NullEngine, Scene } from '@babylonjs/core';
 import { CharacterAssembler } from '../../../src/systems/CharacterAssembler';
-import { DEFAULT_APPEARANCE } from '../../../src/entities/CharacterData';
+import { DEFAULT_APPEARANCE, CharacterAppearance } from '../../../src/entities/CharacterData';
+
+const withSlots = (slots: CharacterAppearance['slots']): CharacterAppearance =>
+  ({ ...DEFAULT_APPEARANCE, slots });
+const withSkin = (skin: string): CharacterAppearance =>
+  ({ ...DEFAULT_APPEARANCE, colors: { ...DEFAULT_APPEARANCE.colors, skin } });
 
 describe('CharacterAssembler', () => {
   let engine: NullEngine;
@@ -43,33 +48,33 @@ describe('CharacterAssembler', () => {
     expect(scene.meshes.length).toBe(before);
   });
 
-  it('adds hair mesh when hair is set', async () => {
-    const char = await assembler.assemble({ ...DEFAULT_APPEARANCE, hair: 'hair_short_01' });
-    const hairMesh = char.meshes.find((m) => m.name === 'hair');
-    expect(hairMesh).toBeDefined();
+  it('adds hair mesh when hair slot is set', async () => {
+    const char = await assembler.assemble(withSlots({ hair: 'hair_short_01' }));
+    expect(char.meshes.find((m) => m.name === 'hair')).toBeDefined();
     char.dispose();
   });
 
-  it('does not add hair mesh when hair is null', async () => {
-    const char = await assembler.assemble({ ...DEFAULT_APPEARANCE, hair: null });
-    const hairMesh = char.meshes.find((m) => m.name === 'hair');
-    expect(hairMesh).toBeUndefined();
+  it('does not add hair mesh when hair slot is absent', async () => {
+    const char = await assembler.assemble(withSlots({ eyes: 'eyes_default' }));
+    expect(char.meshes.find((m) => m.name === 'hair')).toBeUndefined();
     char.dispose();
   });
 
-  it('adds clothing meshes when top/bottom/shoes are set', async () => {
-    const char = await assembler.assemble({
-      ...DEFAULT_APPEARANCE,
-      top: 'jacket_neon_bomber',
-      bottom: 'pants_tactical',
-      shoes: 'boots_platform_chrome',
-    });
-    const top = char.meshes.find((m) => m.name === 'top');
-    const bottom = char.meshes.find((m) => m.name === 'bottom');
-    const shoes = char.meshes.find((m) => m.name === 'shoes');
-    expect(top).toBeDefined();
-    expect(bottom).toBeDefined();
-    expect(shoes).toBeDefined();
+  it('adds clothing proxies when top/bottom/footwear slots are set', async () => {
+    const char = await assembler.assemble(withSlots({
+      jacket: 'jacket_leather',
+      pants: 'pants_tactical',
+      boots: 'boots_combat',
+    }));
+    expect(char.meshes.find((m) => m.name === 'top')).toBeDefined();
+    expect(char.meshes.find((m) => m.name === 'bottom')).toBeDefined();
+    expect(char.meshes.find((m) => m.name === 'shoes')).toBeDefined();
+    char.dispose();
+  });
+
+  it('a base top alone still produces the top proxy', async () => {
+    const char = await assembler.assemble(withSlots({ shirt: 'shirt_button' }));
+    expect(char.meshes.find((m) => m.name === 'top')).toBeDefined();
     char.dispose();
   });
 
@@ -81,18 +86,16 @@ describe('CharacterAssembler', () => {
   });
 
   it('different skin tones produce valid characters', async () => {
-    const tones = ['#FFFFFF', '#8B6355', '#2D1B0E'];
-    for (const tone of tones) {
-      const char = await assembler.assemble({ ...DEFAULT_APPEARANCE, skinTone: tone });
+    for (const tone of ['#FFFFFF', '#8B6355', '#2D1B0E']) {
+      const char = await assembler.assemble(withSkin(tone));
       expect(char.meshes.length).toBeGreaterThan(0);
       char.dispose();
     }
   });
 
   it('assemblePlaceholder applies skin tone to body meshes', async () => {
-    const char1 = assembler.assemblePlaceholder({ ...DEFAULT_APPEARANCE, skinTone: '#FF0000' });
-    const char2 = assembler.assemblePlaceholder({ ...DEFAULT_APPEARANCE, skinTone: '#0000FF' });
-    // Both produce valid characters (skin tone applied via applySkinTone)
+    const char1 = assembler.assemblePlaceholder(withSkin('#FF0000'));
+    const char2 = assembler.assemblePlaceholder(withSkin('#0000FF'));
     expect(char1.meshes.length).toBeGreaterThan(0);
     expect(char2.meshes.length).toBeGreaterThan(0);
     char1.dispose();

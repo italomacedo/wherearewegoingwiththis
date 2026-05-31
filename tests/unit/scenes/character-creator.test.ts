@@ -76,21 +76,21 @@ describe('CharacterCreatorScene', () => {
   it('setSkinTone updates skin tone', async () => {
     await scene.onEnter();
     await scene.setSkinTone('#FF0000');
-    expect(scene.getCharacterData().appearance.skinTone).toBe('#FF0000');
+    expect(scene.getCharacterData().appearance.colors.skin).toBe('#FF0000');
   });
 
   it('cycleHair changes hair style', async () => {
     await scene.onEnter();
-    const before = scene.getCharacterData().appearance.hair;
+    const before = scene.getCharacterData().appearance.slots.hair;
     await scene.cycleHair(1);
-    const after = scene.getCharacterData().appearance.hair;
+    const after = scene.getCharacterData().appearance.slots.hair;
     expect(after).not.toBe(before);
   });
 
   it('setHairColor updates hair color', async () => {
     await scene.onEnter();
     await scene.setHairColor('#FF00FF');
-    expect(scene.getCharacterData().appearance.hairColor).toBe('#FF00FF');
+    expect(scene.getCharacterData().appearance.colors.hair).toBe('#FF00FF');
   });
 
   it('cycleHair cycles through all options including null', async () => {
@@ -100,20 +100,20 @@ describe('CharacterCreatorScene', () => {
       await scene.cycleHair(1);
     }
     // After 7 cycles, we're back to original position
-    expect(scene.getCharacterData().appearance.hair).toBe(DEFAULT_APPEARANCE.hair);
+    expect(scene.getCharacterData().appearance.slots.hair).toBe(DEFAULT_APPEARANCE.slots.hair);
   });
 
   it('setClothingSlot top updates top', async () => {
     await scene.onEnter();
     await scene.setClothingSlot('top', 'jacket_neon_bomber');
-    expect(scene.getCharacterData().appearance.top).toBe('jacket_neon_bomber');
+    expect(scene.getCharacterData().appearance.slots.shirt).toBe('jacket_neon_bomber');
   });
 
   it('setClothingSlot can set null to remove clothing', async () => {
     await scene.onEnter();
     await scene.setClothingSlot('top', 'jacket_neon_bomber');
     await scene.setClothingSlot('top', null);
-    expect(scene.getCharacterData().appearance.top).toBeNull();
+    expect(scene.getCharacterData().appearance.slots.shirt).toBeUndefined();
   });
 
   it('toggleImplant adds an implant', async () => {
@@ -154,7 +154,7 @@ describe('CharacterCreatorScene', () => {
     expect(SaveService.listMeta()).toHaveLength(1);
     const session = ServiceLocator.get<GameSession>('gameSession');
     expect(session.character.name).toBe('Kai');
-    expect(session.character.appearance.skinTone).toBe('#ABCDEF');
+    expect(session.character.appearance.colors.skin).toBe('#ABCDEF');
     expect(session.saveId).toBe(SaveService.listMeta()[0]!.saveId);
   });
 

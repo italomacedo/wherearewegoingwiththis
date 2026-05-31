@@ -59,7 +59,7 @@ describe('GameWorldScene', () => {
   });
 
   it('setAppearance is applied to the spawned player', async () => {
-    scene.setAppearance({ ...DEFAULT_APPEARANCE, skinTone: '#FF0000' });
+    scene.setAppearance({ ...DEFAULT_APPEARANCE, colors: { ...DEFAULT_APPEARANCE.colors, skin: '#FF0000' } });
     await scene.onEnter();
     expect(scene.getPlayer()).not.toBeNull();
   });
@@ -460,7 +460,7 @@ describe('GameWorldScene', () => {
   // ─── GameSession glue (Phase 8 integration) ───────────────────────────────
 
   function makeSession(): GameSession {
-    const character = { name: 'Nyx', appearance: { ...DEFAULT_APPEARANCE, skinTone: '#123456' } };
+    const character = { name: 'Nyx', appearance: { ...DEFAULT_APPEARANCE, colors: { ...DEFAULT_APPEARANCE.colors, skin: '#123456' } } };
     const save = SaveService.createNewSave(character, 'Nyx');
     SaveService.save(save);
     return GameSession.fromSave(save);

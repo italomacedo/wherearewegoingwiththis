@@ -1,4 +1,4 @@
-import { CharacterData, DEFAULT_APPEARANCE } from '@entities/CharacterData';
+import { CharacterData, DEFAULT_APPEARANCE, cloneAppearance, migrateAppearance } from '@entities/CharacterData';
 import { ConversationState } from '@systems/npc/ConversationContext';
 import { HealthState } from '@entities/Health';
 
@@ -175,6 +175,9 @@ export class SaveService {
     if (!save.vehicle) {
       save.vehicle = { health: { ...DEFAULT_VEHICLE_STATE.health }, destroyed: false };
     }
+    if (save.character?.appearance) {
+      save.character.appearance = migrateAppearance(save.character.appearance);
+    }
     return save;
   }
 
@@ -199,5 +202,5 @@ export class SaveService {
 
 export const EMPTY_CHARACTER: CharacterData = {
   name: 'Operative',
-  appearance: { ...DEFAULT_APPEARANCE },
+  appearance: cloneAppearance(DEFAULT_APPEARANCE),
 };

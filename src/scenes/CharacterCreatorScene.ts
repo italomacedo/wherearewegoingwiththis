@@ -7,15 +7,30 @@ import { BaseScene } from './BaseScene';
 import { SceneManager } from '@core/SceneManager';
 import { ServiceLocator } from '@core/ServiceLocator';
 import { GameSession } from '@core/GameSession';
-import { CharacterData, CharacterAppearance, DEFAULT_APPEARANCE, BODY_BASES } from '@entities/CharacterData';
+import {
+  CharacterData, CharacterAppearance, DEFAULT_APPEARANCE, BODY_BASES,
+  SlotId, ColorKey, applySlot, getHair, cloneAppearance,
+} from '@entities/CharacterData';
 import { CharacterAssembler, AssembledCharacter } from '@systems/CharacterAssembler';
 import { SaveService } from '@systems/SaveService';
 
 export class CharacterCreatorScene extends BaseScene {
   private characterData: CharacterData = {
     name: '',
-    appearance: { ...DEFAULT_APPEARANCE },
+    appearance: cloneAppearance(DEFAULT_APPEARANCE),
   };
+
+  /** Legacy clothing-slot aliases → concrete new slot ids. */
+  private static readonly CLOTHING_SLOT_ALIAS: Record<'top' | 'bottom' | 'shoes', SlotId> = {
+    top: 'shirt',
+    bottom: 'pants',
+    shoes: 'boots',
+  };
+
+  private static readonly HAIR_OPTIONS: (string | null)[] = [
+    'hair_short_01', 'hair_long_01', 'hair_undercut_01',
+    'hair_mohawk_01', 'hair_bun_01', 'hair_dreadlocks_01', null,
+  ];
   private assembler: CharacterAssembler | null = null;
   private assembled: AssembledCharacter | null = null;
 
@@ -62,7 +77,7 @@ export class CharacterCreatorScene extends BaseScene {
   // ─── Customization actions (testable public API) ───────────────────────────
 
   getCharacterData(): CharacterData {
-    return { ...this.characterData, appearance: { ...this.characterData.appearance } };
+    return { ...this.characterData, appearance: cloneAppearance(this.characterData.appearance) };
   }
 
   setPlayerName(name: string): void {
@@ -81,23 +96,38 @@ export class CharacterCreatorScene extends BaseScene {
   }
 
   async setSkinTone(hex: string): Promise<void> {
-    this.setAppearance('skinTone', hex);
+    this.setColor('skin', hex);
     await this.rebuildCharacter();
   }
 
   async cycleHair(direction: 1 | -1): Promise<void> {
-    const hairKeys = ['hair_short_01', 'hair_long_01', 'hair_undercut_01',
-      'hair_mohawk_01', 'hair_bun_01', 'hair_dreadlocks_01', null] as const;
-    const current = hairKeys.indexOf(this.characterData.appearance.hair as typeof hairKeys[number]);
-    const next = (current + direction + hairKeys.length) % hairKeys.length;
-    const rawVal = hairKeys[next];
-    const selected = (rawVal === undefined ? null : rawVal) as string | null;
-    this.setAppearance('hair', selected);
+    const opts = CharacterCreatorScene.HAIR_OPTIONS;
+    const current = opts.indexOf(getHair(this.characterData.appearance));
+    const next = (current + direction + opts.length) % opts.length;
+    this.setSlot('hair', opts[next] ?? null);
     await this.rebuildCharacter();
   }
 
   async setHairColor(hex: string): Promise<void> {
-    this.setAppearance('hairColor', hex);
+    this.setColor('hair', hex);
+    await this.rebuildCharacter();
+  }
+
+  /** Set a slot directly by its id (exclusion-aware). */
+  async setSlotValue(slot: SlotId, value: string | null): Promise<void> {
+    this.setSlot(slot, value);
+    await this.rebuildCharacter();
+  }
+
+  /** Set a morph slider value (0..1). */
+  async setMorph(morph: string, value: number): Promise<void> {
+    this.characterData = {
+      ...this.characterData,
+      appearance: {
+        ...this.characterData.appearance,
+        morphs: { ...this.characterData.appearance.morphs, [morph]: value },
+      },
+    };
     await this.rebuildCharacter();
   }
 
@@ -105,8 +135,28 @@ export class CharacterCreatorScene extends BaseScene {
     slot: 'top' | 'bottom' | 'shoes',
     value: string | null
   ): Promise<void> {
-    this.setAppearance(slot, value);
+    this.setSlot(CharacterCreatorScene.CLOTHING_SLOT_ALIAS[slot], value);
     await this.rebuildCharacter();
+  }
+
+  private setColor(key: ColorKey, hex: string): void {
+    this.characterData = {
+      ...this.characterData,
+      appearance: {
+        ...this.characterData.appearance,
+        colors: { ...this.characterData.appearance.colors, [key]: hex },
+      },
+    };
+  }
+
+  private setSlot(slot: SlotId, value: string | null): void {
+    this.characterData = {
+      ...this.characterData,
+      appearance: {
+        ...this.characterData.appearance,
+        slots: applySlot(this.characterData.appearance.slots, slot, value),
+      },
+    };
   }
 
   toggleImplant(implantKey: string): void {

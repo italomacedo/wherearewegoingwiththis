@@ -2,8 +2,11 @@ import {
   Scene, AbstractMesh, MeshBuilder, StandardMaterial,
   Color3, Vector3, Mesh,
 } from '@babylonjs/core';
-import { CharacterAppearance } from '@entities/CharacterData';
-import { CharacterAssets } from '@assets/AssetManifest';
+import {
+  CharacterAppearance,
+  getSkinTone, getHair, getHairColor, getBaseTop, getOuterwear, getBottom, getFootwear,
+} from '@entities/CharacterData';
+import { resolveBasePath } from '@assets/AssetManifest';
 
 export interface AssembledCharacter {
   rootMesh: AbstractMesh;
@@ -51,8 +54,7 @@ export class CharacterAssembler {
     const meshes: AbstractMesh[] = [];
 
     // Load base body
-    const basePath = CharacterAssets.bases[appearance.bodyBase as keyof typeof CharacterAssets.bases]
-      ?? CharacterAssets.bases.body_female_black;
+    const basePath = resolveBasePath(appearance.bodyBase);
 
     try {
       const result = await SceneLoader.ImportMeshAsync('', '/assets/', basePath, this.scene);
@@ -60,12 +62,12 @@ export class CharacterAssembler {
     } catch {
       // GLTF file not found — fall back to placeholder for this part
       const placeholderBody = this.buildPlaceholderBody();
-      this.applySkinTone(placeholderBody, appearance.skinTone);
+      this.applySkinTone(placeholderBody, getSkinTone(appearance));
       meshes.push(...placeholderBody);
     }
 
     // Apply skin tone to body meshes
-    this.applySkinTone(meshes, appearance.skinTone);
+    this.applySkinTone(meshes, getSkinTone(appearance));
 
     const root = meshes[0] ?? MeshBuilder.CreateBox('char-root', { size: 0.01 }, this.scene);
 
@@ -82,22 +84,22 @@ export class CharacterAssembler {
 
     // Body parts (built with neutral color, then skin tone applied separately)
     const bodyMeshes = this.buildPlaceholderBody();
-    this.applySkinTone(bodyMeshes, appearance.skinTone);
+    this.applySkinTone(bodyMeshes, getSkinTone(appearance));
     meshes.push(...bodyMeshes);
 
     // Hair
-    if (appearance.hair) {
-      meshes.push(this.buildPlaceholderHair(appearance.hairColor));
+    if (getHair(appearance)) {
+      meshes.push(this.buildPlaceholderHair(getHairColor(appearance)));
     }
 
-    // Clothing tints
-    if (appearance.top) {
+    // Clothing tints (layered: a base top and/or outerwear → a single "top" proxy)
+    if (getBaseTop(appearance) || getOuterwear(appearance)) {
       meshes.push(this.buildPlaceholderClothingPart('top', '#223344'));
     }
-    if (appearance.bottom) {
+    if (getBottom(appearance)) {
       meshes.push(this.buildPlaceholderClothingPart('bottom', '#1A2A3A'));
     }
-    if (appearance.shoes) {
+    if (getFootwear(appearance)) {
       meshes.push(this.buildPlaceholderClothingPart('shoes', '#111111'));
     }
 
