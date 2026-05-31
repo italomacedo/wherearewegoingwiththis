@@ -4,6 +4,22 @@
 
 Vehicles in NeoBeiraRio include flying cars and flying Harley Davidson-style motorcycles. Players can enter, drive, and exit vehicles in the open world.
 
+> **Implementation status (Phase 9 MVP — this cycle).** One vehicle (flying motorcycle)
+> is playable. Decisions confirmed with the owner: **simplified lift/drag flight** model
+> + **MVP-first** scope; procedural placeholder mesh (no GLB yet).
+> - `VehicleController` — pure `computeFlightStep` (camera-relative thrust + lift, drag,
+>   capped horizontal speed, altitude clamp). **F** mounts/dismounts; **Space/Ctrl** =
+>   altitude; camera switches to a wider, laggier "vehicle mode".
+> - **Damage/health** (shared `entities/Health.ts`): dismounting mid-air drops the hero
+>   (gravity + fall damage); an **unpiloted bike free-falls** (engine off → no vertical
+>   drag) and crashes → impact damage; **≤30% HP smokes**, **0 HP explodes** into an
+>   unmountable wreck. Bike `{health, destroyed}` is persisted in `SaveGame`.
+> - **Deferred:** flying car; ambient/scripted traffic; persisting the parked vehicle
+>   *position* (HP + destroyed persist; position resets to the spawn dock on load).
+> - Tuning: `DEFAULT_VEHICLE_CONFIG` (thrust/drag/hoverHeight/safeImpactSpeed/…).
+> - Files: `entities/VehicleController.ts`, `entities/Health.ts`, wired in
+>   `scenes/GameWorldScene.ts` + `systems/WorldHud.ts` (bike status).
+
 ---
 
 ## Vehicle Types (Phase 9)

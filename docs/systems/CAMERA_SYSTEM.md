@@ -4,6 +4,16 @@
 
 Isometric camera that follows the player with smooth damping. Supports rotation and zoom. Managed by `CameraSystem`.
 
+> **Implementation notes (this cycle).**
+> - **360° orbit** around the hero via **Z/C** (keyboard, continuous, `KEY_ORBIT_SPEED`)
+>   and **middle-mouse drag** (native canvas listeners, `ORBIT_SENSITIVITY`).
+> - **Camera-relative movement:** `getYaw()` returns `camera.alpha + π/2` — the direction
+>   the camera *looks* (not the orbit angle of its *position*), so WASD points where the
+>   camera faces (see CLAUDE.md Lesson 9).
+> - **Follow without resetting orbit:** the follow updates `camera.target.copyFrom(...)`
+>   (NOT `setTarget()`, which would recompute alpha/beta each frame and undo the orbit).
+> - **Vehicle mode:** `enterVehicleMode/exitVehicleMode` widen the radius + lower damping.
+
 ---
 
 ## Configuration

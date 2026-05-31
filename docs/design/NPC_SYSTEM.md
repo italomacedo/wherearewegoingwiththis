@@ -4,6 +4,25 @@
 
 Every NPC in NeoBeiraRio is driven by a live `claude` CLI subprocess. This document specifies the design, data model, and behavior contract for all NPCs.
 
+> **Implementation status (MVP — this cycle).** Zara is live end-to-end in Electron.
+> Built since the original spec:
+> - **Cinematic chat UI** (`DialogSystem`): scrollable transcript seeded with prior
+>   history; `*emote*` vs `"speech"` parsed + styled **per speaker** (the player can
+>   roleplay actions and mix them with dialogue; the prompt tells the NPC `*asterisks*`
+>   are actions). **Native DOM `<input>`** so non-US keyboards/accents/IME work — see
+>   [ADR-0012](../ADR/0012-dialog-native-input.md).
+> - **Anti-metagaming:** an NPC's name shows as `Unknown` until it introduces itself
+>   (`NPCAgent.revealNameIfMentioned`); then label/header/`[E]` prompt reveal it.
+>   (Runtime-only today; persisting the discovery flag is a follow-up.)
+> - **Pre-moderation gate:** player input is screened ALLOW/BLOCK **before** reaching the
+>   NPC; blocked input shows a `system` line "You can't say or do that" and is never sent.
+>   Fails open. See [ADR-0011](../ADR/0011-npc-pre-moderation.md). (The earlier in-prompt
+>   tone guardrails + reply sanitizer were reverted as redundant.)
+> - **Windows CLI launch** hardened — see [ADR-0013](../ADR/0013-windows-claude-launch.md).
+> - Files: `systems/DialogSystem.ts`, `systems/ClaudeNPCService.ts` (+`moderate`),
+>   `systems/NPCManager.ts`, `systems/npc/PromptBuilder.ts` (+`buildModerationPrompt`),
+>   `entities/NPCAgent.ts`, `entities/npcs/zara.ts`.
+
 ---
 
 ## NPC Data Model

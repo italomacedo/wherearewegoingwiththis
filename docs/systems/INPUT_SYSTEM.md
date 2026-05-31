@@ -4,6 +4,13 @@
 
 Handles keyboard and (future) gamepad input. Maps raw input to semantic game actions. No scene code should read raw keys — it subscribes to action events via EventBus.
 
+> **Implemented bindings (this cycle).** WASD/arrows = move (camera-relative); Shift =
+> sprint; **Space/Ctrl** = vehicle altitude up/down (`getVerticalAxis`); **E** = interact/
+> talk; **F** = enter/exit vehicle; **Z/C** = orbit camera left/right; **Esc** = pause.
+> Camera rotation by **middle-mouse drag** is handled natively in `CameraSystem` (not via
+> `InputSystem`). While the NPC chat's native `<input>` is focused, typing does not drive
+> game actions (the DOM input `stopPropagation`s keydown).
+
 ---
 
 ## Action Map

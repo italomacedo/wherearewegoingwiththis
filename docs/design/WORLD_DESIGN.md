@@ -4,6 +4,19 @@
 
 NeoBeiraRio, 2087. A megacity built over what was once Porto Alegre, Brazil. Three decades of unchecked corporate expansion turned it into a vertical sprawl of towers, elevated highways, and underground markets. The sky is always overcast. Rain is constant. Neon is everywhere.
 
+> **Implementation status (this cycle) — gap #4 is the next target.** The starting
+> district (Mercado das Sombras) is **fully procedural** (primitives + emissive neon +
+> rain). `MercadoSombrasZone.loadRealAssets` is a no-op and `AssetManifest` lists intended
+> paths under `public/assets/` with **no files present**.
+> **Key constraint discovered:** the coding agent **cannot download/commit binary assets**
+> in this environment (no Sketchfab/Poly Haven MCP wired; `WebFetch` returns text, not
+> binaries). So real assets need either **(a)** the owner dropping files into
+> `public/assets/`, or **(b)** runtime-loading CC0 assets from a CDN URL (Poly Haven) —
+> an architectural choice (offline/latency/external dependency) to confirm first.
+> Recommended next step: build+test the loading pipeline (flip `CharacterAssembler.useGltf`,
+> implement `loadRealAssets`, populate `AssetManifest`) with procedural fallback, then
+> source assets via (a)/(b). The curated CC0/CC-BY catalog below stands for manual download.
+
 ---
 
 ## World Structure

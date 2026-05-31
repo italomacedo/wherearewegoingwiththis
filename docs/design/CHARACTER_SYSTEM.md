@@ -4,6 +4,16 @@
 
 The player character is assembled from modular GLTF parts at runtime. Every combination is valid — from a completely nude base body to a fully augmented, armored operative.
 
+> **Implementation status (this cycle).**
+> - Assembly currently uses **procedural placeholder geometry** — `CharacterAssembler`
+>   has the GLTF path (`assembleGltf`, per-part fallback) but `useGltf=false` because the
+>   project ships zero `.glb` files (see gap #4 / [docs/systems/ASSET_LOADING.md](../systems/ASSET_LOADING.md)).
+> - **Health:** the player now has HP (`entities/Health.ts`) with **fall damage**
+>   (`PlayerController.startFalling` + gravity); reaching **0 HP = game over → Main Menu**.
+>   HP is persisted in `SaveGame.playerHealth` (with migration for legacy saves).
+> - Appearance/name flow into the world via the `GameSession` holder
+>   (CharacterCreator → save → GameWorldScene).
+
 ---
 
 ## Customization Layers (in render order)

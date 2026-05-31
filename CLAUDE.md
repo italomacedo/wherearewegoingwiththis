@@ -8,7 +8,15 @@ This is the primary entry point for all AI agents working on this project. Read 
 
 ## Current Status (keep this updated)
 
-**Phases 0–8 COMPLETE** (+ integration gaps #1/#2/#3 closed) · **Phase 9 MVP** (flying motorcycle) · **pause/save + HUD + camera-relative WASD + MMB orbit** · **health system (fall damage, bike crash → smoke → explode, game-over, persisted)** · 513 tests · ~99.5% coverage (gated 95% lines/stmts/funcs, 90% branches) · typecheck + build green.
+**Phases 0–8 COMPLETE** (+ gaps #1/#2/#3 closed) · **Phase 9 MVP** (flying motorcycle) · **pause/save + HUD + camera-relative WASD + Z/C & MMB orbit** · **health system (fall damage, bike crash → smoke → explode, game-over, persisted)** · **playable MVP verified in Electron (live Claude NPC chat)** · 540 tests · ~99.6% coverage (gated 95% lines/stmts/funcs, 90% branches) · typecheck + build green.
+
+> **Marco "MVP jogável" fechado.** Loop completo: splash→menu→criação→mundo; herói anda (WASD relativo à câmera), conversa com a Zara (Claude CLI ao vivo, com pré-moderação), pilota a moto, toma dano, salva. Aberto: Phase 9 follow-ups (carro/ tráfego), Phase 10 (combate), gap #4 (assets reais).
+
+### Chat / NPC (this is the marquee feature — works end-to-end)
+- **Cinematic chat** (`DialogSystem`): scrollable transcript seeded with prior history; `*emotes*` vs `"speech"` parsed + styled **per speaker** (player can roleplay actions or mix with dialogue); grid layout (SEND never clipped).
+- **Native DOM `<input>`** (not Babylon GUI InputText) so non-US layouts / accents (ç ã é) / `?` / IME / paste work; `keydown` stopPropagation keeps typing out of the game input.
+- **Pre-moderation** (`ClaudeNPCService.moderate` + `PromptBuilder.buildModerationPrompt`): a one-word ALLOW/BLOCK classifier screens the player's message BEFORE it reaches the NPC; blocked input shows a `system` line "You can't say or do that" and is never sent. Fails OPEN on CLI error. (With this gate, the earlier in-prompt violent/sexual guardrails + reply sanitizer were reverted as redundant.)
+- **Windows Claude CLI launch** (`electron/main.ts` `resolveClaudeInvocation`): runs the package entry (`cli.js` via Electron-as-Node, or native `bin/claude.exe`) by reading the npm shim — no Node-on-PATH dependency. Keep Options→Claude CLI path **blank** to auto-detect.
 
 ### Health & damage (player + vehicle)
 - [`src/entities/Health.ts`](src/entities/Health.ts) — pure HP value object (`applyDamage`/`heal`/`fraction`/`isDead`/`isCritical`/`toState`), shared by player and bike.
@@ -20,7 +28,7 @@ This is the primary entry point for all AI agents working on this project. Read 
 ### Controls (in game world)
 - **WASD** — move, **relative to the camera** (W = where the camera faces). Hold **Shift** to sprint.
 - **Z / C (hold)** — orbit the camera left / right 360° around the hero (`KEY_ORBIT_SPEED`, continuous). **Middle-mouse drag** also orbits (`ORBIT_SENSITIVITY`) but its native-canvas wiring is browser-only/untested — Z/C is the reliable, tested path. Q/E/R do not rotate.
-- **E** — talk to a nearby NPC (opens dialog). **F** — enter/exit the flying bike. **Space/Ctrl** — bike altitude up/down.
+- **E** — talk to a nearby NPC (opens chat; type `"speech"` and/or `*actions*`). **F** — enter/exit the flying bike. **Space/Ctrl** — bike altitude up/down.
 - **ESC** — pause menu (Resume / Save Game / Load Game / Quit to Main Menu). While a dialog is open, ESC closes the dialog instead.
 - On-screen: floating name labels over NPC/vehicle + a contextual `[E]/[F]` prompt + a persistent control hint (`WorldHud`).
 
@@ -38,13 +46,14 @@ This is the primary entry point for all AI agents working on this project. Read 
 | 9 | Vehicles — flying motorcycle MVP (lift/drag flight, F to mount, vehicle camera) | 🟡 MVP (car + ambient traffic deferred) |
 | 10+ | Combat, implants, world expansion | ⬜ |
 
-**Verified working in Electron:** splash → studio → publisher → menu → options → character creator → game world (player moves, camera follows, Zara visible).
+**Verified working in Electron:** full flow splash → … → game world; player moves (camera-relative), camera orbits (Z/C), **Zara holds a live Claude conversation** (after fixing the Windows CLI launch + clearing a bad Options path), emotes/accents type correctly, pre-moderation blocks out-of-policy input.
 
 **INTEGRATION GAPS:**
 1. ✅ **Dialog GUI** — DONE. `DialogSystem` now renders a bottom speech bubble (NPC name + wrapped streaming text + `. . .` thinking placeholder), a player `InputText` with a SEND button and Enter-to-submit, and tracks input focus (`isInputFocused()`). Browser-only render/build is `istanbul ignore`d; pure state machine + focus flag stay fully tested. While the dialog is open, `GameWorldScene.update` freezes player movement/camera so typing doesn't move the character, and the interact key won't close the dialog while the field is focused.
 2. ✅ **GameSession glue** — DONE. New `src/core/GameSession.ts` holder (`{saveId, character, npcMemory, world, gameTimeSeconds}`) registered in ServiceLocator under `'gameSession'`. `CharacterCreatorScene.onBegin` creates+persists a save (`SaveService.createNewSave`+`save`) and registers a session; `LoadGameScene.onLoadSave` builds a session via `GameSession.fromSave`. `GameWorldScene.onEnter` adopts appearance/name/npcMemory and spawns at the saved world position (falls back to the zone spawn point when position is all-zero).
 3. ✅ **Autosave (on scene exit)** — DONE. `GameWorldScene.onExit` calls `persistSession()` → `SaveService.updateWorldState` + `updateNpcMemory` (and updates the in-memory session). NOTE: this persists on *exit only*; a periodic/interval autosave during play is still future work.
-4. **Real assets** — still open. Project ships ZERO `.glb`/textures; everything is procedural placeholder. `CharacterAssembler.useGltf=false` and `MercadoSombrasZone.loadRealAssets` is a no-op. Curated CC0/CC-BY assets catalogued in [docs/design/WORLD_DESIGN.md](docs/design/WORLD_DESIGN.md) for manual download.
+4. **Real assets** — STILL OPEN (next chosen target). Project ships ZERO `.glb`/textures; everything procedural. Wiring exists but is dormant: `CharacterAssembler.useGltf=false` + an `assembleGltf` path (SceneLoader, falls back to placeholder per-part), `AssetManifest` has the intended paths (`public/assets/...`) but no files, `MercadoSombrasZone.loadRealAssets` is a no-op. Curated CC0/CC-BY list in [docs/design/WORLD_DESIGN.md](docs/design/WORLD_DESIGN.md).
+   - **Key constraint discovered:** the coding agent CANNOT download/commit binary assets here (no Sketchfab/PolyHaven MCP wired; `WebFetch` returns text, not binaries). So acquisition needs either (a) the user drops files into `public/assets/`, or (b) runtime-load CC0 textures/GLBs from a CDN URL (Poly Haven) — an **architectural decision** (offline/latency/external dependency) to confirm before doing. Recommended next step: build+test the loading pipeline (flip `useGltf`, real `loadRealAssets`, AssetManifest) so dropping files "just works", then source assets via (a) or (b).
 
 ---
 
@@ -64,8 +73,10 @@ These cost real debugging time — internalize them:
 10. **Babylon GUI controls are drawn on the canvas, not the DOM.** DOM-based automation (Preview MCP `preview_click`, querySelector) can't click `Button`/`InputText` — they have no DOM nodes. Driving the UI for screenshots requires canvas-coordinate clicks or programmatic scene calls. Plan manual verification accordingly.
 11. **Linear drag caps terminal velocity — watch it vs. damage thresholds.** With `v *= (1 - drag·dt)` the terminal fall speed is ≈ `gravity/drag` (~4.9 at drag 2). If that's below your crash-damage threshold, falls *never* deal damage. Fix: don't apply drag to the vertical axis during free-fall (engine-off bike free-falls; player fall uses no drag at all). Always sanity-check terminal speed against any speed-gated effect.
 12. **NullEngine `getDeltaTime()` is ~0 in tests.** Movement/physics that integrate `dt` won't progress; assert `>=` or `jest.spyOn(engine,'getDeltaTime').mockReturnValue(100)` when a test needs real motion.
-13. **Spawning the `claude` CLI from Electron on Windows: run `cli.js` with Electron-as-Node.** The npm `claude.cmd` shim calls `node cli.js`, but the Electron child often lacks Node on its PATH → `"...cli.js" is not recognized` (exit 1). `electron/main.ts` `resolveClaudeInvocation()` locates `node_modules/@anthropic-ai/claude-code/cli.js` (from the shim dir or `%APPDATA%\npm`) and runs it via `process.execPath` + `ELECTRON_RUN_AS_NODE=1` — no shim, no Node-on-PATH dependency. Always capture and surface the child's stderr; the generic "unavailable" message hid the real cause for two rounds.
+13. **Spawning the `claude` CLI from Electron on Windows: run the package entry with Electron-as-Node.** The npm `claude.cmd` shim calls `node <entry>`, but the Electron child often lacks Node on its PATH → `"...is not recognized"` (exit 1). The package entry may be `cli.js` OR a native `bin/claude.exe` (newer versions). `electron/main.ts` `resolveClaudeInvocation()` finds the shim via a synchronous PATH `whichSync('claude')`, **reads the `.cmd` shim** (`readShimEntry`) to get the true entry, and runs it: `.js` via `process.execPath`+`ELECTRON_RUN_AS_NODE=1`, `.exe` directly. Always capture+surface the child's stderr (a verbose diagnostic log `[Claude NPC] claudePath=… command=… mode=…` was decisive). Two gotchas that cost rounds: a **malformed Options path** (`…cli.jsclaude` from a bad paste) → keep Options→Claude path **blank** to auto-detect; and a **broken global install** (`bin/claude.exe` missing) fails even in a plain terminal — that's `npm i -g @anthropic-ai/claude-code`, not the game.
 14. **NPC names are hidden until introduced (anti-metagaming).** `NPCAgent.getDisplayName()` returns `'Unknown'` until `revealNameIfMentioned(reply)` matches the NPC's name in its own dialogue; only then do the floating label, dialog header, and `[E] Talk` prompt show the real name. (Currently runtime-only — resets on reload; persisting the discovery flag is a follow-up.)
+15. **Babylon GUI `InputText` mangles non-US keyboards.** It reconstructs text from key events, so ABNT2 `?`, accents (ç ã é), dead keys, IME and paste break. Use a **native DOM `<input>`** overlaid on the canvas (`DialogSystem.buildDomInput`), `stopPropagation` its keydown so typing doesn't drive the game, and read its `.value` on submit. Canvas-drawn GUI is fine for display, not for text entry.
+16. **NPC content safety = pre-moderation gate, not prompt-only.** Screen the player's message with a one-word ALLOW/BLOCK classifier call BEFORE sending to the NPC (`ClaudeNPCService.moderate`); block out-of-policy input up front with a `system` line. Fail OPEN on CLI error so play never hard-stops. This made the per-turn in-character "deflect sexual/violent" prompt guardrails + reply sanitizer redundant — they were removed. The model's own refusal of *explicit* generation is a safety line the prompt can't (and shouldn't) override.
 
 ---
 
@@ -113,7 +124,7 @@ npm run typecheck    # tsc --noEmit
 
 ```
 electron/           IPC bridge, Claude CLI subprocess, window controls
-  main.ts           Electron main process (Node.js)
+  main.ts           Electron main process (Node.js); resolveClaudeInvocation() finds+launches the claude entry robustly (see Lesson 13); streams stdout, surfaces stderr
   preload.ts        contextBridge API exposed to renderer
 
 src/
@@ -150,21 +161,21 @@ src/
     SaveService.ts        SaveGame JSON CRUD + npcMemory + playerHealth + vehicle{health,destroyed} (migrate() backfills)
     CharacterAssembler.ts GLTF/placeholder character assembly (useGltf flag)
     ZoneManager.ts        Zone registry + load/unload
-    DialogSystem.ts       Dialog state machine + bottom speech-bubble GUI (NPC name, streaming text, input+SEND)
+    DialogSystem.ts       Chat: pure state (player/npc/system lines, *emote* vs "speech" parse) + scrollable cinematic GUI + native DOM <input>
     PauseMenu.ts          ESC pause overlay: Resume / Save Game / Load / Quit (pure state + browser GUI)
-    WorldHud.ts           Floating NPC/vehicle labels + contextual [E]/[F] prompt + control hint
-    ClaudeNPCService.ts   Orchestrates an NPC turn via Electron IPC (streaming)
-    NPCManager.ts         Spawns agents, proximity/cooldown, memory serialize
+    WorldHud.ts           Floating NPC/vehicle labels (by key) + [E]/[F] prompt + hero HP bar + bike status
+    ClaudeNPCService.ts   Orchestrates an NPC turn via Electron IPC (streaming) + moderate() pre-screen
+    NPCManager.ts         Spawns agents, proximity/cooldown, memory serialize, moderate() delegate
     npc/
       ConversationContext.ts  Rolling history + stateless→session graduation
-      PromptBuilder.ts        Pure prompt builders (stateless/primer/turn)
+      PromptBuilder.ts        Pure prompt builders (stateless/primer/turn/moderation)
   assets/
     AssetManifest.ts  Typed asset path registry
 
 tests/unit/         Mirrors src/ paths (core, scenes, systems, systems/npc, entities, assets)
 
 docs/
-  ADR/              0001-0010 Architecture Decision Records (read before major changes)
+  ADR/              0001-0013 Architecture Decision Records (read before major changes)
   design/           GDD, CHARACTER_SYSTEM, NPC_SYSTEM, WORLD_DESIGN (+ asset catalog), VEHICLE_SYSTEM, COMBAT_SYSTEM
   phases/           PHASE_0..PHASE_10 plans with completion gates
   systems/          INPUT/CAMERA/AUDIO/ASSET_LOADING specs
@@ -275,3 +286,6 @@ Read these before making structural changes:
 - [ADR-0008](docs/ADR/0008-world-zones.md) — World architecture: zone/chunk system
 - [ADR-0009](docs/ADR/0009-physics-havok.md) — Physics: Havok (isolated from tests)
 - [ADR-0010](docs/ADR/0010-npc-conversation-context.md) — NPC conversation: hybrid stateless→session + save persistence
+- [ADR-0011](docs/ADR/0011-npc-pre-moderation.md) — NPC content safety: pre-moderation gate (reverts in-prompt guardrails)
+- [ADR-0012](docs/ADR/0012-dialog-native-input.md) — Chat UI: native DOM input (non-US keyboards) + emote/speech transcript
+- [ADR-0013](docs/ADR/0013-windows-claude-launch.md) — Launching the Claude CLI from Electron (Windows-robust)

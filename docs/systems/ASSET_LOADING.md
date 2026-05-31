@@ -4,6 +4,17 @@
 
 Centralized asset management: GLTF models, textures, audio. Prevents duplicate loads and provides typed references.
 
+> **Implementation status (this cycle) — gap #4, next target.** The pipeline is
+> **dormant**: `AssetManifest` lists intended `public/assets/...` paths but **no files
+> exist**; `CharacterAssembler.useGltf=false` (procedural placeholders), though an
+> `assembleGltf` path exists (SceneLoader, per-part fallback to placeholder);
+> `MercadoSombrasZone.loadRealAssets` is a no-op.
+> **Constraint:** the coding agent cannot download/commit binaries here (no asset MCP;
+> `WebFetch` returns text). Plan: build+test the loading pipeline so dropping real files
+> in "just works", then source assets via owner-supplied files OR runtime CC0 CDN loading
+> (Poly Haven) — a decision to confirm. See [WORLD_DESIGN.md](../design/WORLD_DESIGN.md)
+> for the curated catalog and [ADR-0005](../ADR/0005-asset-pipeline.md).
+
 ---
 
 ## AssetManifest
