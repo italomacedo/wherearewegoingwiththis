@@ -3,16 +3,113 @@ import {
   Color3, Vector3, Mesh,
 } from '@babylonjs/core';
 import {
-  CharacterAppearance,
-  getSkinTone, getHair, getHairColor, getBaseTop, getOuterwear, getBottom, getFootwear,
+  CharacterAppearance, SlotId, SlotCategory, ColorKey, MorphId,
+  DEFAULT_COLORS, MORPH_REGISTRY, resolveLayers, getSkinTone, clampMorph,
 } from '@entities/CharacterData';
-import { resolveBasePath } from '@assets/AssetManifest';
+import { CharacterAssets, resolveAssetPath, resolveBasePath } from '@assets/AssetManifest';
 
 export interface AssembledCharacter {
   rootMesh: AbstractMesh;
   meshes: AbstractMesh[];
   dispose(): void;
 }
+
+// ─── Character plan (pure — no scene, fully unit-testable) ──────────────────────
+
+export interface SlotPlanEntry {
+  slot: SlotId;
+  category: SlotCategory;
+  assetKey: string;
+  /** Resolved manifest path, or null if the asset key isn't in the manifest. */
+  manifestPath: string | null;
+  layer: number;
+  colorKey?: ColorKey;
+}
+
+export interface MorphPlanEntry {
+  morphId: MorphId;
+  weight: number; // clamped 0..1
+}
+
+export interface CharacterPlan {
+  basePath: string;
+  skinTone: string;
+  skinTexturePath: string | null;
+  colors: Record<ColorKey, string>;
+  morphs: MorphPlanEntry[];
+  /** Mesh-producing slots, ordered by layer (lowest first). */
+  layers: SlotPlanEntry[];
+  makeup: { assetKey: string; path: string | null } | null;
+}
+
+/**
+ * Pure resolution of an appearance into an ordered, fully-resolved build plan:
+ * base path, skin texture/tint, per-region colors, clamped+known morph weights,
+ * and ordered mesh layers with their manifest paths. No Babylon/scene access —
+ * this is the unit-tested heart of the assembler.
+ */
+export function buildCharacterPlan(appearance: CharacterAppearance): CharacterPlan {
+  const colors: Record<ColorKey, string> = { ...DEFAULT_COLORS, ...appearance.colors };
+
+  const layers: SlotPlanEntry[] = resolveLayers(appearance).map((l) => ({
+    slot: l.slot,
+    category: l.def.category,
+    assetKey: l.value,
+    manifestPath: resolveAssetPath(l.def.manifestKey, l.value),
+    layer: l.def.layer,
+    colorKey: l.def.colorKey,
+  }));
+
+  const morphs: MorphPlanEntry[] = Object.entries(appearance.morphs)
+    .filter(([id, w]) => MORPH_REGISTRY[id] !== undefined && typeof w === 'number')
+    .map(([id, w]) => ({ morphId: id, weight: clampMorph(w as number) }));
+
+  const skinTexturePath =
+    (CharacterAssets.skinTextures as Record<string, string>)[appearance.skinTexture] ?? null;
+
+  const makeupKey = appearance.slots.makeup ?? null;
+  const makeup = makeupKey
+    ? { assetKey: makeupKey, path: resolveAssetPath('makeup', makeupKey) }
+    : null;
+
+  return {
+    basePath: resolveBasePath(appearance.bodyBase),
+    skinTone: getSkinTone(appearance),
+    skinTexturePath,
+    colors,
+    morphs,
+    layers,
+    makeup,
+  };
+}
+
+// Placeholder tints for clothing/footwear slots that carry no color picker.
+const CLOTHING_TINTS: Partial<Record<SlotId, string>> = {
+  t_shirt: '#2A3A4A', shirt: '#223344', long_sleeve: '#1E2E3E',
+  jacket: '#3A2A4A', coat: '#2A2A2A', kutte: '#1A1A1A',
+  belt: '#4A3A1A', pants: '#1A2A3A', skirt: '#3A1A2A', shorts: '#2A2A1A',
+  socks: '#888888', shoes: '#222222', boots: '#111111', sneakers: '#0A2A2A',
+};
+
+// Placeholder geometry per clothing/footwear slot: height, y-position, diameter.
+const SLOT_GEOM: Partial<Record<SlotId, { h: number; y: number; d: number }>> = {
+  t_shirt: { h: 0.55, y: 1.2, d: 0.40 }, shirt: { h: 0.58, y: 1.2, d: 0.41 },
+  long_sleeve: { h: 0.6, y: 1.2, d: 0.42 },
+  jacket: { h: 0.62, y: 1.2, d: 0.44 }, coat: { h: 0.9, y: 1.05, d: 0.46 },
+  kutte: { h: 0.5, y: 1.25, d: 0.48 }, belt: { h: 0.1, y: 0.92, d: 0.40 },
+  pants: { h: 0.7, y: 0.65, d: 0.34 }, skirt: { h: 0.5, y: 0.7, d: 0.5 },
+  shorts: { h: 0.35, y: 0.82, d: 0.36 },
+  socks: { h: 0.2, y: 0.32, d: 0.14 }, shoes: { h: 0.12, y: 0.25, d: 0.18 },
+  boots: { h: 0.3, y: 0.32, d: 0.2 }, sneakers: { h: 0.14, y: 0.25, d: 0.2 },
+};
+
+// Placeholder y-position for face features / facial hair.
+const FACE_GEOM: Partial<Record<SlotId, { y: number; d: number; flatten: number }>> = {
+  eyes: { y: 1.72, d: 0.06, flatten: 1 },
+  teeth: { y: 1.64, d: 0.07, flatten: 0.4 },
+  eyebrows: { y: 1.76, d: 0.1, flatten: 0.3 },
+  beard: { y: 1.6, d: 0.18, flatten: 0.6 },
+};
 
 /**
  * Assembles a character from GLTF parts (or procedural placeholders when
@@ -51,23 +148,20 @@ export class CharacterAssembler {
   /* istanbul ignore next */
   private async assembleGltf(appearance: CharacterAppearance): Promise<AssembledCharacter> {
     const { SceneLoader } = await import('@babylonjs/core');
+    const plan = buildCharacterPlan(appearance);
     const meshes: AbstractMesh[] = [];
 
-    // Load base body
-    const basePath = resolveBasePath(appearance.bodyBase);
-
     try {
-      const result = await SceneLoader.ImportMeshAsync('', '/assets/', basePath, this.scene);
+      const result = await SceneLoader.ImportMeshAsync('', '/assets/', plan.basePath, this.scene);
       meshes.push(...result.meshes);
     } catch {
       // GLTF file not found — fall back to placeholder for this part
       const placeholderBody = this.buildPlaceholderBody();
-      this.applySkinTone(placeholderBody, getSkinTone(appearance));
+      this.applySkinTone(placeholderBody, plan.skinTone);
       meshes.push(...placeholderBody);
     }
 
-    // Apply skin tone to body meshes
-    this.applySkinTone(meshes, getSkinTone(appearance));
+    this.applySkinTone(meshes, plan.skinTone);
 
     const root = meshes[0] ?? MeshBuilder.CreateBox('char-root', { size: 0.01 }, this.scene);
 
@@ -78,29 +172,17 @@ export class CharacterAssembler {
     };
   }
 
-  /** Procedural placeholder — used when GLTF files don't exist yet */
+  /** Procedural placeholder — used when GLTF files don't exist yet. */
   assemblePlaceholder(appearance: CharacterAppearance): AssembledCharacter {
+    const plan = buildCharacterPlan(appearance);
     const meshes: AbstractMesh[] = [];
 
-    // Body parts (built with neutral color, then skin tone applied separately)
     const bodyMeshes = this.buildPlaceholderBody();
-    this.applySkinTone(bodyMeshes, getSkinTone(appearance));
+    this.applySkinTone(bodyMeshes, plan.skinTone);
     meshes.push(...bodyMeshes);
 
-    // Hair
-    if (getHair(appearance)) {
-      meshes.push(this.buildPlaceholderHair(getHairColor(appearance)));
-    }
-
-    // Clothing tints (layered: a base top and/or outerwear → a single "top" proxy)
-    if (getBaseTop(appearance) || getOuterwear(appearance)) {
-      meshes.push(this.buildPlaceholderClothingPart('top', '#223344'));
-    }
-    if (getBottom(appearance)) {
-      meshes.push(this.buildPlaceholderClothingPart('bottom', '#1A2A3A'));
-    }
-    if (getFootwear(appearance)) {
-      meshes.push(this.buildPlaceholderClothingPart('shoes', '#111111'));
+    for (const entry of plan.layers) {
+      meshes.push(this.buildPlaceholderPart(entry, plan.colors));
     }
 
     const root = meshes[0]!;
@@ -109,6 +191,43 @@ export class CharacterAssembler {
       meshes,
       dispose: () => meshes.forEach((m) => m.dispose()),
     };
+  }
+
+  /** Builds one placeholder mesh for a resolved layer, named after its slot. */
+  private buildPlaceholderPart(entry: SlotPlanEntry, colors: Record<ColorKey, string>): Mesh {
+    const tint = entry.colorKey
+      ? colors[entry.colorKey]
+      : (CLOTHING_TINTS[entry.slot] ?? '#2A3A4A');
+
+    const mat = new StandardMaterial(`${entry.slot}-mat`, this.scene);
+    mat.diffuseColor = Color3.FromHexString(tint.padEnd(7, '0'));
+
+    // Face features / facial hair → small shapes near the head.
+    const face = FACE_GEOM[entry.slot];
+    if (entry.category === 'face_feature' || (entry.category === 'hair_group' && entry.slot !== 'hair')) {
+      const geom = face ?? { y: 1.7, d: 0.1, flatten: 0.5 };
+      const mesh = MeshBuilder.CreateSphere(entry.slot, { diameter: geom.d }, this.scene);
+      mesh.position = new Vector3(0, geom.y, 0.1);
+      mesh.scaling.y = geom.flatten;
+      mesh.material = mat;
+      return mesh;
+    }
+
+    // Hair → dome over the head.
+    if (entry.slot === 'hair') {
+      const hair = MeshBuilder.CreateSphere('hair', { diameter: 0.27 }, this.scene);
+      hair.position = new Vector3(0, 1.82, 0);
+      hair.scaling.y = 0.7;
+      hair.material = mat;
+      return hair;
+    }
+
+    // Clothing / footwear → cylinder proxy positioned by slot.
+    const geom = SLOT_GEOM[entry.slot] ?? { h: 0.4, y: 1, d: 0.4 };
+    const mesh = MeshBuilder.CreateCylinder(entry.slot, { height: geom.h, diameter: geom.d }, this.scene);
+    mesh.position.y = geom.y;
+    mesh.material = mat;
+    return mesh;
   }
 
   private buildPlaceholderBody(): Mesh[] {
@@ -146,33 +265,6 @@ export class CharacterAssembler {
     });
 
     return meshes;
-  }
-
-  private buildPlaceholderHair(hairColor: string): Mesh {
-    const mat = new StandardMaterial('hair-mat', this.scene);
-    mat.diffuseColor = Color3.FromHexString(hairColor.padEnd(7, '0'));
-
-    const hair = MeshBuilder.CreateSphere('hair', { diameter: 0.27 }, this.scene);
-    hair.position = new Vector3(0, 1.82, 0);
-    hair.scaling.y = 0.7;
-    hair.material = mat;
-    return hair;
-  }
-
-  private buildPlaceholderClothingPart(name: string, color: string): Mesh {
-    const mat = new StandardMaterial(`${name}-mat`, this.scene);
-    mat.diffuseColor = Color3.FromHexString(color);
-
-    const heights: Record<string, number> = { top: 0.6, bottom: 0.7, shoes: 0.15 };
-    const yPositions: Record<string, number> = { top: 1.2, bottom: 0.65, shoes: 0.3 };
-
-    const mesh = MeshBuilder.CreateCylinder(name, {
-      height: heights[name] !== undefined ? heights[name]! : 0.4,
-      diameter: 0.38,
-    }, this.scene);
-    mesh.position.y = yPositions[name] !== undefined ? yPositions[name]! : 1;
-    mesh.material = mat;
-    return mesh;
   }
 
   private applySkinTone(meshes: AbstractMesh[], skinTone: string): void {

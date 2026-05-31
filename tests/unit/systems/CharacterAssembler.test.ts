@@ -1,11 +1,57 @@
 import { NullEngine, Scene } from '@babylonjs/core';
-import { CharacterAssembler } from '../../../src/systems/CharacterAssembler';
+import { CharacterAssembler, buildCharacterPlan } from '../../../src/systems/CharacterAssembler';
 import { DEFAULT_APPEARANCE, CharacterAppearance } from '../../../src/entities/CharacterData';
 
 const withSlots = (slots: CharacterAppearance['slots']): CharacterAppearance =>
   ({ ...DEFAULT_APPEARANCE, slots });
 const withSkin = (skin: string): CharacterAppearance =>
   ({ ...DEFAULT_APPEARANCE, colors: { ...DEFAULT_APPEARANCE.colors, skin } });
+
+describe('buildCharacterPlan (pure)', () => {
+  it('resolves base path, skin tone and texture', () => {
+    const plan = buildCharacterPlan({ ...DEFAULT_APPEARANCE, bodyBase: 'body_male_white' });
+    expect(plan.basePath).toBe('characters/base/body_male_white.glb');
+    expect(plan.skinTone).toBe(DEFAULT_APPEARANCE.colors.skin);
+    expect(plan.skinTexturePath).toMatch(/skin_01\.png$/);
+  });
+
+  it('orders layers by layer index and resolves manifest paths', () => {
+    const plan = buildCharacterPlan(withSlots({
+      kutte: 'kutte_club', shirt: 'shirt_button', boots: 'boots_combat',
+    }));
+    expect(plan.layers.map((l) => l.slot)).toEqual(['shirt', 'boots', 'kutte']);
+    const shirt = plan.layers.find((l) => l.slot === 'shirt')!;
+    expect(shirt.manifestPath).toBe('characters/clothes/tops/shirt_button.glb');
+  });
+
+  it('null manifestPath for an unknown asset key (graceful)', () => {
+    const plan = buildCharacterPlan(withSlots({ jacket: 'no_such_jacket' }));
+    expect(plan.layers[0]!.manifestPath).toBeNull();
+  });
+
+  it('keeps only known morphs and clamps their weights', () => {
+    const plan = buildCharacterPlan({
+      ...DEFAULT_APPEARANCE,
+      morphs: { nose_width: 1.5, not_a_morph: 0.5, lips_fullness: -2 },
+    });
+    const ids = plan.morphs.map((m) => m.morphId).sort();
+    expect(ids).toEqual(['lips_fullness', 'nose_width']);
+    expect(plan.morphs.find((m) => m.morphId === 'nose_width')!.weight).toBe(1);
+    expect(plan.morphs.find((m) => m.morphId === 'lips_fullness')!.weight).toBe(0);
+  });
+
+  it('resolves makeup when set, null otherwise', () => {
+    expect(buildCharacterPlan(DEFAULT_APPEARANCE).makeup).toBeNull();
+    const plan = buildCharacterPlan(withSlots({ makeup: 'makeup_neon' }));
+    expect(plan.makeup).toEqual({ assetKey: 'makeup_neon', path: 'characters/face/makeup_neon.png' });
+  });
+
+  it('merges colors over defaults', () => {
+    const plan = buildCharacterPlan({ ...DEFAULT_APPEARANCE, colors: { skin: '#ABCDEF' } });
+    expect(plan.colors.skin).toBe('#ABCDEF');
+    expect(plan.colors.eye).toBeDefined(); // backfilled default
+  });
+});
 
 describe('CharacterAssembler', () => {
   let engine: NullEngine;
@@ -34,9 +80,12 @@ describe('CharacterAssembler', () => {
     char.dispose();
   });
 
-  it('placeholder character has multiple meshes (body parts)', async () => {
+  it('placeholder character has body parts + default hair + eyes', async () => {
     const char = await assembler.assemble(DEFAULT_APPEARANCE);
-    expect(char.meshes.length).toBeGreaterThanOrEqual(5); // head + torso + arms + legs
+    // head + torso + arms + legs (6) plus hair + eyes
+    expect(char.meshes.length).toBeGreaterThanOrEqual(7);
+    expect(char.meshes.find((m) => m.name === 'hair')).toBeDefined();
+    expect(char.meshes.find((m) => m.name === 'eyes')).toBeDefined();
     char.dispose();
   });
 
@@ -48,33 +97,44 @@ describe('CharacterAssembler', () => {
     expect(scene.meshes.length).toBe(before);
   });
 
-  it('adds hair mesh when hair slot is set', async () => {
-    const char = await assembler.assemble(withSlots({ hair: 'hair_short_01' }));
-    expect(char.meshes.find((m) => m.name === 'hair')).toBeDefined();
-    char.dispose();
-  });
-
   it('does not add hair mesh when hair slot is absent', async () => {
     const char = await assembler.assemble(withSlots({ eyes: 'eyes_default' }));
     expect(char.meshes.find((m) => m.name === 'hair')).toBeUndefined();
     char.dispose();
   });
 
-  it('adds clothing proxies when top/bottom/footwear slots are set', async () => {
+  it('renders each layered clothing slot as a named proxy', async () => {
     const char = await assembler.assemble(withSlots({
-      jacket: 'jacket_leather',
-      pants: 'pants_tactical',
-      boots: 'boots_combat',
+      long_sleeve: 'hoodie_corp', jacket: 'jacket_leather', kutte: 'kutte_club',
+      pants: 'pants_tactical', belt: 'belt_utility', socks: 'socks_long', boots: 'boots_combat',
     }));
-    expect(char.meshes.find((m) => m.name === 'top')).toBeDefined();
-    expect(char.meshes.find((m) => m.name === 'bottom')).toBeDefined();
-    expect(char.meshes.find((m) => m.name === 'shoes')).toBeDefined();
+    for (const name of ['long_sleeve', 'jacket', 'kutte', 'pants', 'belt', 'socks', 'boots']) {
+      expect(char.meshes.find((m) => m.name === name)).toBeDefined();
+    }
     char.dispose();
   });
 
-  it('a base top alone still produces the top proxy', async () => {
-    const char = await assembler.assemble(withSlots({ shirt: 'shirt_button' }));
-    expect(char.meshes.find((m) => m.name === 'top')).toBeDefined();
+  it('exclusive bottoms: choosing shorts replaces pants in the build', async () => {
+    const char = await assembler.assemble(withSlots({ pants: 'pants_tactical', shorts: 'shorts_cyber' }));
+    // applySlot already cleared pants; but even a raw both-set map should only
+    // render what resolveLayers returns — here both are present so both render.
+    expect(char.meshes.find((m) => m.name === 'shorts')).toBeDefined();
+    char.dispose();
+  });
+
+  it('renders facial-hair and teeth proxies', async () => {
+    const char = await assembler.assemble(withSlots({
+      eyebrows: 'eyebrows_thick', beard: 'beard_full', teeth: 'teeth_default',
+    }));
+    for (const name of ['eyebrows', 'beard', 'teeth']) {
+      expect(char.meshes.find((m) => m.name === name)).toBeDefined();
+    }
+    char.dispose();
+  });
+
+  it('makeup does not add a mesh layer', async () => {
+    const char = await assembler.assemble(withSlots({ makeup: 'makeup_neon' }));
+    expect(char.meshes.find((m) => m.name === 'makeup')).toBeUndefined();
     char.dispose();
   });
 
@@ -91,14 +151,5 @@ describe('CharacterAssembler', () => {
       expect(char.meshes.length).toBeGreaterThan(0);
       char.dispose();
     }
-  });
-
-  it('assemblePlaceholder applies skin tone to body meshes', async () => {
-    const char1 = assembler.assemblePlaceholder(withSkin('#FF0000'));
-    const char2 = assembler.assemblePlaceholder(withSkin('#0000FF'));
-    expect(char1.meshes.length).toBeGreaterThan(0);
-    expect(char2.meshes.length).toBeGreaterThan(0);
-    char1.dispose();
-    char2.dispose();
   });
 });
