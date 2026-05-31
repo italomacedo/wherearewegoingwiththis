@@ -346,8 +346,11 @@ export class CharacterCreatorScene extends BaseScene {
   // ─── Setup (called on enter) ───────────────────────────────────────────────
 
   private setupCamera(): void {
+    // alpha = +π/2 puts the camera on the +Z side looking toward −Z, so it faces
+    // the FRONT of the Mixamo-rigged model (which faces +Z). See the orientation
+    // note in CharacterAssembler.assembleGltf.
     const camera = new ArcRotateCamera(
-      'creator-cam', -Math.PI / 2, Math.PI / 3, 3.5,
+      'creator-cam', Math.PI / 2, Math.PI / 3, 3.5,
       new Vector3(0, 1, 0), this.babylonScene
     );
     camera.lowerRadiusLimit = 1.5;

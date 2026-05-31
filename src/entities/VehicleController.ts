@@ -19,6 +19,16 @@ export interface VehicleConfig {
   damagePerSpeed: number;  // HP lost per unit of impact speed above the safe threshold
 }
 
+/**
+ * Relative path (under `public/assets/`) of the real bike model. A user-supplied
+ * CC0/Claude-generated GLB; loaded in Electron, falls back to the procedural
+ * placeholder headlessly (and if the file is missing). See Lesson 17.
+ */
+export const VEHICLE_MODEL_PATH = 'vehicles/cyberpunk_harley.glb';
+/** Uniform scale + Y-rotation applied to the loaded model to match the placeholder footprint. */
+export const VEHICLE_MODEL_SCALE = 1.0;
+export const VEHICLE_MODEL_YAW = Math.PI; // glTF exports tend to face away from our camera
+
 /** Agile open-air flying motorcycle (Phase 9 MVP). */
 export const DEFAULT_VEHICLE_CONFIG: VehicleConfig = {
   thrust: 18,
@@ -144,6 +154,12 @@ export class VehicleController {
     return { position, velocity, landed, impactSpeed };
   }
 
+  /** Toggle real-GLB loading. Default true; tests/headless stay on placeholder. */
+  static useGltf = true;
+  static setUseGltf(enabled: boolean): void { VehicleController.useGltf = enabled; }
+  /** True when SceneLoader is available (browser/Electron only). */
+  static canLoadGltf(): boolean { return typeof document !== 'undefined'; }
+
   /** Builds the placeholder bike and parks it (resting on the ground). */
   spawn(position: Vector3): void {
     this.buildPlaceholder();
@@ -153,6 +169,43 @@ export class VehicleController {
       velocity: Vector3.Zero(),
     };
     this.root.position = this.state.position.clone();
+
+    // In Electron, swap the placeholder for the real model once it loads. If the
+    // file is missing or the loader fails, the placeholder stays (graceful).
+    if (VehicleController.useGltf && VehicleController.canLoadGltf()) {
+      /* istanbul ignore next — browser/Electron only; verified manually */
+      void this.loadModel();
+    }
+  }
+
+  /* istanbul ignore next — browser/Electron only; exercised via manual verification */
+  private async loadModel(): Promise<void> {
+    const { SceneLoader } = await import('@babylonjs/core');
+    await import('@babylonjs/loaders/glTF'); // registers the .glb/.gltf loader plugin
+    /* eslint-disable no-console */
+    try {
+      const container = await SceneLoader.LoadAssetContainerAsync('/assets/', VEHICLE_MODEL_PATH, this.scene);
+      if (this.destroyed) { container.dispose(); return; } // exploded while loading
+      container.addAllToScene();
+
+      // Drop the procedural placeholder now that the real model is in.
+      this.parts.forEach((m) => m.dispose());
+      this.parts = [];
+
+      const meshes = container.meshes as AbstractMesh[];
+      for (const m of meshes) { if (!m.parent) m.parent = this.root; }
+      this.parts = meshes;
+
+      const gltfRoot = meshes.find((m) => m.name === '__root__') ?? meshes[0];
+      if (gltfRoot) {
+        gltfRoot.addRotation(0, VEHICLE_MODEL_YAW, 0);
+        gltfRoot.scaling = gltfRoot.scaling.scale(VEHICLE_MODEL_SCALE);
+      }
+      console.warn('[Vehicle] loaded model:', VEHICLE_MODEL_PATH, `(${meshes.length} meshes)`);
+    } catch (err) {
+      console.warn('[Vehicle] model load failed, keeping placeholder:', VEHICLE_MODEL_PATH, err);
+    }
+    /* eslint-enable no-console */
   }
 
   /**

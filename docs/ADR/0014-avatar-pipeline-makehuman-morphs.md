@@ -94,3 +94,38 @@ removed, no dead sliders). Missing per-slot GLBs are skipped (no floating placeh
 **Deferred:** rig + Mixamo animation, hair/clothing GLBs, skin-texture PNGs (tint→texture),
 optional bust slider. The 8 base files are currently copies of one export until distinct
 per-ethnicity exports are dropped.
+
+## Addendum 2 (2026-05-31) — rig + locomotion animation, end-to-end
+
+The hero is now rigged and animated in Electron. Decisions and findings:
+
+1. **Rig via Mixamo, not the MPFB rig.** The owner can't upload GLB to Mixamo (it accepts
+   only FBX/OBJ/ZIP), so the body is exported from Blender as **FBX**, **auto-rigged in
+   Mixamo**, and the rigged character is re-downloaded **with skin** as the new base GLB.
+   This sidesteps Addendum-1's `Apply Modifiers`/shape-key problem (we don't use morphs) and
+   guarantees **bone-name parity**: base and clips all carry `mixamorig:*` bones (65), so
+   retargeting is a pure name match.
+2. **Shared, separate clips — retargeted at runtime.** `assembleGltf.loadAnimationClips`
+   loads the four manifest GLBs (`characters/animations/{idle,walk,run,interact}.glb`),
+   **clones each `AnimationGroup` onto the base skeleton** by lowercased bone name, and
+   **renames the group to the manifest key** (Mixamo names every clip
+   `Armature|mixamo.com|Layer0`, so name-based playback in `PlayerController` needs the
+   rename). Dedicated clips take precedence over any embedded in the base; missing clips
+   leave that state un-animated (no crash). `diffSkeletonBones` (pure, tested) reports
+   bone-name mismatches in the console.
+3. **Orientation: Mixamo faces +Z — no flip.** Addendum-1's MPFB base faced away, so the
+   loader rotated the model 180°. The Mixamo base faces **+Z**, which is our world "forward"
+   at `rotation.y = 0`, so `PlayerController`'s `root.rotation.y = facing` aligns the body
+   with travel **only if we do NOT rotate**. Keeping the 180° produced a "moonwalk" (body
+   180° from movement). Fix: **removed the flip** in `assembleGltf`, and moved the creator's
+   preview camera to `alpha = +π/2` so it still faces the model's front. A base that faces
+   −Z would need the π back — both call sites carry a comment.
+4. **FBX→GLB conversion is scripted.** `scripts/convert_anims.py` runs headless
+   (`blender --background --python`) to batch-convert the Mixamo FBX clips to GLB with the
+   engine names. Reusable for future clips (extend its `MAPPING`).
+
+**Also reused for vehicles:** `VehicleController` loads `vehicles/cyberpunk_harley.glb` via
+the same guarded-load + placeholder-fallback pattern (`useGltf`/`canLoadGltf`).
+**Known issue (deferred):** the hero mesh disappears while mounted on the bike (a separate
+task). **Still deferred:** hair/clothing GLBs (next), skin PNGs, distinct per-ethnicity +
+per-gender rigged exports (the 8 bases are copies of the one Mixamo-rigged male caucasian).

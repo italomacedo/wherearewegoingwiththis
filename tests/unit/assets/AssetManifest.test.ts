@@ -1,6 +1,7 @@
 import {
   CharacterAssets, assetExists, resolveAssetPath, resolveBasePath,
   mapMorphName, MORPH_TARGET_NAMES, listAssetKeys, diffMorphCoverage,
+  diffSkeletonBones, ANIMATION_KEYS,
 } from '../../../src/assets/AssetManifest';
 import { MORPH_REGISTRY } from '../../../src/entities/CharacterData';
 
@@ -141,5 +142,26 @@ describe('AssetManifest', () => {
   it('assetExists returns true/false for non-empty/empty path', () => {
     expect(assetExists('characters/base/body_female_black.glb')).toBe(true);
     expect(assetExists('')).toBe(false);
+  });
+
+  describe('animations + diffSkeletonBones', () => {
+    it('ANIMATION_KEYS match the manifest animation entries', () => {
+      expect([...ANIMATION_KEYS].sort()).toEqual(Object.keys(CharacterAssets.animations).sort());
+    });
+
+    it('splits animation bones into matched (on base rig) and missing', () => {
+      const report = diffSkeletonBones(
+        ['Hips', 'Spine', 'Head'],
+        ['hips', 'spine', 'LeftHand'], // case-insensitive match; LeftHand absent
+      );
+      expect(report.matched).toEqual(['hips', 'spine']);
+      expect(report.missing).toEqual(['LeftHand']);
+    });
+
+    it('all bones missing when the base skeleton is empty', () => {
+      const report = diffSkeletonBones([], ['Hips', 'Spine']);
+      expect(report.matched).toEqual([]);
+      expect(report.missing).toEqual(['Hips', 'Spine']);
+    });
   });
 });

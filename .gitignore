@@ -15,3 +15,6 @@ Thumbs.db
 *.tsbuildinfo
 vite.config.js
 vite.config.d.ts
+
+# Source art (Mixamo/Blender FBX) — converted to .glb before use; not shipped.
+public/assets/**/*.fbx

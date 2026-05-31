@@ -7,7 +7,7 @@ import {
   CharacterAppearance, SlotId, SlotCategory, ColorKey, MorphId,
   DEFAULT_COLORS, MORPH_REGISTRY, resolveLayers, getSkinTone, clampMorph,
 } from '@entities/CharacterData';
-import { CharacterAssets, resolveAssetPath, resolveBasePath, mapMorphName, diffMorphCoverage } from '@assets/AssetManifest';
+import { CharacterAssets, resolveAssetPath, resolveBasePath, mapMorphName, diffMorphCoverage, diffSkeletonBones, ANIMATION_KEYS } from '@assets/AssetManifest';
 
 export interface AssembledCharacter {
   rootMesh: AbstractMesh;
@@ -200,9 +200,11 @@ export class CharacterAssembler {
       skeleton = container.skeletons[0] ?? null;
       animationGroups = container.animationGroups;
 
-      // MPFB/glTF exports face away from our default camera — turn 180° to face it.
-      const gltfRoot = container.meshes.find((m) => m.name === '__root__');
-      gltfRoot?.addRotation(0, Math.PI, 0);
+      // Mixamo-rigged exports face +Z (our world "forward" at rotation.y=0), so
+      // the model's facing matches PlayerController's `root.rotation.y = facing`
+      // with no baked offset. (The creator camera is positioned to look at this
+      // front — see CharacterCreatorScene.setupCamera.) Do NOT rotate here, or the
+      // hero walks backwards ("moonwalk"). A base that faces -Z would need π here.
 
       // Collect morph targets from any mesh that has a manager.
       const available: string[] = [];
@@ -247,6 +249,17 @@ export class CharacterAssembler {
       meshes.push(...placeholderBody);
     }
 
+    // ─── Shared locomotion clips (separate Mixamo GLBs, retargeted to the rig) ─
+    // Dedicated clip files take precedence over any animations embedded in the
+    // base GLB; if none are present we keep whatever the base shipped.
+    if (skeleton) {
+      const clips = await this.loadAnimationClips(skeleton);
+      if (clips.length) {
+        animationGroups.forEach((g) => g.dispose());
+        animationGroups = clips;
+      }
+    }
+
     // ─── Attached layers (clothing/hair/etc.), sharing the base skeleton ──────
     // In real-GLB mode a missing part is SKIPPED (not replaced by a floating
     // placeholder proxy) so the loaded model stays clean.
@@ -282,6 +295,55 @@ export class CharacterAssembler {
       getSkeleton: () => skeleton,
       getAnimationGroups: () => animationGroups,
     };
+  }
+
+  /**
+   * Loads the shared locomotion clips (idle/walk/run/interact) from separate
+   * GLBs and retargets each onto the base skeleton by bone name, renaming the
+   * group to its manifest key so PlayerController's name-matching playback
+   * (`g.name.includes(state)`) drives it. Missing clip files are skipped, and a
+   * clip whose bones don't match the rig is reported (diffSkeletonBones).
+   */
+  /* istanbul ignore next — browser/Electron only; exercised via manual verification */
+  private async loadAnimationClips(skeleton: Skeleton): Promise<AnimationGroup[]> {
+    const { SceneLoader } = await import('@babylonjs/core');
+    await import('@babylonjs/loaders/glTF');
+    const out: AnimationGroup[] = [];
+
+    // Drive the base skeleton's transform nodes, looked up by lowercased bone name.
+    const boneNodeByName = new Map<string, unknown>();
+    for (const bone of skeleton.bones) {
+      boneNodeByName.set(bone.name.toLowerCase(), bone.getTransformNode() ?? bone);
+    }
+    const baseBoneNames = skeleton.bones.map((b) => b.name);
+
+    /* eslint-disable no-console */
+    for (const key of ANIMATION_KEYS) {
+      const path = CharacterAssets.animations[key];
+      try {
+        const c = await SceneLoader.LoadAssetContainerAsync('/assets/', path, this.scene);
+        const animBoneNames = (c.skeletons[0]?.bones ?? []).map((b) => b.name);
+        const report = diffSkeletonBones(baseBoneNames, animBoneNames);
+        if (report.missing.length) {
+          console.warn(`[Avatar] anim "${key}" has bones absent from the base rig:`, report.missing.join(', '));
+        }
+        for (const g of c.animationGroups) {
+          out.push(g.clone(key, (oldTarget) => {
+            const name = (oldTarget as { name?: string })?.name?.toLowerCase();
+            return (name && boneNodeByName.get(name)) || oldTarget;
+          }));
+        }
+        // Keep the cloned groups; drop the source container's groups/skeleton/meshes.
+        c.animationGroups.forEach((g) => g.dispose());
+        c.skeletons.forEach((s) => s.dispose());
+        c.meshes.forEach((m) => m.dispose());
+        console.warn(`[Avatar] loaded anim clip "${key}" (${path})`);
+      } catch {
+        // Clip GLB missing/unreachable — that state just won't be animated.
+      }
+    }
+    /* eslint-enable no-console */
+    return out;
   }
 
   /* istanbul ignore next — browser-only material/texture wiring */

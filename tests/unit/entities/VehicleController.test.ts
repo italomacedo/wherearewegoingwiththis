@@ -98,6 +98,18 @@ describe('VehicleController instance', () => {
     expect(vehicle.isOccupied()).toBe(false);
   });
 
+  it('setUseGltf toggles the flag; stays on placeholder headlessly', () => {
+    try {
+      VehicleController.setUseGltf(true);
+      expect(VehicleController.useGltf).toBe(true);
+      expect(VehicleController.canLoadGltf()).toBe(false); // no document in Node
+      vehicle.spawn(new Vector3(0, 0, 0));
+      expect(vehicle.getPartCount()).toBeGreaterThan(0); // placeholder, not GLB
+    } finally {
+      VehicleController.setUseGltf(false);
+    }
+  });
+
   it('spawn builds the placeholder and parks resting on the ground', () => {
     vehicle.spawn(new Vector3(2, 0, 3));
     expect(vehicle.getPartCount()).toBeGreaterThan(0);

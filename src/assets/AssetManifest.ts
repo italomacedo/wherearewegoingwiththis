@@ -296,3 +296,29 @@ export function diffMorphCoverage(availableTargetNames: string[]): MorphCoverage
 export function assetExists(path: string): boolean {
   return path.length > 0; // runtime check via fetch/loader would be done by CharacterAssembler
 }
+
+/** Locomotion clip keys, in the order they're loaded/retargeted. */
+export const ANIMATION_KEYS = ['idle', 'walk', 'run', 'interact'] as const;
+
+export interface SkeletonRetargetReport {
+  /** Animation bone names that exist on the base skeleton (drivable). */
+  matched: string[];
+  /** Animation bone names with no counterpart on the base skeleton (ignored). */
+  missing: string[];
+}
+
+/**
+ * Diffs an animation clip's target bone names against the base skeleton's bones.
+ * Retargeting separate Mixamo clips onto the MakeHuman rig only works for bones
+ * present in both; this reports the mismatch so a bad export is diagnosable
+ * (risk #3 — bone-name parity). Case-insensitive. Pure + testable.
+ */
+export function diffSkeletonBones(baseBoneNames: string[], animBoneNames: string[]): SkeletonRetargetReport {
+  const baseLower = new Set(baseBoneNames.map((n) => n.toLowerCase()));
+  const matched: string[] = [];
+  const missing: string[] = [];
+  for (const name of animBoneNames) {
+    (baseLower.has(name.toLowerCase()) ? matched : missing).push(name);
+  }
+  return { matched, missing };
+}
