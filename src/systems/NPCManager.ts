@@ -40,8 +40,8 @@ export interface AutonomyResult {
   attackers: string[];
   /** How many deliberation jobs were newly enqueued this tick. */
   enqueued: number;
-  /** The intent produced if a deliberation dispatched this tick, else null. */
-  deliberated: NPCIntent | null;
+  /** The agent + intent produced if a deliberation dispatched this tick, else null. */
+  deliberated: { agentId: string; intent: NPCIntent } | null;
 }
 
 /**
@@ -193,7 +193,8 @@ export class NPCManager {
 
     const job = queue.tryDispatch(now);
     if (job && job.payload.kind === 'deliberation') {
-      result.deliberated = await this.runDeliberation(job.payload.agentId, ctx);
+      const intent = await this.runDeliberation(job.payload.agentId, ctx);
+      if (intent) result.deliberated = { agentId: job.payload.agentId, intent };
     }
     return result;
   }

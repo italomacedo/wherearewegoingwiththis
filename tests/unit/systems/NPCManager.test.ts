@@ -241,7 +241,7 @@ describe('NPCManager autonomy (Fase 5)', () => {
     const q = new ClaudeCallQueue<AutonomyJob>({ minGapMs: 0, maxPerMinute: 8 }, () => 0);
     const r = await m.tickAutonomy(q, 0, ctx());
     expect(r.enqueued).toBe(1);
-    expect(r.deliberated).toEqual({ kind: 'approach', targetNpcId: 'npc_b' });
+    expect(r.deliberated).toEqual({ agentId: 'npc_a', intent: { kind: 'approach', targetNpcId: 'npc_b' } });
     expect(agent.getIntent()).toEqual({ kind: 'approach', targetNpcId: 'npc_b' });
     m.dispose();
   });

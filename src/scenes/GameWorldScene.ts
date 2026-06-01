@@ -450,8 +450,10 @@ export class GameWorldScene extends BaseScene {
     };
 
     void this.npcManager.tickAutonomy(this.autonomyQueue, now, ctx).then((res) => {
-      if (res.deliberated?.kind === 'approach' && res.deliberated.targetNpcId) {
-        this.beginApproach(res.deliberated.targetNpcId, res.deliberated.targetNpcId);
+      const d = res.deliberated;
+      if (d && d.intent.kind === 'approach' && d.intent.targetNpcId) {
+        // The agent that deliberated walks toward its chosen target.
+        this.beginApproach(d.agentId, d.intent.targetNpcId);
       }
       if (res.attackers.length > 0) {
         console.warn(`[NPC] attack intent flagged (combat stub): ${res.attackers.join(', ')}`);
@@ -474,6 +476,7 @@ export class GameWorldScene extends BaseScene {
   /** Plan an A* route for `moverId` to walk toward `partnerId`. */
   /* istanbul ignore next — browser-only mesh routing */
   private beginApproach(moverId: string, partnerId: string): void {
+    if (moverId === partnerId) return; // never approach/gossip with oneself
     const mover = this.npcHolderById.get(moverId);
     const partner = this.npcHolderById.get(partnerId);
     if (!mover || !partner || this.npcRoutes.has(moverId) || this.gossiping.has(moverId)) return;
