@@ -237,6 +237,17 @@ export const ANIMAL_MODELS: Record<'shibainu' | 'husky', string> = {
   husky: 'world/animals/husky.glb',
 };
 
+/** Litter GLBs (CC0 Survival Pack cans + bottles) for street trash (Fase 6).
+ *  Keyed by AmbientLife.TrashModel. */
+export const TRASH_MODELS: Record<string, string> = {
+  can_broken: 'world/trash/can_broken.glb',
+  can_open: 'world/trash/can_open.glb',
+  can_red: 'world/trash/can_red.glb',
+  can_closed: 'world/trash/can_closed.glb',
+  waterbottle_1: 'world/trash/waterbottle_1.glb',
+  waterbottle_2: 'world/trash/waterbottle_2.glb',
+};
+
 /** Atmospheric nave (small Spaceships model) — replaces the flying bike. */
 export const NAVE_MODEL = {
   path: 'vehicles/nave.glb',

@@ -65,7 +65,11 @@ describe('placement data', () => {
   it('beggars and trash have placement entries', () => {
     expect(BEGGAR_SPOTS.length).toBeGreaterThan(0);
     expect(TRASH_SPOTS.length).toBeGreaterThan(0);
-    TRASH_SPOTS.forEach((t) => expect(t.size).toBeGreaterThan(0));
+    const models = ['can_broken', 'can_open', 'can_red', 'can_closed', 'waterbottle_1', 'waterbottle_2'];
+    TRASH_SPOTS.forEach((t) => {
+      expect(t.scale).toBeGreaterThan(0);
+      expect(models).toContain(t.model);
+    });
   });
 
   it('dog spawns start within the wander bounds', () => {

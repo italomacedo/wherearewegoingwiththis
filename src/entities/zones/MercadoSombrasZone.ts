@@ -4,7 +4,7 @@ import {
   PhysicsAggregate, PhysicsShapeType,
 } from '@babylonjs/core';
 import { WorldZone, ZoneBounds } from '@entities/WorldZone';
-import { MERCADO_PROPS, EXIT_WALL, CORRIDOR_COLLIDERS, ZONE_HALF, ANIMAL_MODELS } from '@assets/WorldAssetCatalog';
+import { MERCADO_PROPS, EXIT_WALL, CORRIDOR_COLLIDERS, ZONE_HALF, ANIMAL_MODELS, TRASH_MODELS } from '@assets/WorldAssetCatalog';
 import { DayPeriod, paletteForPeriod } from '@systems/GameClock';
 import { DOG_SPAWNS, DOG_BOUNDS, BEGGAR_SPOTS, TRASH_SPOTS, stepDog, DogState } from '@entities/AmbientLife';
 import type { Observer } from '@babylonjs/core';
@@ -215,17 +215,8 @@ export class MercadoSombrasZone extends WorldZone {
    */
   /* istanbul ignore next — browser/Electron meshes + GLB loading */
   private async buildAmbientLife(scene: Scene): Promise<void> {
-    // Trash piles — low dark mounds in the gutters (walkable, no collider).
-    const trashMat = new StandardMaterial('trash-mat', scene);
-    trashMat.diffuseColor = new Color3(0.08, 0.08, 0.07);
-    trashMat.specularColor = Color3.Black();
-    TRASH_SPOTS.forEach((t, i) => {
-      const pile = MeshBuilder.CreateBox(`trash-${i}`, { width: t.size * 2, height: t.size, depth: t.size * 1.6 }, scene);
-      pile.position.set(t.x, t.size / 2, t.z);
-      pile.rotation.y = i * 1.1;
-      pile.material = trashMat;
-      this.meshes.push(pile);
-    });
+    // Litter — real CC0 cans/bottles strewn in the gutters (walkable, no collider).
+    await this.buildLitter(scene);
 
     // Beggars — slumped procedural silhouettes (non-interactive, no collider).
     const beggarMat = new StandardMaterial('beggar-mat', scene);
@@ -244,6 +235,28 @@ export class MercadoSombrasZone extends WorldZone {
 
     // Stray dogs — load each GLB once, instantiate per spawn, wander + animate.
     await this.buildStrayDogs(scene);
+  }
+
+  /* istanbul ignore next — browser/Electron GLB loading */
+  private async buildLitter(scene: Scene): Promise<void> {
+    const { SceneLoader, TransformNode } = await import('@babylonjs/core');
+    await import('@babylonjs/loaders/glTF');
+    for (let i = 0; i < TRASH_SPOTS.length; i++) {
+      const t = TRASH_SPOTS[i];
+      try {
+        const c = await SceneLoader.LoadAssetContainerAsync('/assets/', TRASH_MODELS[t.model], scene);
+        c.addAllToScene();
+        const holder = new TransformNode(`trash-${i}`, scene);
+        holder.position.set(t.x, 0.02, t.z);
+        holder.rotation.y = t.rotationY;
+        holder.scaling.setAll(t.scale);
+        c.meshes.forEach((m) => { if (!m.parent) m.parent = holder; });
+        this.meshes.push(...(c.meshes as AbstractMesh[]));
+        this.holders.push(holder);
+      } catch (err) {
+        console.warn(`[Mercado] litter "${t.model}" failed to load:`, err);
+      }
+    }
   }
 
   /* istanbul ignore next — browser/Electron GLB loading + animation */
@@ -271,6 +284,7 @@ export class MercadoSombrasZone extends WorldZone {
         holder.rotation.y = state.heading;
         (state.moving ? walk : idle)?.start(true);
         dogs.push({ holder, state, walk, idle });
+        this.holders.push(holder);
         c.meshes.forEach((m) => this.meshes.push(m));
       } catch (err) {
         console.warn(`[Mercado] stray dog "${spawn.model}" failed to load:`, err);

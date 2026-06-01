@@ -77,15 +77,26 @@ export const BEGGAR_SPOTS: readonly BeggarSpot[] = [
   { x: -3, z: 8.0, rotationY: Math.PI },    // near a beco
 ];
 
-/** Scattered trash/debris in the gutters (decorative, walkable). */
+/** Litter models (Quaternius/CC0 Survival Pack cans + bottles) keyed for placement. */
+export type TrashModel =
+  | 'can_broken' | 'can_open' | 'can_red' | 'can_closed' | 'waterbottle_1' | 'waterbottle_2';
+
+/** Scattered litter in the gutters (real GLB cans/bottles, walkable). The source
+ *  cans are ~0.64 u tall, so a ~0.3 scale reads as a real discarded can. */
 export interface TrashSpot {
   x: number;
   z: number;
-  /** Rough pile radius (m) — varies the look. */
-  size: number;
+  model: TrashModel;
+  /** Yaw (rad) so each piece lies at a different angle. */
+  rotationY: number;
+  /** Uniform scale (source props are oversized for a can). */
+  scale: number;
 }
 export const TRASH_SPOTS: readonly TrashSpot[] = [
-  { x: -20, z: 4.2, size: 0.5 }, { x: -8, z: -4.0, size: 0.35 },
-  { x: 4, z: 4.4, size: 0.6 }, { x: 16, z: -4.2, size: 0.4 },
-  { x: 11, z: 7.0, size: 0.3 }, { x: -13, z: -6.8, size: 0.45 },
+  { x: -20, z: 4.2, model: 'can_broken', rotationY: 0.4, scale: 0.3 },
+  { x: -8, z: -4.0, model: 'can_red', rotationY: 2.1, scale: 0.3 },
+  { x: 4, z: 4.4, model: 'can_open', rotationY: 4.0, scale: 0.32 },
+  { x: 16, z: -4.2, model: 'waterbottle_1', rotationY: 1.2, scale: 0.28 },
+  { x: 11, z: 7.0, model: 'can_closed', rotationY: 5.2, scale: 0.3 },
+  { x: -13, z: -6.8, model: 'waterbottle_2', rotationY: 0.8, scale: 0.28 },
 ];
