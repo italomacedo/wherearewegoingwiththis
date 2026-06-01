@@ -30,6 +30,7 @@ import { WAYPOINT_GRAPH } from '@assets/WorldAssetCatalog';
 import { ClaudeNPCService, ClaudeBridge } from '@systems/ClaudeNPCService';
 import { DialogSystem, DialogLine } from '@systems/DialogSystem';
 import { createZara } from '@entities/npcs/zara';
+import { createMback } from '@entities/npcs/mback';
 import { PlayerAction, NPCDefinition, NPCAgent } from '@entities/NPCAgent';
 import { CharacterAssembler, AssembledCharacter } from '@systems/CharacterAssembler';
 import { WorldSnapshot } from '@systems/npc/PromptBuilder';
@@ -70,7 +71,7 @@ export class GameWorldScene extends BaseScene {
   private npcVisuals: AssembledCharacter[] = [];
   private npcHolders: TransformNode[] = [];
   private npcHolderById = new Map<string, TransformNode>();
-  private npcLabelAnchor: AbstractMesh | null = null;
+  private npcAnchors: AbstractMesh[] = [];
   // ─── Autonomy (Fase 5) ──────────────────────────────────────────────────────
   private autonomyQueue: ClaudeCallQueue<AutonomyJob> | null = null;
   private autonomyAccumMs = 0;
@@ -240,7 +241,7 @@ export class GameWorldScene extends BaseScene {
   private buildEntityColliders(): void {
     const targets: Array<AbstractMesh | undefined> = [
       this.vehicle?.getRoot() as unknown as AbstractMesh,
-      this.npcLabelAnchor ?? undefined,
+      ...this.npcAnchors,
     ];
     for (const t of targets) {
       if (!t) continue;
@@ -280,12 +281,12 @@ export class GameWorldScene extends BaseScene {
     this.npcHolders.forEach((h) => h.dispose());
     this.npcHolders = [];
     this.npcHolderById.clear();
+    this.npcAnchors = [];
     this.autonomyQueue?.clear();
     this.autonomyQueue = null;
     this.autonomyAccumMs = 0;
     this.npcRoutes.clear();
     this.gossiping.clear();
-    this.npcLabelAnchor = null;
     this.player = null;
     this.vehicle = null;
     this.zoneManager = null;
@@ -365,14 +366,17 @@ export class GameWorldScene extends BaseScene {
     this.npcManager = new NPCManager(service);
     ServiceLocator.register('npcManager', this.npcManager);
 
-    const zara = createZara();
-    const conversation = NPCManager.restoreConversation(this.npcMemory, zara.id);
-    const agent = this.npcManager.spawn(zara, conversation);
-    agent.setDisposition(NPCManager.restoreDisposition(this.npcMemory, zara.id, zara.initialDisposition ?? 'neutral'));
-    this.npcLabelAnchor = await this.buildNPCVisual(zara);
+    const definitions = [createZara(), createMback()];
+    for (const def of definitions) {
+      const conversation = NPCManager.restoreConversation(this.npcMemory, def.id);
+      const agent = this.npcManager.spawn(def, conversation);
+      agent.setDisposition(NPCManager.restoreDisposition(this.npcMemory, def.id, def.initialDisposition ?? 'neutral'));
+      const anchor = await this.buildNPCVisual(def);
+      this.npcAnchors.push(anchor);
+    }
 
-    // Autonomy queue (throttled per the player's Options). Mechanism is live even
-    // with one NPC (deliberation/react); gossip needs ≥2 co-located NPCs.
+    // Autonomy queue (throttled per the player's Options). With ≥2 co-located
+    // NPCs, an `approach` deliberation now surfaces live on-screen gossip.
     this.autonomyQueue = new ClaudeCallQueue<AutonomyJob>(
       queueConfigFromSettings(SettingsService.get('npcCallsPerMinute')),
     );
@@ -553,8 +557,8 @@ export class GameWorldScene extends BaseScene {
       // Cinematic framing: focus the NPC we're talking to. Target the holder (a
       // top-level node at the NPC's world position) — the camera follows
       // target.position (local), so the parented mesh anchor would frame the
-      // scene origin instead. Single NPC for now; multi-NPC maps agent.id → holder.
-      const holder = this.npcHolders[0];
+      // scene origin instead. Look the holder up by the agent's id (multi-NPC).
+      const holder = this.npcHolderById.get(agent.definition.id);
       if (holder) {
         // Turn the NPC to face the player (avatar faces +Z at rotation.y=0, so
         // rotation.y = atan2(dx, dz) toward the player). The player is frozen

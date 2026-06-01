@@ -125,6 +125,13 @@ describe('GameWorldScene', () => {
     expect(npc!.getAgent('npc_zara_vendor_01')).not.toBeNull();
   });
 
+  it('onEnter also spawns the second street NPC (Mback) for gossip', async () => {
+    await scene.onEnter();
+    const npc = scene.getNpcManager()!;
+    expect(npc.getAgent('npc_mback_fence_01')).not.toBeNull();
+    expect(npc.getAgents().length).toBeGreaterThanOrEqual(2);
+  });
+
   it('onEnter creates a dialog system', async () => {
     await scene.onEnter();
     expect(scene.getDialog()).not.toBeNull();
