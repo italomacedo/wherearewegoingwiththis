@@ -156,6 +156,10 @@ describe('PromptBuilder', () => {
       expect(p).toContain('DETERMINISTIC or NARRATIVE');
       expect(p).toContain('picks the lock');
     });
+    it('lists checking the time as a deterministic state query', () => {
+      const p = PromptBuilder.buildEmoteClassifierPrompt('*x*');
+      expect(p).toContain('checking the time');
+    });
   });
 
   describe('buildAmbientReactionPrompt', () => {
