@@ -11,9 +11,10 @@ import {
   CharacterData, DEFAULT_APPEARANCE, ColorKey, cloneAppearance,
 } from '@entities/CharacterData';
 import {
-  CharacterStats, AttributeId, ATTRIBUTES,
+  CharacterStats, AttributeId, ATTRIBUTES, SKILLS, StartingSkillPick, StartTier,
   createDefaultStats, setPrimaryAttribute as applyPrimaryAttribute,
   allocateStartingSkills, isValidStartingSkills, choosePerk as applyChoosePerk,
+  choosePerkReplacing, perksForTier, toggleStartingSkill, startingSkillState,
 } from '@entities/CharacterStats';
 import { type Gender, outfitsForGender, genderOfOutfit } from '@assets/AvatarMeshCatalog';
 
@@ -182,6 +183,13 @@ export class CharacterCreatorScene extends BaseScene {
     const before = this.stats.perks.length;
     this.stats = applyChoosePerk(this.stats, perkId);
     return this.stats.perks.length > before;
+  }
+
+  /** Choose a perk for its slot, replacing any prior pick in that (attr,tier). */
+  setSlotPerk(perkId: string): boolean {
+    const before = JSON.stringify(this.stats.perks);
+    this.stats = choosePerkReplacing(this.stats, perkId);
+    return JSON.stringify(this.stats.perks) !== before;
   }
 
   setPlayerName(name: string): void {
@@ -375,6 +383,9 @@ export class CharacterCreatorScene extends BaseScene {
       for (const control of category.controls) this.buildControl(control, panel);
     }
 
+    // Right-side RPG panel — starting skills + tier-1 perks.
+    this.buildRpgPanel(gui);
+
     // Right panel — name + begin
     const nameInput = new InputText('name-input', 'Operative');
     nameInput.width = '220px';
@@ -440,6 +451,109 @@ export class CharacterCreatorScene extends BaseScene {
     backBtn.paddingLeft = '20px';
     backBtn.onPointerUpObservable.add(() => this.onBack());
     gui.addControl(backBtn);
+  }
+
+  /** Right-side scrollable panel: starting-skill picker + tier-1 perk picks. */
+  /* istanbul ignore next — browser-only GUI */
+  private buildRpgPanel(gui: AdvancedDynamicTexture): void {
+    const scroll = new ScrollViewer('rpg-scroll');
+    scroll.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+    scroll.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+    scroll.left = '-20px';
+    scroll.top = '80px';
+    scroll.width = '300px';
+    scroll.height = '58%';
+    scroll.thickness = 1;
+    scroll.barColor = '#00FFCC';
+    gui.addControl(scroll);
+
+    const panel = new StackPanel('rpg-panel');
+    panel.spacing = 4;
+    panel.paddingTop = '6px';
+    panel.paddingBottom = '6px';
+    scroll.addControl(panel);
+
+    const addHeader = (text: string): void => {
+      const h = new TextBlock(`rpg-h-${text}`);
+      h.text = text;
+      h.color = '#00FFCC';
+      h.fontSize = 13;
+      h.fontFamily = 'monospace';
+      h.fontStyle = 'bold';
+      h.height = '24px';
+      panel.addControl(h);
+    };
+
+    // ── Starting skills (2 majors @40%, 3 minors @20%) ──
+    addHeader('STARTING SKILLS');
+    const counter = new TextBlock('rpg-skill-count');
+    counter.fontSize = 11;
+    counter.fontFamily = 'monospace';
+    counter.height = '20px';
+    panel.addControl(counter);
+
+    const pick: StartingSkillPick = { majors: [], minors: [] };
+    const tierLabel = (st: StartTier): string =>
+      st === 'major' ? '40%' : st === 'minor' ? '20%' : '10%';
+    const refresh = (): void => {
+      const ok = isValidStartingSkills(pick.majors, pick.minors);
+      counter.text = `Majors ${pick.majors.length}/2 · Minors ${pick.minors.length}/3`;
+      counter.color = ok ? '#00FFAA' : '#FFCC66';
+      if (ok) this.setStartingSkills(pick.majors, pick.minors);
+    };
+    for (const s of SKILLS) {
+      const btn = Button.CreateSimpleButton(`sk-${s.id}`, `${s.label} — 10%`);
+      btn.width = '270px';
+      btn.height = '26px';
+      btn.color = '#CFE';
+      btn.background = 'rgba(0,30,40,0.7)';
+      btn.fontSize = 11;
+      btn.fontFamily = 'monospace';
+      btn.thickness = 1;
+      btn.onPointerUpObservable.add(() => {
+        const next = toggleStartingSkill(pick, s.id);
+        pick.majors = next.majors;
+        pick.minors = next.minors;
+        const st = startingSkillState(pick, s.id);
+        if (btn.textBlock) btn.textBlock.text = `${s.label} — ${tierLabel(st)}`;
+        refresh();
+      });
+      panel.addControl(btn);
+    }
+    refresh();
+
+    // ── Tier-1 perks (one choice per attribute, unlocked at creation) ──
+    addHeader('TIER-1 PERKS');
+    for (const a of ATTRIBUTES) {
+      const lbl = new TextBlock(`rpg-pk-${a.id}`);
+      lbl.text = a.label;
+      lbl.color = '#9FD8FF';
+      lbl.fontSize = 11;
+      lbl.fontFamily = 'monospace';
+      lbl.height = '18px';
+      panel.addControl(lbl);
+
+      const options = perksForTier(a.id, 1);
+      const btns: Button[] = [];
+      options.forEach((p) => {
+        const b = Button.CreateSimpleButton(`pk-${p.id}`, p.label);
+        b.width = '270px';
+        b.height = '26px';
+        b.color = '#CFE';
+        b.background = 'rgba(0,30,40,0.7)';
+        b.fontSize = 11;
+        b.fontFamily = 'monospace';
+        b.thickness = 1;
+        b.onPointerUpObservable.add(() => {
+          this.setSlotPerk(p.id);
+          btns.forEach((other, i) => {
+            other.background = options[i]!.id === p.id ? 'rgba(0,80,60,0.9)' : 'rgba(0,30,40,0.7)';
+          });
+        });
+        btns.push(b);
+        panel.addControl(b);
+      });
+    }
   }
 
   /** Builds one widget for a control spec and wires it to a pure setter. */

@@ -202,6 +202,44 @@ export function isValidStartingSkills(majorIds: string[], minorIds: string[]): b
   return all.every((id) => SKILL_BY_ID.has(id));
 }
 
+export type StartTier = 'base' | 'minor' | 'major';
+
+export interface StartingSkillPick {
+  majors: string[];
+  minors: string[];
+}
+
+/** Which starting tier a skill currently holds in a pick. */
+export function startingSkillState(pick: StartingSkillPick, skillId: string): StartTier {
+  if (pick.majors.includes(skillId)) return 'major';
+  if (pick.minors.includes(skillId)) return 'minor';
+  return 'base';
+}
+
+/**
+ * Cycle a skill base → minor → major → base for the creator picker, respecting
+ * the caps (2 majors, 3 minors). When a cap blocks the next step it advances to
+ * the next legal state (or back to base). Pure.
+ */
+export function toggleStartingSkill(pick: StartingSkillPick, skillId: string): StartingSkillPick {
+  const inMajor = pick.majors.includes(skillId);
+  const inMinor = pick.minors.includes(skillId);
+  let majors = pick.majors.filter((id) => id !== skillId);
+  let minors = pick.minors.filter((id) => id !== skillId);
+
+  if (inMajor) {
+    // major → base (already removed)
+  } else if (inMinor) {
+    // minor → major (if room), else base
+    if (majors.length < START_MAJOR_COUNT) majors = [...majors, skillId];
+  } else {
+    // base → minor (if room), else major (if room), else stay base
+    if (minors.length < START_MINOR_COUNT) minors = [...minors, skillId];
+    else if (majors.length < START_MAJOR_COUNT) majors = [...majors, skillId];
+  }
+  return { majors, minors };
+}
+
 /** Apply the starting skill allocation: majors 40%, minors 20%, the rest 10%. */
 export function allocateStartingSkills(
   stats: CharacterStats, majorIds: string[], minorIds: string[]
@@ -271,6 +309,21 @@ export function canChoosePerk(stats: CharacterStats, perkId: string): boolean {
 export function choosePerk(stats: CharacterStats, perkId: string): CharacterStats {
   if (!canChoosePerk(stats, perkId)) return stats;
   return { ...stats, perks: [...stats.perks, perkId] };
+}
+
+/**
+ * Pick a perk for its (attribute, tier) slot, REPLACING any perk already chosen
+ * in that slot — used by the creator so the player can switch their choice. A
+ * no-op if the perk is unknown or its tier is still locked.
+ */
+export function choosePerkReplacing(stats: CharacterStats, perkId: string): CharacterStats {
+  const perk = PERK_BY_ID.get(perkId);
+  if (!perk) return stats;
+  if (perk.tier > unlockedTierCount(stats.attributes[perk.attribute])) return stats;
+  const existing = chosenPerkAt(stats, perk.attribute, perk.tier);
+  const perks = existing ? stats.perks.filter((id) => id !== existing) : stats.perks;
+  if (perks.includes(perkId)) return { ...stats, perks };
+  return { ...stats, perks: [...perks, perkId] };
 }
 
 // ─── Check value selection (skill-fits → skill, else attribute fallback) ──────

@@ -1,8 +1,9 @@
 import {
   ATTRIBUTES, SKILLS, PERKS, PERK_TIERS,
   createDefaultStats, setPrimaryAttribute, isValidStartingSkills, allocateStartingSkills,
-  applySkillUse, unlockedTierCount, pendingPerkSlots, canChoosePerk, choosePerk, checkValue,
-  perksForTier, skillsForAttribute,
+  applySkillUse, unlockedTierCount, pendingPerkSlots, canChoosePerk, choosePerk, choosePerkReplacing, checkValue,
+  perksForTier, skillsForAttribute, toggleStartingSkill, startingSkillState,
+  type StartingSkillPick,
 } from '../../../src/entities/CharacterStats';
 
 describe('CharacterStats — registries', () => {
@@ -58,6 +59,37 @@ describe('CharacterStats — creation', () => {
     expect(s.skills.furtividade).toBe(20);
     expect(s.skills.comercio).toBe(20);
     expect(s.skills.atletismo).toBe(10);
+  });
+});
+
+describe('CharacterStats — creator skill picker (toggleStartingSkill)', () => {
+  const empty: StartingSkillPick = { majors: [], minors: [] };
+
+  it('cycles base → minor → major → base', () => {
+    let p = toggleStartingSkill(empty, 'armas_de_fogo');
+    expect(startingSkillState(p, 'armas_de_fogo')).toBe('minor');
+    p = toggleStartingSkill(p, 'armas_de_fogo');
+    expect(startingSkillState(p, 'armas_de_fogo')).toBe('major');
+    p = toggleStartingSkill(p, 'armas_de_fogo');
+    expect(startingSkillState(p, 'armas_de_fogo')).toBe('base');
+  });
+
+  it('caps minors at 3: a 4th base skill cannot become minor (jumps toward major)', () => {
+    let p: StartingSkillPick = { majors: [], minors: ['a', 'b', 'c'] };
+    p = toggleStartingSkill(p, 'medicina'); // minors full → goes to major
+    expect(startingSkillState(p, 'medicina')).toBe('major');
+  });
+
+  it('caps majors at 2: when both caps are full a new skill stays base', () => {
+    const p = { majors: ['x', 'y'], minors: ['a', 'b', 'c'] };
+    const next = toggleStartingSkill(p, 'medicina');
+    expect(startingSkillState(next, 'medicina')).toBe('base');
+  });
+
+  it('minor → major is blocked when majors are full (drops to base)', () => {
+    const p = { majors: ['x', 'y'], minors: ['medicina'] };
+    const next = toggleStartingSkill(p, 'medicina');
+    expect(startingSkillState(next, 'medicina')).toBe('base');
   });
 });
 
@@ -117,6 +149,15 @@ describe('CharacterStats — perks', () => {
   it('choosePerk is a no-op for an invalid choice', () => {
     const s = createDefaultStats();
     expect(choosePerk(s, 'does_not_exist')).toBe(s);
+  });
+
+  it('choosePerkReplacing swaps the perk within a (attr,tier) slot', () => {
+    const [p1, p2] = perksForTier('forca', 1);
+    let s = choosePerkReplacing(createDefaultStats(), p1!.id);
+    expect(s.perks).toEqual([p1!.id]);
+    s = choosePerkReplacing(s, p2!.id); // swap to the other tier-1 forca perk
+    expect(s.perks).toEqual([p2!.id]);
+    expect(choosePerkReplacing(s, 'nope')).toBe(s); // unknown → no-op
   });
 });
 

@@ -141,6 +141,14 @@ describe('CharacterCreatorScene (Quaternius outfits)', () => {
     expect(scene.choosePerk('does_not_exist')).toBe(false);
   });
 
+  it('setSlotPerk swaps the pick within the forca tier-1 slot', () => {
+    expect(scene.setSlotPerk('forca_t1_punho_calejado')).toBe(true);
+    expect(scene.setSlotPerk('forca_t1_folego_de_rua')).toBe(true);
+    const perks = scene.getStats().perks;
+    expect(perks).toContain('forca_t1_folego_de_rua');
+    expect(perks).not.toContain('forca_t1_punho_calejado');
+  });
+
   it('onBegin persists the RPG sheet onto the saved character', async () => {
     await scene.onEnter();
     scene.cyclePrimaryAttribute(); // forca → destreza
