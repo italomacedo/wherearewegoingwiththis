@@ -91,16 +91,16 @@ const DOOR_FIT: Record<string, { openX: number; dy: number }> = {
 };
 const dfit = (m: string) => DOOR_FIT[m]!; // all lining-building models are in DOOR_FIT
 const DOORS: readonly WorldProp[] = [
-  // North (rotationY π → world x = bx − localx; leaf-centre lands at bx − openX).
+  // North side. (Empirically the leaf lands on the opening with +openX +pivot.)
   ...NORTH_BUILDINGS.map(([x, m], i) => ({
     key: `door-n-${i}`, model: `${DT}${DOOR_MODELS[i % DOOR_MODELS.length]}.glb`,
-    position: [x - dfit(m).openX - DOOR_PIVOT, dfit(m).dy, BUILDING_Z - 0.1] as [number, number, number],
+    position: [x + dfit(m).openX + DOOR_PIVOT, dfit(m).dy, BUILDING_Z - 0.1] as [number, number, number],
     rotationY: NORTH_ROT,
   })),
-  // South (rotationY 0 → world x = bx + localx).
+  // South side (mirrored).
   ...SOUTH_BUILDINGS.map(([x, m], i) => ({
     key: `door-s-${i}`, model: `${DT}${DOOR_MODELS[i % DOOR_MODELS.length]}.glb`,
-    position: [x + dfit(m).openX + DOOR_PIVOT, dfit(m).dy, -(BUILDING_Z - 0.1)] as [number, number, number],
+    position: [x - dfit(m).openX - DOOR_PIVOT, dfit(m).dy, -(BUILDING_Z - 0.1)] as [number, number, number],
     rotationY: SOUTH_ROT,
   })),
   { key: 'door-deadend', model: `${DT}door_1.glb`, position: [-(ZONE_HALF - 0.5), 0, 0.5], rotationY: DEADEND_ROT },
