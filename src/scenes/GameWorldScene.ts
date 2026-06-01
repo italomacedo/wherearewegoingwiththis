@@ -507,6 +507,7 @@ export class GameWorldScene extends BaseScene {
 
       if (Vector3.Distance(holder.position, partner.position) <= GameWorldScene.ENGAGE_DIST) {
         this.npcRoutes.delete(moverId);
+        this.npcManager?.getAgent(moverId)?.setPosition(holder.position);
         // Stop walking, turn to face the partner, back to idle, then gossip.
         const anim = this.npcAnimById.get(moverId);
         anim?.walk?.stop();
@@ -526,6 +527,9 @@ export class GameWorldScene extends BaseScene {
         holder.position.addInPlace(to.scale(step / dist));
         holder.rotation.y = Math.atan2(to.x, to.z);
       }
+      // Keep the agent's logical position in sync so the [E] Talk prompt,
+      // proximity and conversation framing follow the NPC as it walks.
+      this.npcManager?.getAgent(moverId)?.setPosition(holder.position);
     });
   }
 

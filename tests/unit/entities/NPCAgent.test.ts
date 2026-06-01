@@ -120,6 +120,14 @@ describe('NPCAgent', () => {
     expect(a.shouldInitiateCombat(true)).toBe(false);
   });
 
+  it('setPosition moves the logical position (proximity/talk follow the NPC)', () => {
+    const a = new NPCAgent({ ...def }); // copy so the shared def isn't mutated
+    a.setPosition(new Vector3(12, 0, -3));
+    expect(a.getPosition().x).toBe(12);
+    expect(a.getPosition().z).toBe(-3);
+    expect(a.distanceTo(new Vector3(12, 0, -3))).toBe(0);
+  });
+
   it('stores and returns a deliberated intent', () => {
     expect(agent.getIntent()).toEqual({ kind: 'stay' });
     agent.setIntent({ kind: 'approach', targetNpcId: 'npc_x' });

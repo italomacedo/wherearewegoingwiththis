@@ -167,6 +167,15 @@ export class NPCAgent {
     return new Vector3(x, y, z);
   }
 
+  /**
+   * Update the NPC's logical position (so proximity, the [E] Talk prompt, the
+   * conversation camera and addressing follow it when the autonomy layer walks
+   * its mesh around). Mutates the runtime definition copy only.
+   */
+  setPosition(pos: Vector3): void {
+    this.definition.position = [pos.x, pos.y, pos.z];
+  }
+
   /** Distance from this NPC to a world position. */
   distanceTo(playerPos: Vector3): number {
     return Vector3.Distance(this.getPosition(), playerPos);
