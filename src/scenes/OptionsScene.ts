@@ -75,6 +75,34 @@ export class OptionsScene extends BaseScene {
     return next;
   }
 
+  /** Toggle autonomous NPC behaviour on/off and persist it. */
+  cycleNpcAutonomy(): boolean {
+    const next = !this.getSetting('npcAutonomy');
+    this.setSetting('npcAutonomy', next);
+    SettingsService.set('npcAutonomy', next);
+    return next;
+  }
+
+  /** Cycle the proactive-reflection interval 4 → 8 → 15 → 4 (minutes) and persist. */
+  cycleNpcReflectionMinutes(): 4 | 8 | 15 {
+    const order: Array<4 | 8 | 15> = [4, 8, 15];
+    const cur = this.getSetting('npcReflectionMinutes');
+    const next = order[(order.indexOf(cur) + 1) % order.length]!;
+    this.setSetting('npcReflectionMinutes', next);
+    SettingsService.set('npcReflectionMinutes', next);
+    return next;
+  }
+
+  /** Cycle the autonomous calls/minute budget 4 → 8 → 12 → 4 and persist. */
+  cycleNpcCallsPerMinute(): 4 | 8 | 12 {
+    const order: Array<4 | 8 | 12> = [4, 8, 12];
+    const cur = this.getSetting('npcCallsPerMinute');
+    const next = order[(order.indexOf(cur) + 1) % order.length]!;
+    this.setSetting('npcCallsPerMinute', next);
+    SettingsService.set('npcCallsPerMinute', next);
+    return next;
+  }
+
   validateAndSaveClaudePath(path: string): { valid: boolean; reason?: string } {
     const result = SettingsService.validateClaudePath(path);
     if (result.valid) {
@@ -252,6 +280,61 @@ export class OptionsScene extends BaseScene {
       if (gainBtn.textBlock) gainBtn.textBlock.text = `${next}x`;
     });
     gainRow.addControl(gainBtn);
+
+    // ─── Living-NPC autonomy throttle (Game tab) ────────────────────────────
+    const mkCycler = (
+      name: string,
+      labelKey: string,
+      initial: string,
+      onClick: () => string,
+    ): void => {
+      const row = new Rectangle(`${name}-row`);
+      row.height = '40px';
+      row.thickness = 0;
+      content.addControl(row);
+
+      const label = new TextBlock(`${name}-label`);
+      label.text = t(labelKey);
+      label.color = '#AABBCC';
+      label.fontSize = 14;
+      label.fontFamily = 'monospace';
+      label.horizontalAlignment = 0;
+      label.textHorizontalAlignment = 0;
+      label.width = '180px';
+      row.addControl(label);
+
+      const btn = Button.CreateSimpleButton(`${name}-btn`, initial);
+      btn.width = '120px';
+      btn.height = '32px';
+      btn.left = '190px';
+      btn.horizontalAlignment = 0;
+      btn.color = '#00FFCC';
+      btn.background = 'rgba(0,30,40,0.8)';
+      btn.fontSize = 13;
+      btn.fontFamily = 'monospace';
+      btn.thickness = 1;
+      btn.onPointerUpObservable.add(() => {
+        const next = onClick();
+        if (btn.textBlock) btn.textBlock.text = next;
+      });
+      row.addControl(btn);
+    };
+
+    mkCycler(
+      'autonomy', 'options.npcAutonomy',
+      this.settings.npcAutonomy ? t('common.on') : t('common.off'),
+      () => (this.cycleNpcAutonomy() ? t('common.on') : t('common.off')),
+    );
+    mkCycler(
+      'reflect', 'options.npcReflection',
+      `${this.settings.npcReflectionMinutes} min`,
+      () => `${this.cycleNpcReflectionMinutes()} min`,
+    );
+    mkCycler(
+      'budget', 'options.npcBudget',
+      `${this.settings.npcCallsPerMinute}/min`,
+      () => `${this.cycleNpcCallsPerMinute()}/min`,
+    );
 
     // Back button
     const backBtn = Button.CreateSimpleButton('back', t('common.back'));

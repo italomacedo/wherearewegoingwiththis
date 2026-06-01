@@ -9,6 +9,12 @@ export interface GameSettings {
   autosaveInterval: 0 | 5 | 10 | 30;
   /** Multiplier on the +0.1% per-use skill/attribute growth (anti-grind pacing). */
   skillGainMultiplier: 1 | 3 | 10;
+  /** Master switch for autonomous NPC behaviour (deliberation, gossip, reactions). */
+  npcAutonomy: boolean;
+  /** Minutes between a single NPC's proactive reflections (deliberation cooldown). */
+  npcReflectionMinutes: 4 | 8 | 15;
+  /** Scene-wide ceiling on autonomous Claude calls per minute (cost throttle). */
+  npcCallsPerMinute: 4 | 8 | 12;
 
   // Display
   resolution: '1280x720' | '1920x1080' | '2560x1440' | '3840x2160';
@@ -37,6 +43,9 @@ export const DEFAULT_SETTINGS: Readonly<GameSettings> = {
   claudeCliPath: 'claude',
   autosaveInterval: 10,
   skillGainMultiplier: 1,
+  npcAutonomy: true,
+  npcReflectionMinutes: 8,
+  npcCallsPerMinute: 8,
 
   resolution: '1920x1080',
   windowMode: 'windowed',

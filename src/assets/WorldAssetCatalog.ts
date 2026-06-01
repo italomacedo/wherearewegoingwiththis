@@ -13,6 +13,8 @@
  * stall (shelf + food) stands beside Zara. See gap #4 (iter. 2).
  */
 
+import type { Waypoint, WaypointGraph } from '@systems/Pathfinding';
+
 export interface WorldProp {
   /** Unique placement id (also the loaded holder's name). */
   key: string;
@@ -193,6 +195,40 @@ export const MERCADO_PROPS: readonly WorldProp[] = [
   ...PROPS,
   ...VENDOR,
 ];
+
+// --- Waypoint graph (Fase 5 NPC navigation, pure A*). Three walkable lanes run
+//     along the street in Z — north sidewalk (+7), road centre (0), south
+//     sidewalk (−7) — sampled in X at the sidewalk-tile steps. Nodes link to the
+//     next/prev node in their lane and across lanes at the same X (cross-street),
+//     forming a small grid the NPC mover walks via computeRoute(). Pure data. ---
+const WP_LANES: ReadonlyArray<{ tag: string; z: number }> = [
+  { tag: 'n', z: 7 }, // north sidewalk
+  { tag: 'c', z: 0 }, // road centre
+  { tag: 's', z: -7 }, // south sidewalk
+];
+const WP_XS: readonly number[] = [-24, -18, -12, -6, 0, 6, 12, 18, 24];
+
+function buildWaypointGraph(): WaypointGraph {
+  const nodes: Waypoint[] = [];
+  const edges: Record<string, string[]> = {};
+  const id = (lane: number, i: number) => `wp-${WP_LANES[lane].tag}-${i}`;
+  const link = (a: string, b: string) => {
+    (edges[a] ??= []).push(b);
+    (edges[b] ??= []).push(a);
+  };
+  WP_LANES.forEach((lane, li) => {
+    WP_XS.forEach((x, i) => {
+      nodes.push({ id: id(li, i), position: [x, 0, lane.z] });
+      edges[id(li, i)] ??= [];
+      if (i > 0) link(id(li, i - 1), id(li, i)); // along the lane
+      if (li > 0) link(id(li - 1, i), id(li, i)); // across lanes (cross-street)
+    });
+  });
+  return { nodes, edges };
+}
+
+/** The downtown street's navigation graph (Fase 5). */
+export const WAYPOINT_GRAPH: WaypointGraph = buildWaypointGraph();
 
 /** Atmospheric nave (small Spaceships model) — replaces the flying bike. */
 export const NAVE_MODEL = {

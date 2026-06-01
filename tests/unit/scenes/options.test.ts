@@ -64,6 +64,32 @@ describe('OptionsScene', () => {
     expect(SettingsService.get('skillGainMultiplier')).toBe(1);
   });
 
+  it('default NPC autonomy throttle = approved values', () => {
+    expect(DEFAULT_SETTINGS.npcAutonomy).toBe(true);
+    expect(DEFAULT_SETTINGS.npcReflectionMinutes).toBe(8);
+    expect(DEFAULT_SETTINGS.npcCallsPerMinute).toBe(8);
+  });
+
+  it('cycleNpcAutonomy toggles and persists', () => {
+    expect(scene.cycleNpcAutonomy()).toBe(false);
+    expect(SettingsService.get('npcAutonomy')).toBe(false);
+    expect(scene.cycleNpcAutonomy()).toBe(true);
+  });
+
+  it('cycleNpcReflectionMinutes steps 8 → 15 → 4 → 8 and persists', () => {
+    expect(scene.cycleNpcReflectionMinutes()).toBe(15);
+    expect(scene.cycleNpcReflectionMinutes()).toBe(4);
+    expect(scene.cycleNpcReflectionMinutes()).toBe(8);
+    expect(SettingsService.get('npcReflectionMinutes')).toBe(8);
+  });
+
+  it('cycleNpcCallsPerMinute steps 8 → 12 → 4 → 8 and persists', () => {
+    expect(scene.cycleNpcCallsPerMinute()).toBe(12);
+    expect(scene.cycleNpcCallsPerMinute()).toBe(4);
+    expect(scene.cycleNpcCallsPerMinute()).toBe(8);
+    expect(SettingsService.get('npcCallsPerMinute')).toBe(8);
+  });
+
   it('selectTab changes active tab', () => {
     scene.selectTab('audio');
     expect(scene.getActiveTab()).toBe('audio');

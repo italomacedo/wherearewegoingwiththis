@@ -46,6 +46,11 @@ export const STRINGS: Record<string, Entry> = {
   'options.tab.audio': e('Audio', 'Áudio'),
   'options.claudePath': e('Claude CLI Path:', 'Caminho do Claude CLI:'),
   'options.skillGain': e('Skill Gain Rate:', 'Ganho de Skill:'),
+  'options.npcAutonomy': e('Living NPCs:', 'NPCs vivos:'),
+  'options.npcReflection': e('NPC Reflection:', 'Reflexão do NPC:'),
+  'options.npcBudget': e('NPC Call Budget:', 'Orçamento de Chamadas:'),
+  'common.on': e('ON', 'LIGADO'),
+  'common.off': e('OFF', 'DESLIGADO'),
 
   // ─── Pause menu ──────────────────────────────────────────────────────────
   'pause.title': e('PAUSED', 'PAUSADO'),
