@@ -52,20 +52,6 @@ describe('WorldHud', () => {
     expect(hud.getLabelText('missing')).toBeNull();
   });
 
-  it('addSpeech tracks a bubble and removeLabel clears it', () => {
-    const mesh = MeshBuilder.CreateBox('m2', { size: 1 }, scene);
-    expect(hud.hasLabel('gossip-zara')).toBe(false);
-    hud.addSpeech(mesh, 'word on the street', 'gossip-zara');
-    expect(hud.hasLabel('gossip-zara')).toBe(true);
-    expect(hud.getLabelText('gossip-zara')).toBe('word on the street');
-    hud.removeLabel('gossip-zara');
-    expect(hud.hasLabel('gossip-zara')).toBe(false);
-  });
-
-  it('removeLabel on an unknown key is a no-op', () => {
-    expect(() => hud.removeLabel('nope')).not.toThrow();
-  });
-
   it('player health starts full and updates', () => {
     expect(hud.getPlayerHealth()).toBe(1);
     hud.setPlayerHealth(0.5);

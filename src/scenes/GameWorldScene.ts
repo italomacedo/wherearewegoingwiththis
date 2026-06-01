@@ -80,6 +80,9 @@ export class GameWorldScene extends BaseScene {
   private npcRoutes = new Map<string, { path: Vector3[]; i: number; partnerId: string }>();
   /** NPC ids currently mid-gossip (so a route completion fires the exchange once). */
   private gossiping = new Set<string>();
+  /** Overheard NPC↔NPC gossip lines, shown in the global (T) chat history. */
+  private gossipLog: string[] = [];
+  private static readonly GOSSIP_LOG_MAX = 12;
   private static readonly AUTONOMY_TICK_MS = 1000; // throttle the driver itself
   private static readonly NPC_WALK_SPEED = 2.2;    // u/s for autonomous walking
   private static readonly ENGAGE_DIST = 1.8;       // arrival threshold for gossip
@@ -541,30 +544,22 @@ export class GameWorldScene extends BaseScene {
     void this.npcManager.runGossip(speakerId, listenerId, languageName(getLocale())).then((lines) => {
       const sp = this.npcManager?.getAgent(speakerId)?.getDisplayName() ?? 'NPC';
       const lp = this.npcManager?.getAgent(listenerId)?.getDisplayName() ?? 'NPC';
-      // Surface the exchange as floating speech bubbles above each NPC (visible
-      // without opening the chat) + keep it in the transcript as history. The
-      // listener's line shows after a short beat so it reads like a back-and-forth.
-      if (lines.speaker) {
-        this.showGossipBubble(speakerId, lines.speaker);
-        this.dialog?.addNarrationLine(`${sp}: ${lines.speaker}`);
-      }
-      if (lines.listener) {
-        setTimeout(() => this.showGossipBubble(listenerId, lines.listener), 2200);
-        this.dialog?.addNarrationLine(`${lp}: ${lines.listener}`);
-      }
+      // Record the exchange in the gossip log so it shows in the global (T) chat
+      // history, and live if that chat is already open. (Each NPC also keeps it
+      // in their own conversation, so opening E with either shows it too.)
+      if (lines.speaker) this.recordGossipLine(`${sp}: ${lines.speaker}`);
+      if (lines.listener) this.recordGossipLine(`${lp}: ${lines.listener}`);
       this.gossiping.delete(speakerId);
     });
   }
 
-  /** Show a transient speech bubble above an NPC for a few seconds. */
-  /* istanbul ignore next — browser-only GUI */
-  private showGossipBubble(npcId: string, text: string): void {
-    const holder = this.npcHolderById.get(npcId);
-    if (!holder || !this.hud) return;
-    const key = `gossip-${npcId}`;
-    this.hud.removeLabel(key);
-    this.hud.addSpeech(holder, text, key);
-    setTimeout(() => this.hud?.removeLabel(key), 5000);
+  /** Append a gossip line to the overheard-log + live into an open dialog. */
+  /* istanbul ignore next — only reached from the browser-only gossip trigger */
+  private recordGossipLine(text: string): void {
+    this.gossipLog.push(text);
+    if (this.gossipLog.length > GameWorldScene.GOSSIP_LOG_MAX) this.gossipLog.shift();
+    /* istanbul ignore next — browser-only live update */
+    if (this.dialog?.isOpen()) this.dialog.addNarrationLine(text);
   }
 
   /** Derives the perceived player action from current input. */
@@ -630,7 +625,9 @@ export class GameWorldScene extends BaseScene {
     if (!this.inputSystem.wasJustPressed('chat.open')) return;
     if (this.dialog.isOpen()) return;
     this.chatMode = 'global';
-    this.dialog.open(t('dialog.openChannel'));
+    // Seed with any overheard NPC↔NPC gossip so it shows in the T history.
+    const seed: DialogLine[] = this.gossipLog.map((text) => ({ role: 'narration' as const, text }));
+    this.dialog.open(t('dialog.openChannel'), seed);
   }
 
   /** Builds the world snapshot and routes a message to the conversable NPC (E). */
