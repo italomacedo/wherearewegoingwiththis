@@ -29,7 +29,7 @@ import { createZara } from '@entities/npcs/zara';
 import { PlayerAction, NPCDefinition, NPCAgent } from '@entities/NPCAgent';
 import { CharacterAssembler, AssembledCharacter } from '@systems/CharacterAssembler';
 import { WorldSnapshot } from '@systems/npc/PromptBuilder';
-import { resolveAddressee, AddressCandidate } from '@systems/npc/Addressing';
+import { resolveAddressee, AddressCandidate, stripShout } from '@systems/npc/Addressing';
 import { hasEmote, isCheckTimeEmote, narrateTime, DETERMINISTIC_PLACEHOLDER } from '@systems/npc/EmoteIntent';
 import { SettingsService } from '@systems/SettingsService';
 
@@ -452,20 +452,21 @@ export class GameWorldScene extends BaseScene {
     // Pre-moderation: screen the player's input against Anthropic's Usage Policy
     // BEFORE it ever reaches the NPC. Out-of-policy input is refused up front and
     // never shown/sent. Fails open (allows) on any moderation error.
+    const spoken = stripShout(message);
     this.dialog.setThinking(true);
-    const allowed = await this.npcManager.moderate(agent.definition.id, message);
+    const allowed = await this.npcManager.moderate(agent.definition.id, spoken);
     if (!allowed) {
       this.dialog.addSystemLine("You can't say or do that.");
       return;
     }
 
-    this.dialog.addPlayerLine(message);
+    this.dialog.addPlayerLine(spoken);
     // Emote pipeline: a deterministic action is narrated (cRPG check is Phase 4);
     // otherwise fall through to a normal NPC reply.
-    if (await this.handleDeterministicEmote(agent.definition.id, message)) return;
+    if (await this.handleDeterministicEmote(agent.definition.id, spoken)) return;
 
     const world = this.buildWorldSnapshot(agent.distanceTo(this.player.getPosition()));
-    await this.streamNpcReply(agent, world, message);
+    await this.streamNpcReply(agent, world, spoken);
   }
 
   /**
@@ -475,27 +476,30 @@ export class GameWorldScene extends BaseScene {
    */
   async sendGlobalMessage(message: string): Promise<void> {
     if (!this.npcManager || !this.player || !this.dialog) return;
+    // Tone + name are read from the raw message; the shout marker is then stripped
+    // (it sets reach, it is not a spoken word or an action emote).
     const resolution = resolveAddressee(message, this.playerAim(), this.buildAddressCandidates());
     const modId = resolution.kind === 'npc' ? resolution.id : 'world';
+    const spoken = stripShout(message);
 
     this.dialog.setThinking(true);
-    const allowed = await this.npcManager.moderate(modId, message);
+    const allowed = await this.npcManager.moderate(modId, spoken);
     if (!allowed) {
       this.dialog.addSystemLine("You can't say or do that.");
       return;
     }
 
-    this.dialog.addPlayerLine(message);
-    if (await this.handleDeterministicEmote(modId, message)) return;
+    this.dialog.addPlayerLine(spoken);
+    if (await this.handleDeterministicEmote(modId, spoken)) return;
 
     if (resolution.kind === 'npc') {
       const agent = this.npcManager.getAgent(resolution.id);
       if (!agent) { this.dialog.addNarrationLine('No one answers.'); return; }
       this.dialog.setNpcName(agent.getDisplayName());
-      await this.streamNpcReply(agent, this.buildWorldSnapshot(agent.distanceTo(this.player.getPosition())), message);
+      await this.streamNpcReply(agent, this.buildWorldSnapshot(agent.distanceTo(this.player.getPosition())), spoken);
     } else {
       this.dialog.setThinking(true);
-      const narration = await this.npcManager.narrateAmbient(message, this.formatGameTime(), GameWorldScene.SURROUNDINGS);
+      const narration = await this.npcManager.narrateAmbient(spoken, this.formatGameTime(), GameWorldScene.SURROUNDINGS);
       this.dialog.addNarrationLine(narration || 'The street murmurs on, indifferent.');
     }
   }

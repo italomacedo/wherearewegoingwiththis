@@ -1,5 +1,5 @@
 import {
-  detectTone, resolveAddressee, AddressCandidate, NORMAL_SPEAK_RANGE,
+  detectTone, resolveAddressee, stripShout, AddressCandidate, NORMAL_SPEAK_RANGE,
 } from '../../../../src/systems/npc/Addressing';
 
 const zara = (over: Partial<AddressCandidate> = {}): AddressCandidate => ({
@@ -21,6 +21,17 @@ describe('Addressing — global chat resolver (pure)', () => {
       expect(detectTone('*grito* ei você')).toBe('shout');
       expect(detectTone('hello there')).toBe('normal');
       expect(detectTone('*waves* hi')).toBe('normal');
+    });
+  });
+
+  describe('stripShout', () => {
+    it('removes the shout marker (a tone directive, not content)', () => {
+      expect(stripShout('*shout* Zara! Can you hear me?')).toBe('Zara! Can you hear me?');
+      expect(stripShout('*grito* ei!')).toBe('ei!');
+    });
+    it('leaves real action emotes intact', () => {
+      expect(stripShout('*waves* hello')).toBe('*waves* hello');
+      expect(stripShout('just talking')).toBe('just talking');
     });
   });
 

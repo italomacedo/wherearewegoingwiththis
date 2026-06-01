@@ -645,6 +645,22 @@ describe('GameWorldScene', () => {
     expect(lines.some((l) => l.role === 'narration' && l.text.includes('You check the time'))).toBe(true);
   });
 
+  it('a *shout* is a tone marker — it routes to the NPC, not the emote classifier', async () => {
+    const { service } = makeInjectedService('Yo, kid.');
+    scene.setClaudeService(service);
+    await scene.onEnter();
+    scene.getPlayer()!.getRoot().position.set(3, 0, 3); // just south of Zara (3,0,6), facing +Z
+    await scene.sendGlobalMessage('*shout* hello there');
+    // Routed to the NPC (not narrated as a deterministic action).
+    expect(scene.getDialog()!.getState().npcText).toBe('Yo, kid.');
+    const lines = scene.getDialog()!.getState().lines;
+    // The shout marker is stripped from the shown player line.
+    expect(lines.some((l) => l.role === 'player' && l.text === 'hello there')).toBe(true);
+    expect(lines.some((l) => l.role === 'player' && l.text.includes('shout'))).toBe(false);
+    // No skill-check placeholder.
+    expect(lines.some((l) => l.role === 'narration' && /skill check/i.test(l.text))).toBe(false);
+  });
+
   it('a non-time deterministic emote narrates the skill-check placeholder', async () => {
     const { service } = makeInjectedService('DETERMINISTIC');
     scene.setClaudeService(service);

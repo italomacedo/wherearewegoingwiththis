@@ -44,6 +44,15 @@ export function detectTone(message: string): Tone {
   return SHOUT_RE.test(message) ? 'shout' : 'normal';
 }
 
+/**
+ * Remove the shout marker from a message — it's a tone directive (sets reach),
+ * not a spoken word or an action emote, so it must not leak into the displayed
+ * line, the NPC prompt, or the emote-intent classifier.
+ */
+export function stripShout(message: string): string {
+  return message.replace(/\*\s*(shout|grito)\s*\*/gi, ' ').replace(/\s{2,}/g, ' ').trim();
+}
+
 function dist(a: Vec2, b: Vec2): number {
   return Math.hypot(a.x - b.x, a.z - b.z);
 }
