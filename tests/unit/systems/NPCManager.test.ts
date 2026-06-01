@@ -39,6 +39,23 @@ describe('NPCManager', () => {
     expect(manager.getAgent('npc_a')).toBe(agent);
   });
 
+  it('classifyEmote defaults to NARRATIVE and narrateAmbient to "" with no service', async () => {
+    await expect(manager.classifyEmote('npc_a', '*x*')).resolves.toBe('NARRATIVE');
+    await expect(manager.narrateAmbient('hi', '20:00', 'street')).resolves.toBe('');
+  });
+
+  it('classifyEmote / narrateAmbient delegate to the Claude service', async () => {
+    const svc = {
+      classifyEmote: jest.fn().mockResolvedValue('DETERMINISTIC'),
+      narrate: jest.fn().mockResolvedValue('Rain hisses on neon.'),
+    } as unknown as ClaudeNPCService;
+    const m = new NPCManager(svc);
+    await expect(m.classifyEmote('npc_a', '*picks lock*')).resolves.toBe('DETERMINISTIC');
+    await expect(m.narrateAmbient('look around', '20:00', 'a street')).resolves.toBe('Rain hisses on neon.');
+    expect(svc.narrate).toHaveBeenCalled();
+    m.dispose();
+  });
+
   it('getAgent returns null for unknown id', () => {
     expect(manager.getAgent('missing')).toBeNull();
   });

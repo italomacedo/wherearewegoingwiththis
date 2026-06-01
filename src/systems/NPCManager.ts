@@ -1,8 +1,9 @@
 import { Vector3 } from '@babylonjs/core';
 import { NPCAgent, NPCDefinition, PlayerAction } from '@entities/NPCAgent';
 import { ClaudeNPCService } from '@systems/ClaudeNPCService';
-import { WorldSnapshot } from '@systems/npc/PromptBuilder';
+import { WorldSnapshot, PromptBuilder } from '@systems/npc/PromptBuilder';
 import { ConversationContext, ConversationState } from '@systems/npc/ConversationContext';
+import { EmoteVerdict } from '@systems/npc/EmoteIntent';
 
 export const COOLDOWN_SECONDS = 3;
 
@@ -96,6 +97,21 @@ export class NPCManager {
   async moderate(npcId: string, message: string): Promise<boolean> {
     if (!this.service) return true;
     return this.service.moderate(npcId, message);
+  }
+
+  /**
+   * Classify an emote-bearing message: DETERMINISTIC (→ cRPG check) vs NARRATIVE
+   * (→ chat). Defaults to NARRATIVE when there is no Claude service.
+   */
+  async classifyEmote(npcId: string, message: string): Promise<EmoteVerdict> {
+    if (!this.service) return 'NARRATIVE';
+    return this.service.classifyEmote(npcId, message);
+  }
+
+  /** One-shot ambient narration for the global chat's "react to surroundings". */
+  async narrateAmbient(message: string, gameTime: string, surroundings: string): Promise<string> {
+    if (!this.service) return '';
+    return this.service.narrate('world', PromptBuilder.buildAmbientReactionPrompt(message, gameTime, surroundings));
   }
 
   // ─── Save / load memory ───────────────────────────────────────────────────

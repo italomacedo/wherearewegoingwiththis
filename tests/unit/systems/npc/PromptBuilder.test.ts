@@ -150,6 +150,23 @@ describe('PromptBuilder', () => {
     });
   });
 
+  describe('buildEmoteClassifierPrompt', () => {
+    it('asks for a one-word DETERMINISTIC/NARRATIVE verdict and includes the message', () => {
+      const p = PromptBuilder.buildEmoteClassifierPrompt('*picks the lock*');
+      expect(p).toContain('DETERMINISTIC or NARRATIVE');
+      expect(p).toContain('picks the lock');
+    });
+  });
+
+  describe('buildAmbientReactionPrompt', () => {
+    it('includes time, setting, and the player line', () => {
+      const p = PromptBuilder.buildAmbientReactionPrompt('look around', '22:00 (night)', 'a rainy street');
+      expect(p).toContain('22:00 (night)');
+      expect(p).toContain('a rainy street');
+      expect(p).toContain('look around');
+    });
+  });
+
   describe('buildSessionPrimer', () => {
     it('includes persona and history', () => {
       const primer = PromptBuilder.buildSessionPrimer({

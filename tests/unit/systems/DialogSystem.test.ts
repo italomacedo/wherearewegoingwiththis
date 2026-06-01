@@ -29,6 +29,17 @@ describe('DialogSystem', () => {
     expect(dialog.getState().npcName).toBe('Zara');
   });
 
+  it('addNarrationLine appends a narration line and clears thinking', () => {
+    dialog.open('…');
+    dialog.setThinking(true);
+    dialog.addNarrationLine("You check the time — it's 22:00 (night).");
+    const lines = dialog.getState().lines;
+    const last = lines[lines.length - 1]!;
+    expect(last.role).toBe('narration');
+    expect(last.text).toContain('22:00');
+    expect(dialog.getState().thinking).toBe(false);
+  });
+
   it('open resets previous text', () => {
     dialog.open('Zara');
     dialog.appendChunk('hello');

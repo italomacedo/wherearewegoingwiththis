@@ -5,6 +5,7 @@ import {
 } from '@babylonjs/core';
 import { WorldZone, ZoneBounds } from '@entities/WorldZone';
 import { MERCADO_PROPS, EXIT_WALL, CORRIDOR_COLLIDERS, ZONE_HALF } from '@assets/WorldAssetCatalog';
+import { DayPeriod, paletteForPeriod } from '@systems/GameClock';
 
 /** Prop keys that should block the player (solid). Floor-like props (roads,
  *  sidewalks, food, manhole, drain, decals) are intentionally walkable. */
@@ -20,6 +21,7 @@ export class MercadoSombrasZone extends WorldZone {
   readonly displayName = 'Mercado das Sombras';
 
   private lights: PointLight[] = [];
+  private ambient: HemisphericLight | null = null;
   private holders: TransformNode[] = [];
   private colliders: AbstractMesh[] = [];
   private aggregates: PhysicsAggregate[] = [];
@@ -68,6 +70,7 @@ export class MercadoSombrasZone extends WorldZone {
     ambient.intensity = 0.7; // near-neutral fill so the asphalt reads grey, not flooded
     ambient.diffuse = new Color3(0.62, 0.64, 0.7);
     ambient.groundColor = new Color3(0.2, 0.2, 0.24);
+    this.ambient = ambient; // re-tinted per time-of-day via applyTimeOfDay()
 
     // Neon streetlights lining the street — local accent glows, not a colour wash.
     const neon: Array<[number, number, Color3]> = [
@@ -258,9 +261,29 @@ export class MercadoSombrasZone extends WorldZone {
     rain.start();
   }
 
+  /**
+   * Tint the ambient light + fog for the current time of day (the street has no
+   * sky, so the period reads through light colour/intensity and a light fog).
+   * Safe headless (NullEngine honours light + scene.fog props).
+   */
+  applyTimeOfDay(period: DayPeriod): void {
+    const pal = paletteForPeriod(period);
+    if (this.ambient) {
+      this.ambient.intensity = pal.ambientIntensity;
+      this.ambient.diffuse = new Color3(pal.ambient[0], pal.ambient[1], pal.ambient[2]);
+      this.ambient.groundColor = new Color3(pal.ground[0], pal.ground[1], pal.ground[2]);
+    }
+    if (this.scene) {
+      this.scene.fogMode = Scene.FOGMODE_EXP2;
+      this.scene.fogDensity = pal.fogDensity;
+      this.scene.fogColor = new Color3(pal.fog[0], pal.fog[1], pal.fog[2]);
+    }
+  }
+
   protected onUnload(): void {
     this.lights.forEach((l) => l.dispose());
     this.lights = [];
+    this.ambient = null;
     /* istanbul ignore next — holders only exist after browser GLB load */
     this.holders.forEach((h) => h.dispose());
     this.holders = [];

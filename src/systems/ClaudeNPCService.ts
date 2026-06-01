@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { NPCAgent } from '@entities/NPCAgent';
 import { PromptBuilder, WorldSnapshot } from '@systems/npc/PromptBuilder';
+import { EmoteVerdict, parseEmoteVerdict } from '@systems/npc/EmoteIntent';
 
 /**
  * IPC query params — structurally matches electron/preload.ts ClaudeQueryParams.
@@ -107,6 +108,43 @@ export class ClaudeNPCService {
     }
     // Blocked only on an explicit BLOCK verdict; anything else allows play.
     return !/\bBLOCK\b/i.test(response);
+  }
+
+  /**
+   * Classify an emote-bearing player message as DETERMINISTIC (resolve via a
+   * cRPG skill check) or NARRATIVE (roleplay → normal chat). One-shot call;
+   * fails OPEN to NARRATIVE so a hiccup never blocks normal play.
+   */
+  async classifyEmote(npcId: string, message: string): Promise<EmoteVerdict> {
+    try {
+      const raw = await this.oneShot(`${npcId}::emote`, PromptBuilder.buildEmoteClassifierPrompt(message));
+      return parseEmoteVerdict(raw);
+    } catch {
+      return 'NARRATIVE';
+    }
+  }
+
+  /** One-shot free-text generation (e.g. ambient narration). Fails to '' on error. */
+  async narrate(id: string, prompt: string): Promise<string> {
+    try {
+      return await this.oneShot(`${id}::ambient`, prompt);
+    } catch {
+      return '';
+    }
+  }
+
+  /** Run a single prompt and return the full trimmed reply (no session, no history). */
+  private async oneShot(id: string, prompt: string): Promise<string> {
+    let response = '';
+    const offChunk = this.bridge.onClaudeResponseChunk((data) => {
+      if (data.npcId === id) response += data.chunk;
+    });
+    try {
+      await this.bridge.claudeQuery({ npcId: id, prompt, claudePath: this.claudePath });
+    } finally {
+      offChunk();
+    }
+    return response.trim();
   }
 
   /** Cancel an in-flight NPC response. */

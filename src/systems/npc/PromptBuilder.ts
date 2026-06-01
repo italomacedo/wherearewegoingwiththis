@@ -84,6 +84,41 @@ export class PromptBuilder {
     ].join('\n');
   }
 
+  /**
+   * Emote determinism classifier. Run AFTER moderation on a message that
+   * contains an *emote*: decide whether the action should resolve via a cRPG
+   * skill check (DETERMINISTIC) or is pure roleplay (NARRATIVE). One word out.
+   */
+  static buildEmoteClassifierPrompt(message: string): string {
+    return [
+      'You classify a player action in a fictional cyberpunk RPG.',
+      'The player may write an action in *asterisks* and/or speech.',
+      'Answer DETERMINISTIC if the action would plausibly SUCCEED OR FAIL based on the',
+      "character's skills/attributes — e.g. picking a lock, hacking, striking someone,",
+      'spotting a tail, climbing, or checking the time.',
+      'Answer NARRATIVE if it is pure roleplay/expression with no success-or-failure',
+      'outcome — gestures, posing, talking, emoting a feeling.',
+      'Answer with EXACTLY one word and nothing else: DETERMINISTIC or NARRATIVE.',
+      '',
+      `Player: ${JSON.stringify(message)}`,
+    ].join('\n');
+  }
+
+  /**
+   * Ambient "react to the surroundings" prompt — used by the global chat when the
+   * player addresses no specific NPC. Second-person, atmospheric, no invented NPCs.
+   */
+  static buildAmbientReactionPrompt(message: string, gameTime: string, surroundings: string): string {
+    return [
+      'You are the narrator of a rainy, neon-lit cyberpunk street.',
+      'In 1-2 sentences, second person, narrate what the player notices or what happens',
+      'around them in response. Stay grounded and atmospheric. Do NOT invent named',
+      'characters or put words in anyone\'s mouth.',
+      `Time: ${gameTime}. Setting: ${surroundings}.`,
+      `The player does/says: ${message}`,
+    ].join('\n');
+  }
+
   /** One-time session primer sent when graduating to session mode. */
   static buildSessionPrimer(inputs: Omit<PromptInputs, 'playerMessage'>): string {
     const { definition, mood, world, history } = inputs;

@@ -583,6 +583,79 @@ describe('GameWorldScene', () => {
     await scene.sendToActiveNPC('hi');
     expect(scene.getDialog()!.getState().npcText).toBe('');
   });
+
+  // ─── Time of day ───────────────────────────────────────────────────────────
+
+  it('the NPC world snapshot carries an HH:MM (period) game time', async () => {
+    const { service, prompts } = makeInjectedService('Hi.');
+    scene.setClaudeService(service);
+    await scene.onEnter();
+    scene.getPlayer()!.getRoot().position.set(3, 0, 5);
+    await scene.sendToActiveNPC('hello');
+    // The NPC prompt embeds "Game time: HH:MM (period)".
+    expect(prompts.some((p) => /Game time: \d{2}:\d{2} \((night|dawn|day|dusk)\)/.test(p))).toBe(true);
+  });
+
+  // ─── Global chat (T) + emote pipeline ──────────────────────────────────────
+
+  it('T opens the global chat anywhere', async () => {
+    await scene.onEnter();
+    scene.getPlayer()!.getRoot().position.set(-25, 0, -25); // nowhere near an NPC
+    scene.getInputSystem()!.handleKeyDown('KeyT');
+    scene.update();
+    expect(scene.getDialog()!.isOpen()).toBe(true);
+    expect(scene.getDialog()!.getState().npcName).toBe('Open channel');
+  });
+
+  it('global chat with no one addressed narrates the surroundings (ambient)', async () => {
+    const { service } = makeInjectedService('Rain sheets off the awnings.');
+    scene.setClaudeService(service);
+    await scene.onEnter();
+    scene.getPlayer()!.getRoot().position.set(-25, 0, -25); // Zara out of reach
+    await scene.sendGlobalMessage('look around');
+    const lines = scene.getDialog()!.getState().lines;
+    expect(lines.some((l) => l.role === 'narration' && l.text.includes('Rain sheets'))).toBe(true);
+  });
+
+  it('global chat routes to the NPC the player faces (aim)', async () => {
+    const { service } = makeInjectedService('What do you want?');
+    scene.setClaudeService(service);
+    await scene.onEnter();
+    scene.getPlayer()!.getRoot().position.set(3, 0, 3); // just south of Zara (3,0,6), facing +Z
+    await scene.sendGlobalMessage('hey there');
+    expect(scene.getDialog()!.getState().npcText).toBe('What do you want?');
+  });
+
+  it('a check-the-time emote is narrated with the clock (no NPC call)', async () => {
+    const { service } = makeInjectedService('DETERMINISTIC');
+    scene.setClaudeService(service);
+    await scene.onEnter();
+    scene.getPlayer()!.getRoot().position.set(3, 0, 5);
+    await scene.sendToActiveNPC('*check the time*');
+    const lines = scene.getDialog()!.getState().lines;
+    expect(lines.some((l) => l.role === 'narration' && l.text.includes('You check the time'))).toBe(true);
+    expect(scene.getDialog()!.getState().npcText).toBe(''); // NPC was not called
+  });
+
+  it('a non-time deterministic emote narrates the skill-check placeholder', async () => {
+    const { service } = makeInjectedService('DETERMINISTIC');
+    scene.setClaudeService(service);
+    await scene.onEnter();
+    scene.getPlayer()!.getRoot().position.set(3, 0, 5);
+    await scene.sendToActiveNPC('*pick the lock*');
+    const lines = scene.getDialog()!.getState().lines;
+    expect(lines.some((l) => l.role === 'narration' && /skill check/i.test(l.text))).toBe(true);
+  });
+
+  it('a narrative emote falls through to a normal NPC reply', async () => {
+    const { service } = makeInjectedService('NARRATIVE');
+    scene.setClaudeService(service);
+    await scene.onEnter();
+    scene.getPlayer()!.getRoot().position.set(3, 0, 5);
+    await scene.sendToActiveNPC('*waves* hello');
+    // classifier said NARRATIVE → the NPC turn ran (mock echoes the same reply).
+    expect(scene.getDialog()!.getState().npcText).toBe('NARRATIVE');
+  });
 });
 
 // Distance between two Babylon Vector3.

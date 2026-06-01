@@ -222,4 +222,45 @@ describe('ClaudeNPCService', () => {
     const service = new ClaudeNPCService({ claudePath: 'claude', bridge });
     await expect(service.moderate('npc_zara', 'whatever')).resolves.toBe(true);
   });
+
+  // ─── Emote classifier + ambient narration (one-shot) ─────────────────────────
+
+  it('classifyEmote returns DETERMINISTIC on an explicit verdict, via a scoped query', async () => {
+    const { bridge, lastParams } = makeBridge('DETERMINISTIC');
+    const service = new ClaudeNPCService({ claudePath: 'claude', bridge });
+    await expect(service.classifyEmote('npc_zara', '*picks the lock*')).resolves.toBe('DETERMINISTIC');
+    const params = lastParams.value as { npcId: string; prompt: string };
+    expect(params.npcId).toBe('npc_zara::emote');
+    expect(params.prompt).toContain('DETERMINISTIC or NARRATIVE');
+  });
+
+  it('classifyEmote fails open to NARRATIVE when the CLI errors', async () => {
+    const bridge: ClaudeBridge = {
+      claudeQuery: jest.fn(async () => { throw new Error('cli down'); }),
+      claudeCancel: jest.fn(async () => {}),
+      onClaudeResponseChunk: jest.fn(() => () => {}),
+      onClaudeResponseDone: jest.fn(() => () => {}),
+    };
+    const service = new ClaudeNPCService({ claudePath: 'claude', bridge });
+    await expect(service.classifyEmote('npc_zara', '*does a thing*')).resolves.toBe('NARRATIVE');
+  });
+
+  it('narrate returns the one-shot reply, scoped to an ambient id', async () => {
+    const { bridge, lastParams } = makeBridge('Rain ticks off the awning.');
+    const service = new ClaudeNPCService({ claudePath: 'claude', bridge });
+    await expect(service.narrate('world', 'narrate the street')).resolves.toBe('Rain ticks off the awning.');
+    const params = lastParams.value as { npcId: string };
+    expect(params.npcId).toBe('world::ambient');
+  });
+
+  it('narrate returns empty string when the CLI errors', async () => {
+    const bridge: ClaudeBridge = {
+      claudeQuery: jest.fn(async () => { throw new Error('cli down'); }),
+      claudeCancel: jest.fn(async () => {}),
+      onClaudeResponseChunk: jest.fn(() => () => {}),
+      onClaudeResponseDone: jest.fn(() => () => {}),
+    };
+    const service = new ClaudeNPCService({ claudePath: 'claude', bridge });
+    await expect(service.narrate('world', 'x')).resolves.toBe('');
+  });
 });

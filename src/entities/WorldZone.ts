@@ -1,4 +1,5 @@
 import { Scene, Vector3, AbstractMesh } from '@babylonjs/core';
+import { DayPeriod } from '@systems/GameClock';
 
 export interface ZoneBounds {
   min: Vector3;
@@ -55,5 +56,13 @@ export abstract class WorldZone {
   /** Optional cleanup hook (lights, particle systems, etc.). */
   protected onUnload(): void {
     // override if needed
+  }
+
+  /**
+   * Apply a time-of-day visual tint (ambient light + fog). No-op by default;
+   * zones that support a day/night cycle override this.
+   */
+  applyTimeOfDay(_period: DayPeriod): void {
+    // override if the zone supports a day/night cycle
   }
 }

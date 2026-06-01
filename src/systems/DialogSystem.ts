@@ -3,7 +3,7 @@ import {
   AdvancedDynamicTexture, Rectangle, TextBlock, StackPanel, Control, Grid, ScrollViewer,
 } from '@babylonjs/gui';
 
-export type DialogRole = 'player' | 'npc' | 'system';
+export type DialogRole = 'player' | 'npc' | 'system' | 'narration';
 
 export interface DialogLine {
   role: DialogRole;
@@ -110,6 +110,13 @@ export class DialogSystem {
   /** Append an out-of-world system notice (e.g. a moderation refusal). */
   addSystemLine(text: string): void {
     this.lines.push({ role: 'system', text });
+    this.thinking = false;
+    this.render();
+  }
+
+  /** Append a diegetic narration line (emote outcome / ambient reaction). */
+  addNarrationLine(text: string): void {
+    this.lines.push({ role: 'narration', text });
     this.thinking = false;
     this.render();
   }
@@ -341,6 +348,10 @@ export class DialogSystem {
         this.historyStack.addControl(this.buildSystemLine(line.text));
         continue;
       }
+      if (line.role === 'narration') {
+        this.historyStack.addControl(this.buildNarrationLine(line.text));
+        continue;
+      }
       // Both player and NPC lines parse *emotes* vs "speech"; styling is keyed
       // by speaker so you can roleplay actions and dialogue freely on either side.
       const segments = DialogSystem.parseSegments(line.text);
@@ -381,6 +392,19 @@ export class DialogSystem {
   private buildSystemLine(text: string): TextBlock {
     const tb = new TextBlock('', `⚠ ${text}`);
     tb.color = '#FF6B6B';
+    tb.fontSize = 14;
+    tb.fontStyle = 'italic';
+    tb.fontFamily = '"Courier New", monospace';
+    tb.textWrapping = true;
+    tb.resizeToFit = true;
+    tb.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+    return tb;
+  }
+
+  /* istanbul ignore next — browser GUI only */
+  private buildNarrationLine(text: string): TextBlock {
+    const tb = new TextBlock('', `— ${text}`);
+    tb.color = '#8FB7C2'; // muted cyan-grey, diegetic narration (not a red warning)
     tb.fontSize = 14;
     tb.fontStyle = 'italic';
     tb.fontFamily = '"Courier New", monospace';

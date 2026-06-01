@@ -33,6 +33,23 @@ describe('MercadoSombrasZone', () => {
     expect(bounds.max.z - bounds.min.z).toBe(60);
   });
 
+  it('applyTimeOfDay tints the ambient light and enables fog per period', async () => {
+    await zone.load(scene);
+    zone.applyTimeOfDay('night');
+    const ambient = scene.lights.find((l) => l.name === 'ambient') as { intensity: number } | undefined;
+    expect(ambient?.intensity).toBeCloseTo(0.45, 6);
+    expect(scene.fogMode).toBe(Scene.FOGMODE_EXP2);
+    const nightDensity = scene.fogDensity;
+
+    zone.applyTimeOfDay('day');
+    expect(ambient?.intensity).toBeCloseTo(0.85, 6);
+    expect(scene.fogDensity).toBeLessThan(nightDensity); // clearer by day
+  });
+
+  it('applyTimeOfDay before load does not throw (no ambient yet)', () => {
+    expect(() => zone.applyTimeOfDay('dusk')).not.toThrow();
+  });
+
   it('load builds ground, buildings, and stalls', async () => {
     await zone.load(scene);
     const meshes = zone.getAllMeshes();

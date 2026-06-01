@@ -19,18 +19,29 @@ import { PhysicsService } from '@systems/PhysicsService';
 import { PlayerController } from '@entities/PlayerController';
 import { VehicleController } from '@entities/VehicleController';
 import { MercadoSombrasZone } from '@entities/zones/MercadoSombrasZone';
+import { WorldZone } from '@entities/WorldZone';
+import { GameClock, DayPeriod } from '@systems/GameClock';
 import { CharacterAppearance, DEFAULT_APPEARANCE } from '@entities/CharacterData';
 import { NPCManager, NPCMemoryMap } from '@systems/NPCManager';
 import { ClaudeNPCService, ClaudeBridge } from '@systems/ClaudeNPCService';
 import { DialogSystem, DialogLine } from '@systems/DialogSystem';
 import { createZara } from '@entities/npcs/zara';
-import { PlayerAction, NPCDefinition } from '@entities/NPCAgent';
+import { PlayerAction, NPCDefinition, NPCAgent } from '@entities/NPCAgent';
 import { CharacterAssembler, AssembledCharacter } from '@systems/CharacterAssembler';
 import { WorldSnapshot } from '@systems/npc/PromptBuilder';
+import { resolveAddressee, AddressCandidate } from '@systems/npc/Addressing';
+import { hasEmote, isCheckTimeEmote, narrateTime, DETERMINISTIC_PLACEHOLDER } from '@systems/npc/EmoteIntent';
 import { SettingsService } from '@systems/SettingsService';
 
 export class GameWorldScene extends BaseScene {
+  /** Setting used for the ambient "react to surroundings" narration (global chat). */
+  private static readonly SURROUNDINGS =
+    'a rainy, neon-lit downtown street lined with shuttered shopfronts and a vendor stall';
+
   private zoneManager: ZoneManager | null = null;
+  private zone: WorldZone | null = null;
+  private clock = new GameClock(); // wall-clock mode by default (mirrors the PC clock)
+  private lastPeriod: DayPeriod | null = null;
   private cameraSystem: CameraSystem | null = null;
   private inputSystem: InputSystem | null = null;
   private physics: PhysicsService | null = null;
@@ -39,6 +50,7 @@ export class GameWorldScene extends BaseScene {
   private npcManager: NPCManager | null = null;
   private injectedService: ClaudeNPCService | null = null;
   private dialog: DialogSystem | null = null;
+  private chatMode: 'npc' | 'global' = 'npc';
   private pauseMenu: PauseMenu | null = null;
   private hud: WorldHud | null = null;
   private npcMeshes: AbstractMesh[] = [];
@@ -160,6 +172,8 @@ export class GameWorldScene extends BaseScene {
     ServiceLocator.register('zoneManager', this.zoneManager);
 
     const zone = await this.zoneManager.loadZone(this.startZoneId, this.babylonScene);
+    this.zone = zone;
+    this.updateTimeOfDay(); // initial light/fog tint for the current time of day
 
     this.player = new PlayerController(this.babylonScene, this.inputSystem);
     await this.player.spawn(this.spawnOverride ?? zone.getSpawnPoint(), this.appearance);
@@ -241,6 +255,8 @@ export class GameWorldScene extends BaseScene {
     this.player = null;
     this.vehicle = null;
     this.zoneManager = null;
+    this.zone = null;
+    this.lastPeriod = null;
     this.cameraSystem = null;
     this.inputSystem = null;
     this.physics = null;
@@ -285,7 +301,11 @@ export class GameWorldScene extends BaseScene {
     this.tickVehicle(dt);
     this.cameraSystem?.update();
     this.updateNPCs(dt);
-    if (!(this.vehicle?.isOccupied() ?? false)) this.handleInteractInput();
+    this.updateTimeOfDay();
+    if (!(this.vehicle?.isOccupied() ?? false)) {
+      this.handleInteractInput();
+      this.handleChatInput();
+    }
     this.updateHud(dialogOpen);
     this.checkGameOver();
     this.inputSystem?.endFrame();
@@ -382,6 +402,7 @@ export class GameWorldScene extends BaseScene {
         { role: 'player' as const, text: ex.player },
         { role: 'npc' as const, text: ex.npc },
       ]);
+      this.chatMode = 'npc';
       this.dialog.open(agent.getDisplayName(), seed);
       // Cinematic framing: focus the NPC we're talking to. Target the holder (a
       // top-level node at the NPC's world position) — the camera follows
@@ -407,10 +428,22 @@ export class GameWorldScene extends BaseScene {
 
   private wireDialog(): void {
     if (!this.dialog) return;
-    this.dialog.onSubmit((message) => void this.sendToActiveNPC(message));
+    this.dialog.onSubmit((message) => {
+      if (this.chatMode === 'global') void this.sendGlobalMessage(message);
+      else void this.sendToActiveNPC(message);
+    });
   }
 
-  /** Builds the world snapshot and routes a message to the conversable NPC. */
+  /** T opens the chat anywhere — react to the world or hail an NPC in the scene. */
+  private handleChatInput(): void {
+    if (!this.inputSystem || !this.dialog || !this.player) return;
+    if (!this.inputSystem.wasJustPressed('chat.open')) return;
+    if (this.dialog.isOpen()) return;
+    this.chatMode = 'global';
+    this.dialog.open('Open channel');
+  }
+
+  /** Builds the world snapshot and routes a message to the conversable NPC (E). */
   async sendToActiveNPC(message: string): Promise<void> {
     if (!this.npcManager || !this.player || !this.dialog) return;
     const agent = this.npcManager.getConversableAgent(this.player.getPosition());
@@ -426,44 +459,127 @@ export class GameWorldScene extends BaseScene {
       return;
     }
 
-    const world: WorldSnapshot = {
-      cityName: 'NeoBeiraRio',
-      gameTime: this.formatGameTime(),
-      playerName: this.playerName,
-      distanceMeters: agent.distanceTo(this.player.getPosition()),
-      playerAction: this.derivePlayerAction(),
-      recentEvents: [],
-    };
-
-    // Show what the player said, then stream the reply beneath it.
     this.dialog.addPlayerLine(message);
+    // Emote pipeline: a deterministic action is narrated (cRPG check is Phase 4);
+    // otherwise fall through to a normal NPC reply.
+    if (await this.handleDeterministicEmote(agent.definition.id, message)) return;
+
+    const world = this.buildWorldSnapshot(agent.distanceTo(this.player.getPosition()));
+    await this.streamNpcReply(agent, world, message);
+  }
+
+  /**
+   * Global chat (T): resolve who the player is addressing (name → aim → ambient,
+   * reach by tone) BEFORE any Claude call, then route to that NPC or narrate the
+   * surroundings.
+   */
+  async sendGlobalMessage(message: string): Promise<void> {
+    if (!this.npcManager || !this.player || !this.dialog) return;
+    const resolution = resolveAddressee(message, this.playerAim(), this.buildAddressCandidates());
+    const modId = resolution.kind === 'npc' ? resolution.id : 'world';
+
+    this.dialog.setThinking(true);
+    const allowed = await this.npcManager.moderate(modId, message);
+    if (!allowed) {
+      this.dialog.addSystemLine("You can't say or do that.");
+      return;
+    }
+
+    this.dialog.addPlayerLine(message);
+    if (await this.handleDeterministicEmote(modId, message)) return;
+
+    if (resolution.kind === 'npc') {
+      const agent = this.npcManager.getAgent(resolution.id);
+      if (!agent) { this.dialog.addNarrationLine('No one answers.'); return; }
+      this.dialog.setNpcName(agent.getDisplayName());
+      await this.streamNpcReply(agent, this.buildWorldSnapshot(agent.distanceTo(this.player.getPosition())), message);
+    } else {
+      this.dialog.setThinking(true);
+      const narration = await this.npcManager.narrateAmbient(message, this.formatGameTime(), GameWorldScene.SURROUNDINGS);
+      this.dialog.addNarrationLine(narration || 'The street murmurs on, indifferent.');
+    }
+  }
+
+  /** Stream an NPC's reply into the dialog (shared by the E and T paths). */
+  private async streamNpcReply(agent: NPCAgent, world: WorldSnapshot, message: string): Promise<void> {
+    if (!this.dialog || !this.npcManager) return;
     this.dialog.setThinking(true);
     try {
       const reply = await this.npcManager.sendMessage(agent.definition.id, world, message, (chunk) =>
         this.dialog?.appendChunk(chunk)
       );
       if (!reply) {
-        // Nothing came back — show a hint instead of an empty bubble.
         this.dialog.setNpcText('( … no reply. Is the Claude CLI path set in Options → Game? )');
       } else {
-        // Replace the streamed raw text with the sanitized (in-character) reply.
         this.dialog.setNpcText(reply);
-        if (agent.revealNameIfMentioned(reply)) {
-          this.dialog.setNpcName(agent.definition.name);
-        }
+        if (agent.revealNameIfMentioned(reply)) this.dialog.setNpcName(agent.definition.name);
       }
     } catch (err) {
-      // Surface the real error (CLI exit code + stderr) to help diagnose.
       const msg = err instanceof Error ? err.message : String(err);
       this.dialog.setNpcText(`( Claude error: ${msg.slice(0, 180)} )`);
     }
   }
 
+  /**
+   * If the message is an emote that classifies as a deterministic action, narrate
+   * its outcome (check-the-time today; a placeholder until Phase 4 wires real
+   * skill checks) and return true (handled). Pure speech → false (normal chat).
+   */
+  private async handleDeterministicEmote(npcId: string, message: string): Promise<boolean> {
+    if (!this.dialog || !this.npcManager) return false;
+    if (!hasEmote(message)) return false;
+    this.dialog.setThinking(true);
+    const verdict = await this.npcManager.classifyEmote(npcId, message);
+    if (verdict !== 'DETERMINISTIC') return false;
+    this.dialog.addNarrationLine(this.resolveDeterministicEmote(message));
+    return true;
+  }
+
+  /** The narrated result of a deterministic emote (Phase 2: time, else placeholder). */
+  private resolveDeterministicEmote(message: string): string {
+    if (isCheckTimeEmote(message)) {
+      return narrateTime(this.clock.label(this.gameTimeSeconds), this.clock.period(this.gameTimeSeconds));
+    }
+    return DETERMINISTIC_PLACEHOLDER;
+  }
+
+  private buildWorldSnapshot(distanceMeters: number): WorldSnapshot {
+    return {
+      cityName: 'NeoBeiraRio',
+      gameTime: this.formatGameTime(),
+      playerName: this.playerName,
+      distanceMeters,
+      playerAction: this.derivePlayerAction(),
+      recentEvents: [],
+    };
+  }
+
+  /** Player position + facing for the addressing resolver. */
+  private playerAim(): { x: number; z: number; facingYaw: number } {
+    const p = this.player!.getPosition();
+    return { x: p.x, z: p.z, facingYaw: this.player!.getFacing() };
+  }
+
+  /** All spawned NPCs as addressing candidates (name known only after introduction). */
+  private buildAddressCandidates(): AddressCandidate[] {
+    return (this.npcManager?.getAgents() ?? []).map((a) => {
+      const pos = a.getPosition();
+      return { id: a.definition.id, name: a.definition.name, nameKnown: a.isNameKnown(), position: { x: pos.x, z: pos.z } };
+    });
+  }
+
+  /** In-world time for the NPC prompt: "HH:MM (period)" from the GameClock. */
   private formatGameTime(): string {
-    const totalMinutes = Math.floor(this.gameTimeSeconds / 60);
-    const h = Math.floor(totalMinutes / 60) % 24;
-    const m = totalMinutes % 60;
-    return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}, day 1`;
+    return `${this.clock.label(this.gameTimeSeconds)} (${this.clock.period(this.gameTimeSeconds)})`;
+  }
+
+  /** Re-tint the zone's light/fog when the time-of-day period changes. */
+  private updateTimeOfDay(): void {
+    if (!this.zone) return;
+    const period = this.clock.period(this.gameTimeSeconds);
+    if (period === this.lastPeriod) return;
+    this.lastPeriod = period;
+    this.zone.applyTimeOfDay(period);
   }
 
   // ─── Vehicles ───────────────────────────────────────────────────────────────

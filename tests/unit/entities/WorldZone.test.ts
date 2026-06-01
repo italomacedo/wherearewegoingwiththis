@@ -75,6 +75,10 @@ describe('WorldZone', () => {
     expect(zone.buildCount).toBe(2);
   });
 
+  it('applyTimeOfDay is a no-op by default (zones opt in)', () => {
+    expect(() => zone.applyTimeOfDay('night')).not.toThrow();
+  });
+
   it('getSpawnPoint returns a Vector3', () => {
     expect(zone.getSpawnPoint()).toBeInstanceOf(Vector3);
   });

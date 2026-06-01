@@ -164,6 +164,12 @@ describe('InputSystem', () => {
     expect(DEFAULT_BINDINGS.Escape).toBe('pause');
   });
 
+  it('T opens the global chat (chat.open)', () => {
+    expect(DEFAULT_BINDINGS.KeyT).toBe('chat.open');
+    input.handleKeyDown('KeyT');
+    expect(input.wasJustPressed('chat.open')).toBe(true);
+  });
+
   it('attach returns a detach function in Node (no-op)', () => {
     const detach = input.attach();
     expect(typeof detach).toBe('function');
