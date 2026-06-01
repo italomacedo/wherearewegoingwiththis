@@ -388,7 +388,14 @@ export class GameWorldScene extends BaseScene {
       // target.position (local), so the parented mesh anchor would frame the
       // scene origin instead. Single NPC for now; multi-NPC maps agent.id → holder.
       const holder = this.npcHolders[0];
-      if (holder) this.cameraSystem?.enterConversationMode(holder);
+      if (holder) {
+        // Turn the NPC to face the player (avatar faces +Z at rotation.y=0, so
+        // rotation.y = atan2(dx, dz) toward the player). The player is frozen
+        // while the dialog is open, so a one-shot snap is enough.
+        const pp = this.player.getPosition();
+        holder.rotation.y = Math.atan2(pp.x - holder.position.x, pp.z - holder.position.z);
+        this.cameraSystem?.enterConversationMode(holder);
+      }
     }
   }
 
