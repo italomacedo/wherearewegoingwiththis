@@ -57,8 +57,8 @@ describe('stepDog', () => {
 });
 
 describe('placement data', () => {
-  it('spawns a few stray dogs with valid models', () => {
-    expect(DOG_SPAWNS.length).toBeGreaterThanOrEqual(2);
+  it('spawns one lone stray dog with a valid model', () => {
+    expect(DOG_SPAWNS).toHaveLength(1);
     DOG_SPAWNS.forEach((s) => expect(['shibainu', 'husky']).toContain(s.model));
   });
 

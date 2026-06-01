@@ -27,15 +27,13 @@ export const DOG_STATE_CHANGE = 0.012;  // per-step chance to start/stop or re-a
 /** Walkable patch the strays roam: road + sidewalks, clear of the ends. */
 export const DOG_BOUNDS: Bounds = { minX: -24, maxX: 22, minZ: -7, maxZ: 7 };
 
-/** Initial stray dogs (model key + start state). Two models for variety. */
+/** Initial stray dogs (model key + start state). One lone stray is enough. */
 export interface DogSpawn {
   model: 'shibainu' | 'husky';
   state: DogState;
 }
 export const DOG_SPAWNS: readonly DogSpawn[] = [
   { model: 'shibainu', state: { x: -10, z: 5, heading: 1.2, moving: true } },
-  { model: 'husky', state: { x: 14, z: -5, heading: -2.0, moving: false } },
-  { model: 'shibainu', state: { x: 2, z: 3, heading: 3.0, moving: true } },
 ];
 
 /**
