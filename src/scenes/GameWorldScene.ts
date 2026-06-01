@@ -372,7 +372,7 @@ export class GameWorldScene extends BaseScene {
 
     if (this.dialog.isOpen()) {
       // Don't close while the player is typing — the 'E' belongs to the field.
-      if (!this.dialog.isInputFocused()) this.dialog.close();
+      if (!this.dialog.isInputFocused()) this.closeDialog();
       return;
     }
     const agent = this.npcManager.getConversableAgent(this.player.getPosition());
@@ -383,7 +383,16 @@ export class GameWorldScene extends BaseScene {
         { role: 'npc' as const, text: ex.npc },
       ]);
       this.dialog.open(agent.getDisplayName(), seed);
+      // Cinematic framing: focus the NPC we're talking to (single NPC for now —
+      // multi-NPC will map agent.id → its holder).
+      if (this.npcLabelAnchor) this.cameraSystem?.enterConversationMode(this.npcLabelAnchor);
     }
+  }
+
+  /** Close the active dialog and restore the on-foot camera framing. */
+  private closeDialog(): void {
+    this.dialog?.close();
+    this.cameraSystem?.exitConversationMode();
   }
 
   private wireDialog(): void {
@@ -505,7 +514,7 @@ export class GameWorldScene extends BaseScene {
     if (!this.inputSystem.wasJustPressed('pause')) return;
     if (this.dialog?.isOpen()) {
       // ESC closes the dialog rather than pausing.
-      if (!this.dialog.isInputFocused()) this.dialog.close();
+      if (!this.dialog.isInputFocused()) this.closeDialog();
       return;
     }
     this.pauseMenu.toggle();
@@ -526,11 +535,11 @@ export class GameWorldScene extends BaseScene {
     });
   }
 
-  /** Refresh the HUD each frame: hero HP, bike status, and the action prompt. */
+  /** Refresh the HUD each frame: bike status and the contextual action prompt.
+   * (No hero HP bar — health is learned diegetically; see WorldHud.) */
   private updateHud(dialogOpen: boolean): void {
     if (!this.hud) return;
 
-    if (this.player) this.hud.setPlayerHealth(this.player.getHealth().fraction());
     this.hud.setVehicleStatus(this.deriveVehicleStatus());
     this.hud.setActionPrompt(this.deriveActionPrompt(dialogOpen));
   }

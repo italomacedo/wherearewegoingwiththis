@@ -13,6 +13,13 @@ export type NPCState =
 
 export type PlayerAction = 'idle' | 'walking' | 'running' | 'weapon_drawn';
 
+/**
+ * How an NPC feels about the player. Set initially per-NPC; the dynamic
+ * transitions (hostile-on-sight, ultimatum, worsening on hostile player actions)
+ * land in Phase 5. Ordered from worst to best.
+ */
+export type NPCDisposition = 'hostile' | 'wary' | 'neutral' | 'friendly';
+
 export interface NPCDefinition {
   id: string;
   name: string;
@@ -28,6 +35,17 @@ export interface NPCDefinition {
    * avatar (via CharacterAssembler) instead of the procedural capsule.
    */
   appearance?: CharacterAppearance;
+  // ─── Identity (who they are / what they do / where they live) ───────────────
+  /** Where the NPC lives — injected into the persona prompt. */
+  home?: string;
+  /** A short backstory for the persona. */
+  backstory?: string;
+  /** What they do day to day. */
+  routine?: string;
+  /** Notable relationships (free text). */
+  relationships?: string;
+  /** Initial disposition toward the player (dynamic transitions: Phase 5). */
+  initialDisposition?: NPCDisposition;
 }
 
 /**

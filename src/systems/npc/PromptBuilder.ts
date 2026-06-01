@@ -30,6 +30,7 @@ export class PromptBuilder {
 
     lines.push(`You are ${definition.name}, a ${definition.role} in ${world.cityName}'s ${definition.location}.`);
     lines.push(definition.personalityPrompt);
+    PromptBuilder.identityLines(definition).forEach((l) => lines.push(l));
     lines.push(`Current mood: ${mood}`);
     lines.push(`Game time: ${world.gameTime}`);
     lines.push(`You know the player as: ${world.playerName}.`);
@@ -89,6 +90,7 @@ export class PromptBuilder {
     const lines: string[] = [];
     lines.push(`You are roleplaying as ${definition.name}, a ${definition.role} in ${world.cityName}'s ${definition.location}.`);
     lines.push(definition.personalityPrompt);
+    PromptBuilder.identityLines(definition).forEach((l) => lines.push(l));
     lines.push(`Current mood: ${mood}. The player is known as ${world.playerName}.`);
     lines.push(
       'Stay in character for the rest of this session. Respond in English, 2-3 sentences, never mention being an AI. ' +
@@ -112,6 +114,19 @@ export class PromptBuilder {
       `[Player is ${Math.round(world.distanceMeters)}m away, action: ${world.playerAction}]`,
       `Player: ${playerMessage}`,
     ].join('\n');
+  }
+
+  /**
+   * Optional persona-identity lines (who they are / where they live / routine /
+   * relationships). Each is emitted only when present, so terse NPCs stay terse.
+   */
+  private static identityLines(definition: NPCDefinition): string[] {
+    const out: string[] = [];
+    if (definition.home) out.push(`Where you live: ${definition.home}.`);
+    if (definition.backstory) out.push(`Your background: ${definition.backstory}`);
+    if (definition.routine) out.push(`Your routine: ${definition.routine}`);
+    if (definition.relationships) out.push(`People in your life: ${definition.relationships}`);
+    return out;
   }
 
   /** Rough char-count estimate of the stateless prompt (for graduation). */

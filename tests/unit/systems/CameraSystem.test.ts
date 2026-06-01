@@ -1,5 +1,5 @@
 import { NullEngine, Scene, MeshBuilder, Vector3 } from '@babylonjs/core';
-import { CameraSystem, DEFAULT_CAMERA_CONFIG } from '../../../src/systems/CameraSystem';
+import { CameraSystem, DEFAULT_CAMERA_CONFIG, CONVERSATION_RADIUS } from '../../../src/systems/CameraSystem';
 import { SettingsService } from '../../../src/systems/SettingsService';
 
 describe('CameraSystem', () => {
@@ -178,6 +178,51 @@ describe('CameraSystem', () => {
     const cam = new CameraSystem(scene);
     expect(() => cam.exitVehicleMode()).not.toThrow();
     expect(cam.isVehicleMode()).toBe(false);
+  });
+
+  it('enterConversationMode frames the NPC and pulls the camera in close', () => {
+    const cam = new CameraSystem(scene, { zoomMin: 6, zoomMax: 50, zoomDefault: 14 });
+    const npc = MeshBuilder.CreateBox('npc', { size: 1 }, scene);
+    npc.position = new Vector3(20, 0, 0);
+    cam.enterConversationMode(npc);
+    expect(cam.isConversationMode()).toBe(true);
+    expect(cam.getCamera().radius).toBe(CONVERSATION_RADIUS);
+    // focus pans toward the NPC
+    for (let i = 0; i < 100; i++) cam.update();
+    expect(cam.getCamera().getTarget().x).toBeGreaterThan(10);
+  });
+
+  it('exitConversationMode restores radius and the previous follow target', () => {
+    const cam = new CameraSystem(scene, { zoomMin: 6, zoomMax: 50, zoomDefault: 14 });
+    const hero = MeshBuilder.CreateBox('hero', { size: 1 }, scene);
+    hero.position = new Vector3(-12, 0, 0);
+    const npc = MeshBuilder.CreateBox('npc', { size: 1 }, scene);
+    npc.position = new Vector3(20, 0, 0);
+    cam.setTarget(hero);
+    const radiusBefore = cam.getCamera().radius;
+    cam.enterConversationMode(npc);
+    cam.exitConversationMode();
+    expect(cam.isConversationMode()).toBe(false);
+    expect(cam.getCamera().radius).toBe(radiusBefore);
+    // follow returns to the hero
+    for (let i = 0; i < 120; i++) cam.update();
+    expect(cam.getCamera().getTarget().x).toBeLessThan(-5);
+  });
+
+  it('enterConversationMode is idempotent (no double-save of radius)', () => {
+    const cam = new CameraSystem(scene, { zoomMin: 6, zoomMax: 50, zoomDefault: 14 });
+    const npc = MeshBuilder.CreateBox('npc', { size: 1 }, scene);
+    const radius = cam.getCamera().radius;
+    cam.enterConversationMode(npc);
+    cam.enterConversationMode(npc); // must not capture CONVERSATION_RADIUS as the saved value
+    cam.exitConversationMode();
+    expect(cam.getCamera().radius).toBe(radius);
+  });
+
+  it('exitConversationMode without entering is a no-op', () => {
+    const cam = new CameraSystem(scene);
+    expect(() => cam.exitConversationMode()).not.toThrow();
+    expect(cam.isConversationMode()).toBe(false);
   });
 
   it('DEFAULT_CAMERA_CONFIG has sane values', () => {

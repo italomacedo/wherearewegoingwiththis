@@ -66,6 +66,37 @@ export const LOCO_CLIPS: Record<'idle' | 'walk' | 'run' | 'interact', string> = 
   interact: 'Interact',
 };
 
+export type LocoClipState = keyof typeof LOCO_CLIPS;
+
+/**
+ * Approximate ground speed (units/sec) each Quaternius Walk/Run clip was authored
+ * to — i.e. how fast the feet cycle in the clip. The hero translates at
+ * walkSpeed=4 / runSpeed=8, so when those don't match the clip's authored cadence
+ * the feet slide. We scale `AnimationGroup.speedRatio` by `actualSpeed/clipGroundSpeed`
+ * to keep the feet planted. CALIBRATE in Electron (Lesson: measure, don't eyeball).
+ */
+export const LOCO_CLIP_GROUND_SPEED: Record<'walk' | 'run', number> = {
+  walk: 1.4,
+  run: 4.2,
+};
+
+/** Clamp bounds for the locomotion speed ratio (avoid a frozen/blurred clip). */
+export const LOCO_SPEED_RATIO_MIN = 0.25;
+export const LOCO_SPEED_RATIO_MAX = 4;
+
+/**
+ * Pure: the `AnimationGroup.speedRatio` that matches a locomotion clip's cadence to
+ * the hero's actual ground speed (units/sec). idle/interact always play at their
+ * authored rate (1). Clamped so a degenerate speed can't freeze or over-spin the clip.
+ */
+export function computeLocoSpeedRatio(state: LocoClipState, groundSpeed: number): number {
+  if (state !== 'walk' && state !== 'run') return 1;
+  const ref = LOCO_CLIP_GROUND_SPEED[state];
+  if (!(ref > 0) || !(groundSpeed > 0)) return 1;
+  const ratio = groundSpeed / ref;
+  return Math.min(LOCO_SPEED_RATIO_MAX, Math.max(LOCO_SPEED_RATIO_MIN, ratio));
+}
+
 export function outfitsForGender(gender: Gender): Outfit[] {
   return OUTFITS.filter((o) => o.gender === gender);
 }

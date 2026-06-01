@@ -27,6 +27,9 @@ export const ORBIT_SENSITIVITY = 0.008;
 /** Radians per second when orbiting with the keyboard (Z / C held). */
 export const KEY_ORBIT_SPEED = 1.8;
 
+/** Close radius used to frame the speaking NPC during a conversation. */
+export const CONVERSATION_RADIUS = 7;
+
 /**
  * Isometric-style camera using ArcRotateCamera locked to a fixed elevation.
  * Follows a target mesh with damping. Q/E rotate the view in 45° snaps.
@@ -39,6 +42,9 @@ export class CameraSystem {
   private vehicleMode = false;
   private savedRadius = 0;
   private savedDamping = 0;
+  private conversationMode = false;
+  private convSavedRadius = 0;
+  private convSavedTarget: TransformNode | null = null;
   private detachPointer: (() => void) | null = null;
 
   constructor(scene: Scene, config?: Partial<CameraConfig>) {
@@ -139,6 +145,34 @@ export class CameraSystem {
 
   isVehicleMode(): boolean {
     return this.vehicleMode;
+  }
+
+  /**
+   * Cinematic conversation framing: pull the camera in close and focus the
+   * speaking NPC. Saves the current radius + follow target so exit can restore
+   * the on-foot framing. Idempotent. The follow `update()` then smoothly pans
+   * to the NPC (and back on exit) since followPoint lerps toward the target.
+   */
+  enterConversationMode(node: TransformNode, radius: number = CONVERSATION_RADIUS): void {
+    if (this.conversationMode) return;
+    this.conversationMode = true;
+    this.convSavedRadius = this.camera.radius;
+    this.convSavedTarget = this.target;
+    this.camera.radius = Scalar.Clamp(radius, this.config.zoomMin, this.config.zoomMax);
+    this.setTarget(node);
+  }
+
+  /** Restore on-foot framing (radius + previous follow target). Idempotent. */
+  exitConversationMode(): void {
+    if (!this.conversationMode) return;
+    this.conversationMode = false;
+    this.camera.radius = this.convSavedRadius;
+    this.target = this.convSavedTarget;
+    this.convSavedTarget = null;
+  }
+
+  isConversationMode(): boolean {
+    return this.conversationMode;
   }
 
   /** Called each frame — smoothly follow the target. */

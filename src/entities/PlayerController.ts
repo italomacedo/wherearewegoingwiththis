@@ -7,6 +7,7 @@ import { CharacterAssembler, AssembledCharacter } from '@systems/CharacterAssemb
 import { CharacterAppearance, DEFAULT_APPEARANCE } from '@entities/CharacterData';
 import { Health, HealthState } from '@entities/Health';
 import { LocoState, selectLocoState } from '@entities/Locomotion';
+import { computeLocoSpeedRatio } from '@assets/AvatarMeshCatalog';
 
 export interface PlayerConfig {
   walkSpeed: number;        // units/sec
@@ -46,6 +47,7 @@ export class PlayerController {
   private lastFallDamage = 0; // impact damage applied on the most recent landing
   private locoState: LocoState = 'idle';
   private playingState: LocoState | null = null;
+  private lastGroundSpeed = 0; // units/sec last frame — drives the clip speedRatio
   private interacting = false;
   /** Havok collide-and-slide controller (browser + physics only; null in tests). */
   private characterController: PhysicsCharacterController | null = null;
@@ -169,6 +171,7 @@ export class PlayerController {
 
     // Locomotion state (dt≈0 under NullEngine → speed 0 → idle).
     const speed = dt > 1e-6 ? displacement.length() / dt : 0;
+    this.lastGroundSpeed = speed;
     this.locoState = selectLocoState(speed, sprint, this.interacting);
     this.updateAnimation();
   }
@@ -185,17 +188,17 @@ export class PlayerController {
   /* istanbul ignore next — browser-only AnimationGroup playback */
   private playLocoAnimation(state: LocoState): void {
     const groups = this.assembled?.getAnimationGroups?.() ?? [];
-    let played = false;
+    // Match the clip's cadence to the hero's ground speed so the feet stay planted.
+    const ratio = computeLocoSpeedRatio(state, this.lastGroundSpeed);
     for (const g of groups) {
       const match = g.name.toLowerCase().includes(state);
       if (match) {
+        g.speedRatio = ratio;
         g.start(true); // loop
-        played = true;
       } else {
         g.stop();
       }
     }
-    void played;
   }
 
   /* istanbul ignore next — Havok character-controller step is browser/Electron only */

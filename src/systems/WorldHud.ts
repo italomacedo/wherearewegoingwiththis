@@ -6,6 +6,11 @@ import { AdvancedDynamicTexture, TextBlock, Rectangle, Control } from '@babylonj
  * action prompt ("[E] Talk to Zara" / "[F] Enter bike"), and floating name
  * labels linked to NPC/vehicle meshes. The prompt state is pure and tested; all
  * rendering is browser-only so it stays out of the headless test path.
+ *
+ * Note: there is intentionally NO on-screen hero HP bar (immersion — the player
+ * learns their condition diegetically via a self-inspection emote or a medic NPC).
+ * The health *state* (`set/getPlayerHealth`) is kept as a pure value so callers
+ * and tests stay stable, but it is not rendered.
  */
 export class WorldHud {
   private scene: Scene;
@@ -15,7 +20,6 @@ export class WorldHud {
 
   private gui: AdvancedDynamicTexture | null = null;
   private promptBlock: TextBlock | null = null;
-  private hpFill: Rectangle | null = null;
   private vehicleStatusBlock: TextBlock | null = null;
   private labels = new Map<string, { text: string; box: Rectangle | null; block: TextBlock | null }>();
 
@@ -35,7 +39,7 @@ export class WorldHud {
     return this.actionPrompt;
   }
 
-  /** Hero HP as a 0..1 fraction (drives the health bar width/color). */
+  /** Hero HP as a 0..1 fraction. Tracked as pure state; not rendered (no HP bar). */
   setPlayerHealth(fraction: number): void {
     const f = Math.min(1, Math.max(0, fraction));
     if (f === this.playerHpFraction) return;
@@ -120,27 +124,6 @@ export class WorldHud {
     gui.addControl(prompt);
     this.promptBlock = prompt;
 
-    // Hero HP bar (top-left).
-    const bar = new Rectangle('hud-hp');
-    bar.width = '220px';
-    bar.height = '18px';
-    bar.thickness = 1;
-    bar.color = '#0A3A40';
-    bar.background = 'rgba(0,12,16,0.7)';
-    bar.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-    bar.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-    bar.left = '18px';
-    bar.top = '18px';
-    gui.addControl(bar);
-
-    const fill = new Rectangle('hud-hp-fill');
-    fill.height = '100%';
-    fill.thickness = 0;
-    fill.background = '#00FFAA';
-    fill.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-    bar.addControl(fill);
-    this.hpFill = fill;
-
     const vstatus = new TextBlock('hud-vehicle', '');
     vstatus.color = '#FF8A5C';
     vstatus.fontSize = 14;
@@ -161,11 +144,6 @@ export class WorldHud {
     if (this.promptBlock) {
       this.promptBlock.text = this.actionPrompt ?? '';
       this.promptBlock.isVisible = this.actionPrompt !== null;
-    }
-    if (this.hpFill) {
-      this.hpFill.width = `${Math.round(this.playerHpFraction * 100)}%`;
-      this.hpFill.background = this.playerHpFraction <= 0.3 ? '#FF3355'
-        : this.playerHpFraction <= 0.6 ? '#FFCC33' : '#00FFAA';
     }
     if (this.vehicleStatusBlock) {
       this.vehicleStatusBlock.text = this.vehicleStatus ?? '';
@@ -203,7 +181,6 @@ export class WorldHud {
       this.gui.dispose();
       this.gui = null;
       this.promptBlock = null;
-      this.hpFill = null;
       this.vehicleStatusBlock = null;
     }
     this.labels.clear();

@@ -38,6 +38,17 @@ export const ZARA_DEFINITION: NPCDefinition = {
   // her vendor stall stands beside her on the calçada).
   position: [3, 0, 6],
   appearance: ZARA_APPEARANCE,
+  // ─── Identity (who she is / what she does / where she lives) ────────────────
+  home: 'a cramped capsule flat above the noodle bar, three levels up from the market',
+  backstory:
+    'Grew up in the flooded lower decks; lost her brother to a corpo data-raid and has run ' +
+    'her own stall ever since, trading in the secrets other people would rather stayed buried.',
+  routine:
+    'Works the stall from dusk till the small hours, then trawls the back-channels for fresh ' +
+    'chips and gossip before sleeping through the grey daylight.',
+  relationships:
+    'Owes a favour to Old Mback the fence; steers clear of the Vyse-Tek enforcers who patrol the strip.',
+  initialDisposition: 'wary',
 };
 
 export function createZara(): NPCDefinition {

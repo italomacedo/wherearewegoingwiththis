@@ -101,6 +101,41 @@ describe('PromptBuilder', () => {
     });
   });
 
+  describe('persona identity injection (who/what/where)', () => {
+    const richDef: NPCDefinition = {
+      ...def,
+      home: 'a capsule flat above the noodle bar',
+      backstory: 'lost her brother to a corpo data-raid',
+      routine: 'works the stall from dusk till the small hours',
+      relationships: 'owes a favour to Old Mback',
+      initialDisposition: 'wary',
+    };
+
+    it('injects home/backstory/routine/relationships into the stateless prompt', () => {
+      const p = PromptBuilder.buildStateless({ ...baseInputs, definition: richDef });
+      expect(p).toContain('Where you live: a capsule flat above the noodle bar');
+      expect(p).toContain('Your background: lost her brother to a corpo data-raid');
+      expect(p).toContain('Your routine: works the stall from dusk till the small hours');
+      expect(p).toContain('People in your life: owes a favour to Old Mback');
+    });
+
+    it('injects identity into the session primer too', () => {
+      const primer = PromptBuilder.buildSessionPrimer({
+        definition: richDef, mood: 'suspicious', world, history: [],
+      });
+      expect(primer).toContain('Where you live: a capsule flat above the noodle bar');
+      expect(primer).toContain('Your routine: works the stall from dusk till the small hours');
+    });
+
+    it('omits identity lines entirely when the NPC defines none', () => {
+      const p = PromptBuilder.buildStateless(baseInputs);
+      expect(p).not.toContain('Where you live:');
+      expect(p).not.toContain('Your background:');
+      expect(p).not.toContain('Your routine:');
+      expect(p).not.toContain('People in your life:');
+    });
+  });
+
   describe('buildModerationPrompt', () => {
     it('asks for a one-word ALLOW/BLOCK verdict and includes the message', () => {
       const p = PromptBuilder.buildModerationPrompt('got any chips?');
