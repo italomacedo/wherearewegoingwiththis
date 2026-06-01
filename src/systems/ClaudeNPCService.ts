@@ -2,6 +2,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { NPCAgent } from '@entities/NPCAgent';
 import { PromptBuilder, WorldSnapshot } from '@systems/npc/PromptBuilder';
 import { ActionClassification, parseActionClassification } from '@systems/npc/EmoteIntent';
+import { estimateTokens } from '@systems/TokenMeter';
 
 /**
  * IPC query params — structurally matches electron/preload.ts ClaudeQueryParams.
@@ -71,6 +72,7 @@ export class ClaudeNPCService {
       onChunk?.(data.chunk);
     });
 
+    ClaudeNPCService.traceFire('npc-turn', npcId, params.prompt);
     try {
       await this.bridge.claudeQuery(params);
     } finally {
@@ -78,6 +80,7 @@ export class ClaudeNPCService {
     }
 
     const text = response.trim();
+    ClaudeNPCService.traceDone('npc-turn', npcId, params.prompt, text);
     agent.conversation.recordExchange(playerMessage, text);
     agent.endResponse();
     return text;
@@ -90,22 +93,21 @@ export class ClaudeNPCService {
    */
   async moderate(npcId: string, message: string): Promise<boolean> {
     const modId = `${npcId}::moderation`;
+    const prompt = PromptBuilder.buildModerationPrompt(message);
     let response = '';
     const offChunk = this.bridge.onClaudeResponseChunk((data) => {
       if (data.npcId !== modId) return;
       response += data.chunk;
     });
+    ClaudeNPCService.traceFire('moderate', modId, prompt);
     try {
-      await this.bridge.claudeQuery({
-        npcId: modId,
-        prompt: PromptBuilder.buildModerationPrompt(message),
-        claudePath: this.claudePath,
-      });
+      await this.bridge.claudeQuery({ npcId: modId, prompt, claudePath: this.claudePath });
     } catch {
       return true; // fail-open
     } finally {
       offChunk();
     }
+    ClaudeNPCService.traceDone('moderate', modId, prompt, response);
     // Blocked only on an explicit BLOCK verdict; anything else allows play.
     return !/\bBLOCK\b/i.test(response);
   }
@@ -117,7 +119,7 @@ export class ClaudeNPCService {
    */
   async classifyAction(npcId: string, message: string): Promise<ActionClassification> {
     try {
-      const raw = await this.oneShot(`${npcId}::action`, PromptBuilder.buildActionClassifierPrompt(message));
+      const raw = await this.oneShot(`${npcId}::action`, PromptBuilder.buildActionClassifierPrompt(message), 'action-classify');
       return parseActionClassification(raw);
     } catch {
       return { deterministic: false, skillId: null, attribute: null, difficulty: 50 };
@@ -127,24 +129,46 @@ export class ClaudeNPCService {
   /** One-shot free-text generation (e.g. ambient narration). Fails to '' on error. */
   async narrate(id: string, prompt: string): Promise<string> {
     try {
-      return await this.oneShot(`${id}::ambient`, prompt);
+      return await this.oneShot(`${id}::ambient`, prompt, 'narrate');
     } catch {
       return '';
     }
   }
 
   /** Run a single prompt and return the full trimmed reply (no session, no history). */
-  private async oneShot(id: string, prompt: string): Promise<string> {
+  private async oneShot(id: string, prompt: string, label = 'one-shot'): Promise<string> {
     let response = '';
     const offChunk = this.bridge.onClaudeResponseChunk((data) => {
       if (data.npcId === id) response += data.chunk;
     });
+    ClaudeNPCService.traceFire(label, id, prompt);
     try {
       await this.bridge.claudeQuery({ npcId: id, prompt, claudePath: this.claudePath });
     } finally {
       offChunk();
     }
-    return response.trim();
+    const text = response.trim();
+    ClaudeNPCService.traceDone(label, id, prompt, text);
+    return text;
+  }
+
+  /**
+   * Dev observability: log when each Claude prompt fires and a token ESTIMATE of
+   * the prompt and reply (the CLI runs with `--print`, so there is no real usage
+   * count). Browser/Electron only — silent in tests/headless.
+   */
+  /* istanbul ignore next — dev console logging, browser/Electron only */
+  private static traceFire(label: string, id: string, prompt: string): void {
+    if (typeof document === 'undefined') return;
+    console.warn(`[Claude] ▶ ${label} id=${id} · prompt ~${estimateTokens(prompt)} tok (${prompt.length} chars)`);
+  }
+
+  /* istanbul ignore next — dev console logging, browser/Electron only */
+  private static traceDone(label: string, id: string, prompt: string, reply: string): void {
+    if (typeof document === 'undefined') return;
+    const pt = estimateTokens(prompt);
+    const rt = estimateTokens(reply);
+    console.warn(`[Claude] ✓ ${label} id=${id} · reply ~${rt} tok (${reply.length} chars) · turn ~${pt + rt} tok`);
   }
 
   /** Cancel an in-flight NPC response. */
