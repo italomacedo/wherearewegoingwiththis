@@ -2,6 +2,7 @@ import { Scene } from '@babylonjs/core';
 import {
   AdvancedDynamicTexture, Rectangle, TextBlock, Button, StackPanel, Control,
 } from '@babylonjs/gui';
+import { t } from '@systems/I18n';
 
 export interface PauseMenuHandlers {
   onResume?: () => void;
@@ -94,7 +95,7 @@ export class PauseMenu {
   /* istanbul ignore next — browser GUI only */
   private flashSavedBrowser(): void {
     if (!this.savedToast) return;
-    this.savedToast.text = 'Game saved ✓';
+    this.savedToast.text = t('pause.saved');
     this.savedToast.isVisible = true;
   }
 
@@ -117,7 +118,7 @@ export class PauseMenu {
     stack.spacing = 12;
     scrim.addControl(stack);
 
-    const title = new TextBlock('pause-title', 'PAUSED');
+    const title = new TextBlock('pause-title', t('pause.title'));
     title.color = '#00FFCC';
     title.fontSize = 34;
     title.fontFamily = '"Courier New", monospace';
@@ -139,10 +140,10 @@ export class PauseMenu {
       return btn;
     };
 
-    make('pause-resume', 'RESUME', () => this.resume());
-    make('pause-save', 'SAVE GAME', () => this.save());
-    make('pause-load', 'LOAD GAME', () => this.load());
-    make('pause-menu', 'QUIT TO MAIN MENU', () => this.quitToMainMenu());
+    make('pause-resume', t('pause.resume').toUpperCase(), () => this.resume());
+    make('pause-save', t('pause.save').toUpperCase(), () => this.save());
+    make('pause-load', t('pause.load').toUpperCase(), () => this.load());
+    make('pause-menu', t('pause.quit').toUpperCase(), () => this.quitToMainMenu());
 
     const toast = new TextBlock('pause-toast', '');
     toast.color = '#9CFFE9';

@@ -5,6 +5,7 @@ import { SceneManager } from '@core/SceneManager';
 import { ServiceLocator } from '@core/ServiceLocator';
 import { GameSession } from '@core/GameSession';
 import { SaveService, SaveMeta } from '@systems/SaveService';
+import { t } from '@systems/I18n';
 
 export class LoadGameScene extends BaseScene {
   private saves: SaveMeta[] = [];
@@ -85,7 +86,7 @@ export class LoadGameScene extends BaseScene {
     const gui = AdvancedDynamicTexture.CreateFullscreenUI('load-ui', true, this.babylonScene);
 
     const title = new TextBlock('title');
-    title.text = 'LOAD GAME';
+    title.text = t('load.title');
     title.color = '#00FFCC';
     title.fontSize = 32;
     title.fontFamily = '"Courier New", monospace';
@@ -105,7 +106,7 @@ export class LoadGameScene extends BaseScene {
 
     if (this.saves.length === 0) {
       const empty = new TextBlock('empty');
-      empty.text = 'No saves found.';
+      empty.text = t('load.empty');
       empty.color = '#667788';
       empty.fontSize = 18;
       empty.height = '40px';
@@ -128,7 +129,7 @@ export class LoadGameScene extends BaseScene {
         nameText.left = '12px';
         row.addControl(nameText);
 
-        const loadBtn = Button.CreateSimpleButton(`load-${meta.saveId}`, 'LOAD');
+        const loadBtn = Button.CreateSimpleButton(`load-${meta.saveId}`, t('load.load'));
         loadBtn.width = '80px';
         loadBtn.height = '36px';
         loadBtn.color = '#00FFCC';
@@ -155,7 +156,7 @@ export class LoadGameScene extends BaseScene {
       });
     }
 
-    const backBtn = Button.CreateSimpleButton('back', '← BACK');
+    const backBtn = Button.CreateSimpleButton('back', t('common.back'));
     backBtn.width = '120px';
     backBtn.height = '40px';
     backBtn.color = '#888888';

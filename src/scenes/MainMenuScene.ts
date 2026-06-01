@@ -4,6 +4,7 @@ import {
   StandardMaterial, ParticleSystem, Texture, GlowLayer,
 } from '@babylonjs/core';
 import { AdvancedDynamicTexture, TextBlock, Button, StackPanel, Rectangle } from '@babylonjs/gui';
+import { t } from '@systems/I18n';
 import { BaseScene } from './BaseScene';
 import { SceneManager } from '@core/SceneManager';
 import { ServiceLocator } from '@core/ServiceLocator';
@@ -201,10 +202,10 @@ export class MainMenuScene extends BaseScene {
     gui.addControl(menuPanel);
 
     const btnDefs: Array<{ label: string; action: () => void }> = [
-      { label: '▶  NEW GAME',    action: () => this.onNewGame() },
-      { label: '⊙  LOAD GAME',   action: () => this.onLoadGame() },
-      { label: '⚙  OPTIONS',     action: () => this.onOptions() },
-      { label: '✕  QUIT',        action: () => this.onQuit() },
+      { label: `▶  ${t('menu.newGame')}`,  action: () => this.onNewGame() },
+      { label: `⊙  ${t('menu.loadGame')}`, action: () => this.onLoadGame() },
+      { label: `⚙  ${t('menu.options')}`,  action: () => this.onOptions() },
+      { label: `✕  ${t('menu.quit')}`,     action: () => this.onQuit() },
     ];
 
     btnDefs.forEach(({ label, action }) => {

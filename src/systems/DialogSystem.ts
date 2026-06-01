@@ -2,6 +2,7 @@ import { Scene } from '@babylonjs/core';
 import {
   AdvancedDynamicTexture, Rectangle, TextBlock, StackPanel, Control, Grid, ScrollViewer,
 } from '@babylonjs/gui';
+import { t } from '@systems/I18n';
 
 export type DialogRole = 'player' | 'npc' | 'system' | 'narration';
 
@@ -294,7 +295,7 @@ export class DialogSystem {
 
     const input = document.createElement('input');
     input.type = 'text';
-    input.placeholder = 'Speak, or *perform an action*…';
+    input.placeholder = t('dialog.inputPlaceholder');
     input.style.cssText = [
       'flex:1', 'height:40px', 'box-sizing:border-box', 'padding:0 12px',
       'background:rgba(0,26,32,0.96)', 'color:#E8FFF8', 'caret-color:#00FFCC',
@@ -310,7 +311,7 @@ export class DialogSystem {
     });
 
     const send = document.createElement('button');
-    send.textContent = 'SEND';
+    send.textContent = t('dialog.send');
     send.style.cssText = [
       'width:90px', 'height:40px', 'cursor:pointer',
       'background:rgba(0,60,50,0.95)', 'color:#00FFCC',

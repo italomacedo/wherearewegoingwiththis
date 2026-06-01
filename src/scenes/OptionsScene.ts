@@ -4,12 +4,14 @@ import { BaseScene } from './BaseScene';
 import { SceneManager } from '@core/SceneManager';
 import { ServiceLocator } from '@core/ServiceLocator';
 import { SettingsService, GameSettings } from '@systems/SettingsService';
+import { t, getLocale, setLocale, LANGUAGE_LABELS, Locale } from '@systems/I18n';
 
 export type OptionsTab = 'game' | 'display' | 'video' | 'audio';
 
 export class OptionsScene extends BaseScene {
   private activeTab: OptionsTab = 'game';
   private settings: GameSettings = SettingsService.load();
+  private gui: AdvancedDynamicTexture | null = null;
 
   constructor(engine: Engine) {
     super(engine);
@@ -22,7 +24,10 @@ export class OptionsScene extends BaseScene {
     this.buildUI();
   }
 
-  async onExit(): Promise<void> {}
+  async onExit(): Promise<void> {
+    /* istanbul ignore next — browser GUI only */
+    if (this.gui) { this.gui.dispose(); this.gui = null; }
+  }
 
   // ─── Navigation ──────────────────────────────────────────────────────────
 
@@ -52,6 +57,14 @@ export class OptionsScene extends BaseScene {
     return this.settings[key];
   }
 
+  /** Toggle the UI + NPC language (en ↔ pt-BR) and persist it. */
+  cycleLanguage(): Locale {
+    const next: Locale = getLocale() === 'en' ? 'pt-BR' : 'en';
+    setLocale(next); // updates the i18n cache + persists to settings
+    this.setSetting('language', next);
+    return next;
+  }
+
   /** Cycle the skill-gain multiplier 1 → 3 → 10 → 1 and persist it. */
   cycleSkillGainMultiplier(): 1 | 3 | 10 {
     const order: Array<1 | 3 | 10> = [1, 3, 10];
@@ -78,13 +91,21 @@ export class OptionsScene extends BaseScene {
     this.buildUIBrowser();
   }
 
+  /** Re-translate the screen in place (after a language toggle). Browser-only. */
+  /* istanbul ignore next — browser GUI only */
+  private rebuildUI(): void {
+    if (this.gui) { this.gui.dispose(); this.gui = null; }
+    this.buildUIBrowser();
+  }
+
   /* istanbul ignore next */
   private buildUIBrowser(): void {
     const gui = AdvancedDynamicTexture.CreateFullscreenUI('options-ui', true, this.babylonScene);
+    this.gui = gui;
 
     // Title
     const title = new TextBlock('title');
-    title.text = 'OPTIONS';
+    title.text = t('options.title');
     title.color = '#00FFCC';
     title.fontSize = 32;
     title.fontFamily = '"Courier New", monospace';
@@ -104,10 +125,10 @@ export class OptionsScene extends BaseScene {
     gui.addControl(tabBar);
 
     const tabLabels: Array<{ id: OptionsTab; label: string }> = [
-      { id: 'game', label: 'GAME' },
-      { id: 'display', label: 'DISPLAY' },
-      { id: 'video', label: 'VIDEO' },
-      { id: 'audio', label: 'AUDIO' },
+      { id: 'game', label: t('options.tab.game').toUpperCase() },
+      { id: 'display', label: t('options.tab.display').toUpperCase() },
+      { id: 'video', label: t('options.tab.video').toUpperCase() },
+      { id: 'audio', label: t('options.tab.audio').toUpperCase() },
     ];
 
     tabLabels.forEach(({ id, label }) => {
@@ -135,6 +156,40 @@ export class OptionsScene extends BaseScene {
     content.horizontalAlignment = 0;
     gui.addControl(content);
 
+    // Language toggle (Game tab)
+    const langRow = new Rectangle('lang-row');
+    langRow.height = '40px';
+    langRow.thickness = 0;
+    content.addControl(langRow);
+
+    const langLabel = new TextBlock('lang-label');
+    langLabel.text = `${t('common.language')}:`;
+    langLabel.color = '#AABBCC';
+    langLabel.fontSize = 14;
+    langLabel.fontFamily = 'monospace';
+    langLabel.horizontalAlignment = 0;
+    langLabel.textHorizontalAlignment = 0;
+    langLabel.width = '180px';
+    langRow.addControl(langLabel);
+
+    const langBtn = Button.CreateSimpleButton('lang-btn', LANGUAGE_LABELS[getLocale()]);
+    langBtn.width = '160px';
+    langBtn.height = '32px';
+    langBtn.left = '190px';
+    langBtn.horizontalAlignment = 0;
+    langBtn.color = '#00FFCC';
+    langBtn.background = 'rgba(0,30,40,0.8)';
+    langBtn.fontSize = 13;
+    langBtn.fontFamily = 'monospace';
+    langBtn.thickness = 1;
+    langBtn.onPointerUpObservable.add(() => {
+      const next = this.cycleLanguage();
+      if (langBtn.textBlock) langBtn.textBlock.text = LANGUAGE_LABELS[next];
+      // Re-translate the screen so the change is visible immediately.
+      this.rebuildUI();
+    });
+    langRow.addControl(langBtn);
+
     // Claude CLI path input (Game tab)
     const pathRow = new Rectangle('path-row');
     pathRow.height = '40px';
@@ -142,7 +197,7 @@ export class OptionsScene extends BaseScene {
     content.addControl(pathRow);
 
     const pathLabel = new TextBlock('path-label');
-    pathLabel.text = 'Claude CLI Path:';
+    pathLabel.text = t('options.claudePath');
     pathLabel.color = '#AABBCC';
     pathLabel.fontSize = 14;
     pathLabel.fontFamily = 'monospace';
@@ -173,7 +228,7 @@ export class OptionsScene extends BaseScene {
     content.addControl(gainRow);
 
     const gainLabel = new TextBlock('gain-label');
-    gainLabel.text = 'Skill Gain Rate:';
+    gainLabel.text = t('options.skillGain');
     gainLabel.color = '#AABBCC';
     gainLabel.fontSize = 14;
     gainLabel.fontFamily = 'monospace';
@@ -199,7 +254,7 @@ export class OptionsScene extends BaseScene {
     gainRow.addControl(gainBtn);
 
     // Back button
-    const backBtn = Button.CreateSimpleButton('back', '← BACK');
+    const backBtn = Button.CreateSimpleButton('back', t('common.back'));
     backBtn.width = '140px';
     backBtn.height = '44px';
     backBtn.color = '#00CCAA';

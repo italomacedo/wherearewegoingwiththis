@@ -110,15 +110,15 @@ export class NPCManager {
   }
 
   /** One-shot narration of a resolved deterministic action's outcome. */
-  async narrateOutcome(message: string, success: boolean): Promise<string> {
+  async narrateOutcome(message: string, success: boolean, language = 'English'): Promise<string> {
     if (!this.service) return '';
-    return this.service.narrate('action', PromptBuilder.buildOutcomeNarrationPrompt(message, success));
+    return this.service.narrate('action', PromptBuilder.buildOutcomeNarrationPrompt(message, success, language));
   }
 
   /** One-shot ambient narration for the global chat's "react to surroundings". */
-  async narrateAmbient(message: string, gameTime: string, surroundings: string): Promise<string> {
+  async narrateAmbient(message: string, gameTime: string, surroundings: string, language = 'English'): Promise<string> {
     if (!this.service) return '';
-    return this.service.narrate('world', PromptBuilder.buildAmbientReactionPrompt(message, gameTime, surroundings));
+    return this.service.narrate('world', PromptBuilder.buildAmbientReactionPrompt(message, gameTime, surroundings, language));
   }
 
   // ─── Save / load memory ───────────────────────────────────────────────────

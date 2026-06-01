@@ -35,6 +35,7 @@ import {
   CharacterStats, AttributeId, createDefaultStats, checkValue, applySkillUse,
 } from '@entities/CharacterStats';
 import { resolveCheck } from '@systems/SkillCheck';
+import { t, getLocale, languageName } from '@systems/I18n';
 import { SettingsService } from '@systems/SettingsService';
 
 export class GameWorldScene extends BaseScene {
@@ -452,7 +453,7 @@ export class GameWorldScene extends BaseScene {
     if (!this.inputSystem.wasJustPressed('chat.open')) return;
     if (this.dialog.isOpen()) return;
     this.chatMode = 'global';
-    this.dialog.open('Open channel');
+    this.dialog.open(t('dialog.openChannel'));
   }
 
   /** Builds the world snapshot and routes a message to the conversable NPC (E). */
@@ -468,7 +469,7 @@ export class GameWorldScene extends BaseScene {
     this.dialog.setThinking(true);
     const allowed = await this.npcManager.moderate(agent.definition.id, spoken);
     if (!allowed) {
-      this.dialog.addSystemLine("You can't say or do that.");
+      this.dialog.addSystemLine(t('dialog.cantSay'));
       return;
     }
 
@@ -498,7 +499,7 @@ export class GameWorldScene extends BaseScene {
     this.dialog.setThinking(true);
     const allowed = await this.npcManager.moderate(modId, spoken);
     if (!allowed) {
-      this.dialog.addSystemLine("You can't say or do that.");
+      this.dialog.addSystemLine(t('dialog.cantSay'));
       return;
     }
 
@@ -511,7 +512,7 @@ export class GameWorldScene extends BaseScene {
       await this.streamNpcReply(agent, this.buildWorldSnapshot(agent.distanceTo(this.player.getPosition())), spoken);
     } else {
       this.dialog.setThinking(true);
-      const narration = await this.npcManager.narrateAmbient(spoken, this.formatGameTime(), GameWorldScene.SURROUNDINGS);
+      const narration = await this.npcManager.narrateAmbient(spoken, this.formatGameTime(), GameWorldScene.SURROUNDINGS, languageName(getLocale()));
       this.dialog.addNarrationLine(narration || 'The street murmurs on, indifferent.');
     }
   }
@@ -525,7 +526,7 @@ export class GameWorldScene extends BaseScene {
         this.dialog?.appendChunk(chunk)
       );
       if (!reply) {
-        this.dialog.setNpcText('( … no reply. Is the Claude CLI path set in Options → Game? )');
+        this.dialog.setNpcText(t('dialog.noReply'));
       } else {
         this.dialog.setNpcText(reply);
         if (agent.revealNameIfMentioned(reply)) this.dialog.setNpcName(agent.definition.name);
@@ -581,7 +582,7 @@ export class GameWorldScene extends BaseScene {
       this.playerStats = applySkillUse(this.playerStats, cls.skillId, SettingsService.get('skillGainMultiplier'));
     }
 
-    const narration = await this.npcManager.narrateOutcome(message, result.success);
+    const narration = await this.npcManager.narrateOutcome(message, result.success, languageName(getLocale()));
     this.dialog.addNarrationLine(narration || (result.success ? 'You pull it off.' : "It doesn't go your way."));
 
     // The addressed NPC reacts to the action.
@@ -599,6 +600,7 @@ export class GameWorldScene extends BaseScene {
       distanceMeters,
       playerAction: this.derivePlayerAction(),
       recentEvents: [],
+      language: languageName(getLocale()),
     };
   }
 
@@ -721,21 +723,21 @@ export class GameWorldScene extends BaseScene {
   /** Nave status line: destroyed / live HP% while relevant, else hidden. */
   private deriveVehicleStatus(): string | null {
     if (!this.vehicle) return null;
-    if (this.vehicle.isDestroyed()) return 'NAVE DESTROYED';
+    if (this.vehicle.isDestroyed()) return t('hud.naveDestroyed');
     if (this.vehicle.isOccupied() || this.vehicle.isSmoking()) {
-      return `NAVE ${Math.round(this.vehicle.getHealth().fraction() * 100)}%`;
+      return t('hud.naveStatus', { pct: Math.round(this.vehicle.getHealth().fraction() * 100) });
     }
     return null;
   }
 
   private deriveActionPrompt(dialogOpen: boolean): string | null {
     if (dialogOpen) return null;
-    if (this.vehicle?.isOccupied()) return '[F] Exit bike';
-    if (this.player && this.vehicle?.canEnter(this.player.getPosition())) return '[F] Enter bike';
+    if (this.vehicle?.isOccupied()) return t('hud.exitBike');
+    if (this.player && this.vehicle?.canEnter(this.player.getPosition())) return t('hud.enterBike');
     if (this.npcManager && this.player) {
       const agent = this.npcManager.getConversableAgent(this.player.getPosition());
       // Don't leak the name in the prompt before the NPC introduces itself.
-      if (agent) return agent.isNameKnown() ? `[E] Talk to ${agent.definition.name}` : '[E] Talk';
+      if (agent) return agent.isNameKnown() ? t('hud.talkTo', { name: agent.definition.name }) : t('hud.talk');
     }
     return null;
   }

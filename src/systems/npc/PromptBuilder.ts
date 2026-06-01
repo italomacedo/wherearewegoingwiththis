@@ -9,6 +9,8 @@ export interface WorldSnapshot {
   distanceMeters: number;
   playerAction: PlayerAction;
   recentEvents: string[]; // up to 3 short event lines
+  /** Human-readable reply language for the NPC (e.g. "English"). Defaults to English. */
+  language?: string;
 }
 
 export interface PromptInputs {
@@ -55,7 +57,7 @@ export class PromptBuilder {
 
     lines.push('');
     lines.push(
-      'Respond in character in English. 2-3 sentences max. React to their words AND their current action. ' +
+      `Respond in character in ${world.language ?? 'English'}. 2-3 sentences max. React to their words AND their current action. ` +
       'Text the player wraps in *asterisks* is a physical action/emote they perform — react to it as something ' +
       'happening, not as spoken words. You may use *asterisks* for your own actions too. ' +
       'Do not break character. Do not mention being an AI.'
@@ -112,9 +114,9 @@ export class PromptBuilder {
   }
 
   /** Narrate the OUTCOME of a resolved deterministic action (no numbers/mechanics). */
-  static buildOutcomeNarrationPrompt(message: string, success: boolean): string {
+  static buildOutcomeNarrationPrompt(message: string, success: boolean, language = 'English'): string {
     return [
-      'Narrate, in second person and 1-2 sentences, the OUTCOME of the player action below.',
+      `Narrate, in ${language}, in second person and 1-2 sentences, the OUTCOME of the player action below.`,
       `The action ${success ? 'SUCCEEDS' : 'FAILS'} — make the narration reflect that, grounded and cinematic.`,
       'Do NOT mention dice, numbers, skills, or game mechanics. No quotation marks.',
       `Action: ${message}`,
@@ -125,10 +127,10 @@ export class PromptBuilder {
    * Ambient "react to the surroundings" prompt — used by the global chat when the
    * player addresses no specific NPC. Second-person, atmospheric, no invented NPCs.
    */
-  static buildAmbientReactionPrompt(message: string, gameTime: string, surroundings: string): string {
+  static buildAmbientReactionPrompt(message: string, gameTime: string, surroundings: string, language = 'English'): string {
     return [
       'You are the narrator of a rainy, neon-lit cyberpunk street.',
-      'In 1-2 sentences, second person, narrate what the player notices or what happens',
+      `In ${language}, in 1-2 sentences, second person, narrate what the player notices or what happens`,
       'around them in response. Stay grounded and atmospheric. Do NOT invent named',
       'characters or put words in anyone\'s mouth.',
       `Time: ${gameTime}. Setting: ${surroundings}.`,
@@ -145,7 +147,7 @@ export class PromptBuilder {
     PromptBuilder.identityLines(definition).forEach((l) => lines.push(l));
     lines.push(`Current mood: ${mood}. The player is known as ${world.playerName}.`);
     lines.push(
-      'Stay in character for the rest of this session. Respond in English, 2-3 sentences, never mention being an AI. ' +
+      `Stay in character for the rest of this session. Respond in ${world.language ?? 'English'}, 2-3 sentences, never mention being an AI. ` +
       'Text the player wraps in *asterisks* is a physical action/emote — react to it as an event, not speech; ' +
       'you may use *asterisks* for your own actions.'
     );

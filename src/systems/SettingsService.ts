@@ -1,5 +1,7 @@
 export interface GameSettings {
   // Game Options
+  /** UI + NPC language (single setting). */
+  language: 'en' | 'pt-BR';
   difficulty: 'easy' | 'normal' | 'hard';
   npcLanguage: 'en';
   subtitles: boolean;
@@ -28,6 +30,7 @@ export interface GameSettings {
 }
 
 export const DEFAULT_SETTINGS: Readonly<GameSettings> = {
+  language: 'en',
   difficulty: 'normal',
   npcLanguage: 'en',
   subtitles: true,

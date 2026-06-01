@@ -1,5 +1,6 @@
 import { Scene, TransformNode } from '@babylonjs/core';
 import { AdvancedDynamicTexture, TextBlock, Rectangle, Control } from '@babylonjs/gui';
+import { t } from '@systems/I18n';
 
 /**
  * Heads-up display for the game world: a persistent control hint, a contextual
@@ -100,10 +101,7 @@ export class WorldHud {
     const gui = AdvancedDynamicTexture.CreateFullscreenUI('hud-ui', true, this.scene);
     this.gui = gui;
 
-    const controls = new TextBlock(
-      'hud-controls',
-      'WASD move · MMB-drag camera · E talk · F vehicle · ESC pause'
-    );
+    const controls = new TextBlock('hud-controls', t('hud.controls'));
     controls.color = '#4A6E78';
     controls.fontSize = 13;
     controls.fontFamily = '"Courier New", monospace';

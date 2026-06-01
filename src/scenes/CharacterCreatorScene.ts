@@ -17,6 +17,20 @@ import {
   choosePerkReplacing, perksForTier, toggleStartingSkill, startingSkillState,
 } from '@entities/CharacterStats';
 import { type Gender, outfitsForGender, genderOfOutfit } from '@assets/AvatarMeshCatalog';
+import { t, hasKey } from '@systems/I18n';
+
+// Maps the pure schema's English labels to i18n keys (creator chrome).
+const CREATOR_CATEGORY_KEY: Record<string, string> = {
+  'Body & Skin': 'creator.bodySkin',
+  Outfit: 'creator.outfit',
+};
+const CREATOR_LABEL_KEY: Record<string, string> = {
+  Gender: 'creator.gender',
+  'Skin Tone': 'creator.skinTone',
+  'Eye Color': 'creator.eyeColor',
+  Outfit: 'creator.outfitLabel',
+  'Hair Color': 'creator.hairColor',
+};
 
 // ─── Character-creator UI schema (pure, data-driven) ────────────────────────────
 
@@ -333,7 +347,7 @@ export class CharacterCreatorScene extends BaseScene {
 
     // Title
     const title = new TextBlock('title');
-    title.text = 'CREATE YOUR OPERATIVE';
+    title.text = t('creator.title');
     title.color = '#00FFCC';
     title.fontSize = 28;
     title.fontFamily = '"Courier New", monospace';
@@ -363,7 +377,8 @@ export class CharacterCreatorScene extends BaseScene {
 
     for (const category of buildCreatorSchema()) {
       const header = new TextBlock(`cat-${category.title}`);
-      header.text = category.title.toUpperCase();
+      const catKey = CREATOR_CATEGORY_KEY[category.title];
+      header.text = (catKey ? t(catKey) : category.title).toUpperCase();
       header.color = '#00FFCC';
       header.fontSize = 14;
       header.fontFamily = 'monospace';
@@ -401,7 +416,7 @@ export class CharacterCreatorScene extends BaseScene {
     nameInput.onBlurObservable.add(() => this.setPlayerName(nameInput.text));
     gui.addControl(nameInput);
 
-    const beginBtn = Button.CreateSimpleButton('begin', 'BEGIN  ▶');
+    const beginBtn = Button.CreateSimpleButton('begin', t('common.begin'));
     beginBtn.width = '220px';
     beginBtn.height = '50px';
     beginBtn.color = '#00FFCC';
@@ -417,7 +432,7 @@ export class CharacterCreatorScene extends BaseScene {
     beginBtn.onPointerUpObservable.add(() => void this.onBegin(nameInput.text));
     gui.addControl(beginBtn);
 
-    const backBtn = Button.CreateSimpleButton('back', '← BACK');
+    const backBtn = Button.CreateSimpleButton('back', t('common.back'));
     backBtn.width = '120px';
     backBtn.height = '40px';
     backBtn.color = '#888888';
@@ -465,8 +480,8 @@ export class CharacterCreatorScene extends BaseScene {
     };
 
     // ── Attributes (click one to make it the 30% primary; others 20%) ──
-    addHeader('ATTRIBUTES — pick your primary (30%)');
-    const attrLabelOf = (id: AttributeId): string => ATTRIBUTES.find((a) => a.id === id)?.label ?? id;
+    addHeader(t('creator.attributes'));
+    const attrLabelOf = (id: AttributeId): string => t(`attr.${id}`);
     const attrBtns: Array<{ id: AttributeId; btn: Button }> = [];
     const refreshAttrs = (): void => {
       attrBtns.forEach(({ id, btn }) => {
@@ -475,7 +490,7 @@ export class CharacterCreatorScene extends BaseScene {
       });
     };
     for (const a of ATTRIBUTES) {
-      const btn = Button.CreateSimpleButton(`attr-${a.id}`, `${a.label} — ${this.stats.attributes[a.id]}%`);
+      const btn = Button.CreateSimpleButton(`attr-${a.id}`, `${attrLabelOf(a.id)} — ${this.stats.attributes[a.id]}%`);
       btn.width = '270px';
       btn.height = '28px';
       btn.color = '#9FD8FF';
@@ -492,7 +507,7 @@ export class CharacterCreatorScene extends BaseScene {
     refreshAttrs();
 
     // ── Starting skills (2 majors @40%, 3 minors @20%) ──
-    addHeader('STARTING SKILLS');
+    addHeader(t('creator.startingSkills'));
     const counter = new TextBlock('rpg-skill-count');
     counter.fontSize = 11;
     counter.fontFamily = 'monospace';
@@ -504,12 +519,12 @@ export class CharacterCreatorScene extends BaseScene {
       st === 'major' ? '40%' : st === 'minor' ? '20%' : '10%';
     const refresh = (): void => {
       const ok = isValidStartingSkills(pick.majors, pick.minors);
-      counter.text = `Majors ${pick.majors.length}/2 · Minors ${pick.minors.length}/3`;
+      counter.text = t('creator.skillCounter', { majors: pick.majors.length, minors: pick.minors.length });
       counter.color = ok ? '#00FFAA' : '#FFCC66';
       if (ok) this.setStartingSkills(pick.majors, pick.minors);
     };
     for (const s of SKILLS) {
-      const btn = Button.CreateSimpleButton(`sk-${s.id}`, `${s.label} — 10%`);
+      const btn = Button.CreateSimpleButton(`sk-${s.id}`, `${t(`skill.${s.id}`)} — 10%`);
       btn.width = '270px';
       btn.height = '26px';
       btn.color = '#CFE';
@@ -522,7 +537,7 @@ export class CharacterCreatorScene extends BaseScene {
         pick.majors = next.majors;
         pick.minors = next.minors;
         const st = startingSkillState(pick, s.id);
-        if (btn.textBlock) btn.textBlock.text = `${s.label} — ${tierLabel(st)}`;
+        if (btn.textBlock) btn.textBlock.text = `${t(`skill.${s.id}`)} — ${tierLabel(st)}`;
         refresh();
       });
       panel.addControl(btn);
@@ -530,10 +545,10 @@ export class CharacterCreatorScene extends BaseScene {
     refresh();
 
     // ── Tier-1 perks (one choice per attribute, unlocked at creation) ──
-    addHeader('TIER-1 PERKS');
+    addHeader(t('creator.tier1Perks'));
     for (const a of ATTRIBUTES) {
       const lbl = new TextBlock(`rpg-pk-${a.id}`);
-      lbl.text = a.label;
+      lbl.text = t(`attr.${a.id}`);
       lbl.color = '#9FD8FF';
       lbl.fontSize = 11;
       lbl.fontFamily = 'monospace';
@@ -543,7 +558,7 @@ export class CharacterCreatorScene extends BaseScene {
       const options = perksForTier(a.id, 1);
       const btns: Button[] = [];
       options.forEach((p) => {
-        const b = Button.CreateSimpleButton(`pk-${p.id}`, p.label);
+        const b = Button.CreateSimpleButton(`pk-${p.id}`, hasKey(`perk.${p.id}`) ? t(`perk.${p.id}`) : p.label);
         b.width = '270px';
         b.height = '26px';
         b.color = '#CFE';
@@ -567,7 +582,7 @@ export class CharacterCreatorScene extends BaseScene {
   /* istanbul ignore next — browser-only GUI widget factory */
   private buildControl(spec: ControlSpec, parent: StackPanel): void {
     const label = new TextBlock(`lbl-${spec.label}`);
-    label.text = spec.label;
+    label.text = CREATOR_LABEL_KEY[spec.label] ? t(CREATOR_LABEL_KEY[spec.label]!) : spec.label;
     label.color = '#AABBCC';
     label.fontSize = 12;
     label.fontFamily = 'monospace';
@@ -594,7 +609,7 @@ export class CharacterCreatorScene extends BaseScene {
       const row = new StackPanel('gender-row');
       row.isVertical = false; row.height = '32px'; row.spacing = 6;
       (['female', 'male'] as const).forEach((g) => {
-        const b = Button.CreateSimpleButton(`gender-${g}`, g === 'male' ? 'MALE' : 'FEMALE');
+        const b = Button.CreateSimpleButton(`gender-${g}`, g === 'male' ? t('creator.male') : t('creator.female'));
         b.width = '120px'; b.height = '32px';
         b.color = '#00FFCC'; b.background = 'rgba(0,40,60,0.9)';
         b.fontFamily = 'monospace';

@@ -2,6 +2,7 @@ import { NullEngine } from '@babylonjs/core';
 import { OptionsScene } from '../../../src/scenes/OptionsScene';
 import { ServiceLocator } from '../../../src/core/ServiceLocator';
 import { SettingsService, DEFAULT_SETTINGS } from '../../../src/systems/SettingsService';
+import { resetLocale } from '../../../src/systems/I18n';
 
 const mockSceneManager = {
   loadScene: jest.fn().mockResolvedValue(undefined),
@@ -26,6 +27,7 @@ describe('OptionsScene', () => {
     ServiceLocator.clear();
     SettingsService.reset();
     SettingsService.clearMemoryStore();
+    resetLocale();
   });
 
   it('constructs without error', () => {
@@ -42,6 +44,12 @@ describe('OptionsScene', () => {
 
   it('starts on game tab by default', () => {
     expect(scene.getActiveTab()).toBe('game');
+  });
+
+  it('cycleLanguage toggles en ↔ pt-BR and persists', () => {
+    expect(scene.cycleLanguage()).toBe('pt-BR');
+    expect(SettingsService.get('language')).toBe('pt-BR');
+    expect(scene.cycleLanguage()).toBe('en');
   });
 
   it('default skill-gain multiplier is 1x', () => {

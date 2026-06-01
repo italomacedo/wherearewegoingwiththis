@@ -94,6 +94,11 @@ describe('PromptBuilder', () => {
       expect(p).toContain('Do not mention being an AI');
     });
 
+    it('instructs the NPC to reply in the world language when set', () => {
+      const p = PromptBuilder.buildStateless({ ...baseInputs, world: { ...world, language: 'Brazilian Portuguese' } });
+      expect(p).toContain('Respond in character in Brazilian Portuguese');
+    });
+
     it('explains that *asterisks* are player actions/emotes', () => {
       const p = PromptBuilder.buildStateless(baseInputs);
       expect(p).toContain('*asterisks*');
