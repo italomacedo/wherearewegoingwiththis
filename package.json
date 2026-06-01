@@ -5,9 +5,13 @@
   "main": "dist-electron/main.js",
   "private": true,
   "scripts": {
+    "copy:havok": "node scripts/copy-havok-wasm.mjs",
+    "predev": "npm run copy:havok",
     "dev": "vite",
+    "prebuild": "npm run copy:havok",
     "build": "npm run typecheck && vite build",
     "preview": "vite preview",
+    "preelectron:dev": "npm run copy:havok",
     "electron:dev": "vite",
     "electron:build": "npm run build && electron-builder",
     "test": "jest",

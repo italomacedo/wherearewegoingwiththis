@@ -26,13 +26,18 @@ export class PhysicsService {
     try {
       const HavokPhysics = (await import('@babylonjs/havok')).default;
       const { HavokPlugin } = await import('@babylonjs/core');
-      const havok = await HavokPhysics();
+      // Serve the .wasm from /public (copied there by scripts/copy-havok-wasm.mjs).
+      // Without an explicit path Havok resolves the wrong URL and the request falls
+      // through to index.html → "Incorrect response MIME type" / WASM magic-word error.
+      const havok = await HavokPhysics({ locateFile: () => '/HavokPhysics.wasm' });
       const plugin = new HavokPlugin(true, havok);
       scene.enablePhysics(this.gravity, plugin);
       this.enabled = true;
+      console.warn('[Physics] Havok enabled');
       return true;
-    } catch {
+    } catch (err) {
       this.enabled = false;
+      console.warn('[Physics] Havok init failed, continuing without physics:', err);
       return false;
     }
   }

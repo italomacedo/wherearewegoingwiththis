@@ -18,3 +18,6 @@ vite.config.d.ts
 
 # Source art (Mixamo/Blender FBX) — converted to .glb before use; not shipped.
 public/assets/**/*.fbx
+
+# Havok wasm — copied from node_modules by scripts/copy-havok-wasm.mjs (predev/prebuild)
+/public/HavokPhysics.wasm
