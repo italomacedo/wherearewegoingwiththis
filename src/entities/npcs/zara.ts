@@ -1,4 +1,21 @@
 import { NPCDefinition } from '@entities/NPCAgent';
+import { CharacterAppearance } from '@entities/CharacterData';
+import { DEFAULT_COLORS } from '@entities/CharacterData';
+
+/**
+ * Zara's avatar — a punk woman (Quaternius `w_punk`), tinted for a streetwise look.
+ * Built via the same CharacterAssembler pipeline the player uses (idle animation).
+ */
+const ZARA_APPEARANCE: CharacterAppearance = {
+  bodyBase: 'w_punk',
+  slots: {},
+  morphs: {},
+  colors: { ...DEFAULT_COLORS, skin: '#8A6552', hair: '#C81E5A', eye: '#2A3A2A' },
+  skinTexture: 'skin_01',
+  accessories: [],
+  implants: [],
+  avatarPieces: {},
+};
 
 /**
  * Zara — the first Claude-driven NPC. A wary street vendor in Mercado das Sombras.
@@ -18,6 +35,7 @@ export const ZARA_DEFINITION: NPCDefinition = {
   interactionRadius: 8,
   conversationRadius: 3,
   position: [4, 0, 4],
+  appearance: ZARA_APPEARANCE,
 };
 
 export function createZara(): NPCDefinition {

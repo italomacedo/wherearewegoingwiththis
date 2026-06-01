@@ -1,5 +1,5 @@
 import {
-  Engine, Color4, Color3, Vector3, MeshBuilder, StandardMaterial, AbstractMesh,
+  Engine, Color4, Vector3, AbstractMesh, TransformNode,
 } from '@babylonjs/core';
 import { BaseScene } from './BaseScene';
 import { ServiceLocator } from '@core/ServiceLocator';
@@ -23,7 +23,8 @@ import { NPCManager, NPCMemoryMap } from '@systems/NPCManager';
 import { ClaudeNPCService, ClaudeBridge } from '@systems/ClaudeNPCService';
 import { DialogSystem, DialogLine } from '@systems/DialogSystem';
 import { createZara } from '@entities/npcs/zara';
-import { PlayerAction } from '@entities/NPCAgent';
+import { PlayerAction, NPCDefinition } from '@entities/NPCAgent';
+import { CharacterAssembler, AssembledCharacter } from '@systems/CharacterAssembler';
 import { WorldSnapshot } from '@systems/npc/PromptBuilder';
 import { SettingsService } from '@systems/SettingsService';
 
@@ -40,6 +41,9 @@ export class GameWorldScene extends BaseScene {
   private pauseMenu: PauseMenu | null = null;
   private hud: WorldHud | null = null;
   private npcMeshes: AbstractMesh[] = [];
+  private npcVisuals: AssembledCharacter[] = [];
+  private npcHolders: TransformNode[] = [];
+  private npcLabelAnchor: AbstractMesh | null = null;
   private detachInput: (() => void) | null = null;
   private startZoneId = 'mercado_sombras';
   private appearance: CharacterAppearance = DEFAULT_APPEARANCE;
@@ -157,13 +161,13 @@ export class GameWorldScene extends BaseScene {
     this.vehicle.setDestroyed(this.vehicleState.destroyed);
     ServiceLocator.register('vehicle', this.vehicle);
 
-    this.setupNPCs();
+    await this.setupNPCs();
     this.dialog = new DialogSystem(this.babylonScene);
     this.wireDialog();
 
     // HUD: floating labels + contextual action prompts (Phase 8/9 evidence).
     this.hud = new WorldHud(this.babylonScene);
-    const zaraMesh = this.npcMeshes[0];
+    const zaraMesh = this.npcLabelAnchor;
     const npc = this.npcManager?.getAgents()[0];
     // Show the NPC's name only after it introduces itself (no metagaming).
     if (zaraMesh && npc) this.hud.addLabel(zaraMesh, npc.getDisplayName(), 'npc');
@@ -198,6 +202,11 @@ export class GameWorldScene extends BaseScene {
     this.hud?.dispose();
     this.npcMeshes.forEach((m) => m.dispose());
     this.npcMeshes = [];
+    this.npcVisuals.forEach((v) => v.dispose());
+    this.npcVisuals = [];
+    this.npcHolders.forEach((h) => h.dispose());
+    this.npcHolders = [];
+    this.npcLabelAnchor = null;
     this.player = null;
     this.vehicle = null;
     this.zoneManager = null;
@@ -266,7 +275,7 @@ export class GameWorldScene extends BaseScene {
     this.injectedService = service;
   }
 
-  private setupNPCs(): void {
+  private async setupNPCs(): Promise<void> {
     const service = this.injectedService ?? this.createClaudeService();
     this.npcManager = new NPCManager(service);
     ServiceLocator.register('npcManager', this.npcManager);
@@ -274,7 +283,30 @@ export class GameWorldScene extends BaseScene {
     const zara = createZara();
     const conversation = NPCManager.restoreConversation(this.npcMemory, zara.id);
     this.npcManager.spawn(zara, conversation);
-    this.npcMeshes.push(this.buildNPCMesh(zara.id, zara.position));
+    this.npcLabelAnchor = await this.buildNPCVisual(zara);
+  }
+
+  /**
+   * Builds an NPC's visual via the player avatar pipeline (CharacterAssembler):
+   * a real Quaternius avatar with a looping idle animation. Uses the NPC's own
+   * appearance, or DEFAULT_APPEARANCE if none. Returns the mesh used as the
+   * floating-label anchor. (CharacterAssembler falls back to a procedural
+   * placeholder headlessly / when GLBs are missing, so this is safe in tests.)
+   */
+  private async buildNPCVisual(npc: NPCDefinition): Promise<AbstractMesh> {
+    const assembler = new CharacterAssembler(this.babylonScene);
+    const assembled = await assembler.assemble(npc.appearance ?? DEFAULT_APPEARANCE);
+    const holder = new TransformNode(`npc-${npc.id}`, this.babylonScene);
+    holder.position = new Vector3(npc.position[0], 0, npc.position[2]);
+    assembled.meshes.forEach((m) => {
+      if (!m.parent) m.parent = holder;
+    });
+    const groups = assembled.getAnimationGroups?.() ?? [];
+    const idle = groups.find((g) => g.name.toLowerCase().includes('idle'));
+    idle?.start(true);
+    this.npcVisuals.push(assembled);
+    this.npcHolders.push(holder);
+    return assembled.rootMesh;
   }
 
   /** Builds a ClaudeNPCService when running in Electron; null otherwise. */
@@ -287,17 +319,6 @@ export class GameWorldScene extends BaseScene {
       });
     }
     return null;
-  }
-
-  private buildNPCMesh(id: string, position: [number, number, number]): AbstractMesh {
-    const body = MeshBuilder.CreateCapsule(`npc-${id}`, { height: 1.7, radius: 0.3 }, this.babylonScene);
-    body.position = new Vector3(position[0], 0.85, position[2]);
-    const mat = new StandardMaterial(`npc-mat-${id}`, this.babylonScene);
-    mat.diffuseColor = new Color3(0.7, 0.3, 0.55);
-    // Bright emissive so the NPC reads clearly against the dark market.
-    mat.emissiveColor = new Color3(0.55, 0.15, 0.45);
-    body.material = mat;
-    return body;
   }
 
   private updateNPCs(dt: number): void {

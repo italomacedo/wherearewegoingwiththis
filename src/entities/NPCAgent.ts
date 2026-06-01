@@ -1,5 +1,6 @@
 import { Vector3 } from '@babylonjs/core';
 import { ConversationContext } from '@systems/npc/ConversationContext';
+import { CharacterAppearance } from '@entities/CharacterData';
 
 export type NPCMood = 'neutral' | 'friendly' | 'suspicious' | 'hostile' | 'scared';
 
@@ -22,6 +23,11 @@ export interface NPCDefinition {
   interactionRadius: number;   // meters — NPC becomes AWARE
   conversationRadius: number;  // meters — player can talk
   position: [number, number, number];
+  /**
+   * Optional avatar appearance. When set, the scene builds a real Quaternius
+   * avatar (via CharacterAssembler) instead of the procedural capsule.
+   */
+  appearance?: CharacterAppearance;
 }
 
 /**
