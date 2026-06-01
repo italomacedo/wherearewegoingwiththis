@@ -34,7 +34,9 @@ export const ZARA_DEFINITION: NPCDefinition = {
   defaultMood: 'suspicious',
   interactionRadius: 8,
   conversationRadius: 3,
-  position: [4, 0, 4],
+  // Corner sidewalk just off the downtown intersection (matches VENDOR_SPOT in
+  // WorldAssetCatalog — her vendor stall stands beside her).
+  position: [7, 0, 7],
   appearance: ZARA_APPEARANCE,
 };
 

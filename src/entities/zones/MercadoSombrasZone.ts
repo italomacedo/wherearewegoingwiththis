@@ -163,12 +163,17 @@ export class MercadoSombrasZone extends WorldZone {
         }
         this.meshes.push(...(c.meshes as AbstractMesh[]));
         this.holders.push(holder);
-        // Hide the procedural placeholder this prop replaces (real asset won).
-        if (p.replaces) scene.getMeshByName(p.replaces)?.setEnabled(false);
         ok += 1;
       } catch (err) {
         console.warn(`[Mercado] prop "${p.key}" (${p.model}) failed to load, keeping placeholder:`, err);
       }
+    }
+    // The downtown real assets supersede the procedural market — hide the box
+    // towers and stall counters (left as the headless / missing-asset fallback).
+    if (ok > 0) {
+      this.meshes.forEach((m) => {
+        if (/^(building|stall)-\d+$/.test(m.name)) m.setEnabled(false);
+      });
     }
     console.warn(`[Mercado] real assets loaded: ${ok}/${MERCADO_PROPS.length}`);
   }

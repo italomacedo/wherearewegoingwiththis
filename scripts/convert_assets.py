@@ -21,6 +21,9 @@ ANIM = "--no-anim" not in argv
 NAMES = None
 if "--names" in argv:
     NAMES = {n.strip().lower() for n in argv[argv.index("--names") + 1].split(",") if n.strip()}
+MAXTEX = None
+if "--maxtex" in argv:
+    MAXTEX = int(argv[argv.index("--maxtex") + 1])
 
 try:
     addon_utils.disable("cycles")
@@ -83,6 +86,11 @@ def convert(src):
         if obj.type in {"LIGHT", "CAMERA"}:
             bpy.data.objects.remove(obj, do_unlink=True)
     fix_materials()
+    if MAXTEX:
+        for img in bpy.data.images:
+            w, h = img.size[0], img.size[1]
+            if w > MAXTEX or h > MAXTEX:
+                img.scale(min(w, MAXTEX), min(h, MAXTEX))
     bpy.ops.export_scene.gltf(
         filepath=out, export_format="GLB", use_selection=False,
         export_animations=ANIM, export_skins=ANIM, export_yup=True,
