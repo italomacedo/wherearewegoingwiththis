@@ -86,7 +86,7 @@ const DOOR_MODELS = ['door_1', 'door_2', 'door_3'];
 const DOOR_PIVOT = 0.5;   // half the door-leaf width (recentres the hinged leaf)
 const DOOR_DEPTH = 0.05;  // sit in the facade plane (was 0.3 → door sank into the building)
 const DOOR_FIT: Record<string, { openX: number; dy: number }> = {
-  building_large_2: { openX: 0.15, dy: 0 }, // opening barely off-centre; was overshooting
+  building_large_2: { openX: 0, dy: 0 }, // opening ~centred (tuned in Electron)
   building_medium_2_001: { openX: 0, dy: 0 },
   building_small_1: { openX: 0, dy: 1.0 }, // raised stoop entrance
 };
