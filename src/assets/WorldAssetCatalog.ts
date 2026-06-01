@@ -77,27 +77,37 @@ const DEAD_END: readonly WorldProp[] = [
   { key: 'bld-deadend', model: `${DT}building_large_2.glb`, position: [-29, 0, 0], rotationY: DEADEND_ROT },
 ];
 
-// Doors filling each building's street-level entrance (MegaKit Door_1/2/3, 1×2.2).
-// Some buildings have a raised stoop, so the opening sits above ground — lift the
-// door per building model. `dy` = entrance-platform height; `inset` = distance from
-// the facade line toward the street (door sits at the top of the stoop).
-const DOOR_MODELS = ['door_1', 'door_2', 'door_3'];
-const DOOR_FIT: Record<string, { dy: number; inset: number }> = {
-  building_small_1: { dy: 1.05, inset: 0.05 },        // tall stoop → raised entrance
-  building_medium_2_001: { dy: 0, inset: 0.1 },        // ~flush
-  building_large_2: { dy: 0, inset: 0.1 },             // ~flush
+// Doors: a simple black panel sized to the entrance, filling each building's
+// opening. The opening sits at the building's GEOMETRIC centre (some models are
+// asymmetric, e.g. large is x∈[-9.3,11.3] → centre +1), not at the origin — that
+// off-centre is why a centred panel is needed. `cx` = geometric-centre X offset;
+// `baseY` = entrance-platform height (raised on stoop buildings). Built procedurally
+// by the zone (see MercadoSombrasZone.buildDoors). Pure data → unit-tested.
+const DOOR_W = 1.4;
+const DOOR_H = 2.5;
+const DOOR_T = 0.3;
+const DOOR_FIT: Record<string, { cx: number; baseY: number }> = {
+  building_large_2: { cx: 1.0, baseY: 0 },
+  building_medium_2_001: { cx: 0, baseY: 0 },
+  building_small_1: { cx: -1.0, baseY: 1.05 }, // raised stoop entrance
 };
-const fit = (m: string) => DOOR_FIT[m] ?? { dy: 0, inset: 0.1 };
-const DOORS: readonly WorldProp[] = [
+const dfit = (m: string) => DOOR_FIT[m]!; // all lining-building models are in DOOR_FIT
+const NS_SIZE: [number, number, number] = [DOOR_W, DOOR_H, DOOR_T];
+export const BUILDING_DOORS: readonly ColliderBox[] = [
+  // North side (building rotated π → local +X maps to world −X, so subtract cx).
   ...NORTH_BUILDINGS.map(([x, m], i) => ({
-    key: `door-n-${i}`, model: `${DT}${DOOR_MODELS[i % DOOR_MODELS.length]}.glb`,
-    position: [x, fit(m).dy, BUILDING_Z - fit(m).inset] as [number, number, number], rotationY: NORTH_ROT,
+    key: `door-n-${i}`,
+    position: [x - dfit(m).cx, dfit(m).baseY + DOOR_H / 2, BUILDING_Z - 0.02] as [number, number, number],
+    size: NS_SIZE,
   })),
+  // South side (no rotation → add cx).
   ...SOUTH_BUILDINGS.map(([x, m], i) => ({
-    key: `door-s-${i}`, model: `${DT}${DOOR_MODELS[i % DOOR_MODELS.length]}.glb`,
-    position: [x, fit(m).dy, -(BUILDING_Z - fit(m).inset)] as [number, number, number], rotationY: SOUTH_ROT,
+    key: `door-s-${i}`,
+    position: [x + dfit(m).cx, dfit(m).baseY + DOOR_H / 2, -(BUILDING_Z - 0.02)] as [number, number, number],
+    size: NS_SIZE,
   })),
-  { key: 'door-deadend', model: `${DT}door_1.glb`, position: [-(ZONE_HALF - 0.6), 0, 0], rotationY: DEADEND_ROT },
+  // Dead-end building (faces +X) → thin panel on the X axis.
+  { key: 'door-deadend', position: [-(ZONE_HALF - 0.02), DOOR_H / 2, 0], size: [DOOR_T, DOOR_H, DOOR_W] },
 ];
 
 // Textured-pack buildings (Phase B GLBs, ~2u → scale 4) as skyline depth behind the facade.
@@ -181,7 +191,6 @@ export const MERCADO_PROPS: readonly WorldProp[] = [
   ...LINING_BUILDINGS,
   ...DEAD_END,
   ...WALLS,
-  ...DOORS,
   ...BACKDROP_BUILDINGS,
   ...PROPS,
   ...VENDOR,

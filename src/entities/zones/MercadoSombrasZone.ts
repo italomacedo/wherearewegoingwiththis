@@ -3,7 +3,7 @@ import {
   HemisphericLight, PointLight, ParticleSystem, Texture, AbstractMesh, Mesh, TransformNode,
 } from '@babylonjs/core';
 import { WorldZone, ZoneBounds } from '@entities/WorldZone';
-import { MERCADO_PROPS, EXIT_WALL } from '@assets/WorldAssetCatalog';
+import { MERCADO_PROPS, EXIT_WALL, BUILDING_DOORS } from '@assets/WorldAssetCatalog';
 
 /**
  * Mercado das Sombras — the starting underground street market district.
@@ -34,6 +34,7 @@ export class MercadoSombrasZone extends WorldZone {
     this.buildBuildings(scene);
     this.buildStalls(scene);
     this.buildExitWall(scene);
+    this.buildDoors(scene);
     this.buildRain(scene);
     // Real assets layered on in browser only
     /* istanbul ignore next — browser/Electron asset loading */
@@ -145,6 +146,24 @@ export class MercadoSombrasZone extends WorldZone {
     mat.emissiveColor = new Color3(0.02, 0.02, 0.04); // faint sheen so it reads as a surface
     wall.material = mat;
     this.meshes.push(wall);
+  }
+
+  /** Simple black door panels filling each building's entrance opening. */
+  private buildDoors(scene: Scene): void {
+    const mat = new StandardMaterial('door-mat', scene);
+    mat.diffuseColor = Color3.Black();
+    mat.specularColor = Color3.Black();
+    mat.emissiveColor = new Color3(0.03, 0.03, 0.05);
+    for (const d of BUILDING_DOORS) {
+      const door = MeshBuilder.CreateBox(
+        d.key,
+        { width: d.size[0], height: d.size[1], depth: d.size[2] },
+        scene
+      );
+      door.position.set(d.position[0], d.position[1], d.position[2]);
+      door.material = mat;
+      this.meshes.push(door);
+    }
   }
 
   private buildRain(scene: Scene): void {
