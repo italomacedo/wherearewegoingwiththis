@@ -2,7 +2,7 @@ import {
   Engine, Color4, ArcRotateCamera, Vector3,
   HemisphericLight, Color3, PointLight,
 } from '@babylonjs/core';
-import { AdvancedDynamicTexture, TextBlock, Button, StackPanel, InputText, ScrollViewer, Control } from '@babylonjs/gui';
+import { AdvancedDynamicTexture, TextBlock, Button, StackPanel, ScrollViewer, Control } from '@babylonjs/gui';
 import { BaseScene } from './BaseScene';
 import { SceneManager } from '@core/SceneManager';
 import { ServiceLocator } from '@core/ServiceLocator';
@@ -101,6 +101,9 @@ export class CharacterCreatorScene extends BaseScene {
 
   private assembler: CharacterAssembler | null = null;
   private assembled: AssembledCharacter | null = null;
+  // Native DOM name field (Babylon GUI InputText mangles non-US keyboards — Lesson 15).
+  private domName: HTMLInputElement | null = null;
+  private domNameWrap: HTMLDivElement | null = null;
 
   // RPG sheet — a valid default (primary 'forca' = 30%, others 20%, skills 10%).
   private primaryAttribute: AttributeId = 'forca';
@@ -122,6 +125,49 @@ export class CharacterCreatorScene extends BaseScene {
   async onExit(): Promise<void> {
     this.assembled?.dispose();
     this.assembled = null;
+    /* istanbul ignore next — DOM overlay only exists in the browser */
+    if (this.domNameWrap) {
+      this.domNameWrap.remove();
+      this.domNameWrap = null;
+      this.domName = null;
+    }
+  }
+
+  /**
+   * Native DOM name field overlaid on the canvas. Babylon GUI InputText mangles
+   * non-US keyboards / accents (Lesson 15) — the chat input solved this the same way.
+   */
+  /* istanbul ignore next — browser DOM overlay only */
+  private buildDomNameInput(): void {
+    if (typeof document === 'undefined') return;
+    const wrap = document.createElement('div');
+    wrap.style.cssText = [
+      'position:fixed', 'right:24px', 'bottom:92px', 'width:220px', 'z-index:50',
+    ].join(';');
+
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.placeholder = 'Operative';
+    input.value = this.characterData.name || '';
+    input.maxLength = 24;
+    input.style.cssText = [
+      'width:100%', 'height:40px', 'box-sizing:border-box', 'padding:0 12px',
+      'background:rgba(0,30,40,0.92)', 'color:#00FFCC', 'caret-color:#00FFCC',
+      'border:1px solid rgba(0,255,204,0.6)', 'border-radius:6px', 'outline:none',
+      'font:16px "Courier New",monospace', 'text-align:center',
+    ].join(';');
+    // Keep typed keys out of the game input; Enter begins.
+    input.addEventListener('keydown', (ev) => {
+      ev.stopPropagation();
+      if (ev.key === 'Enter') { ev.preventDefault(); void this.onBegin(input.value || 'Operative'); }
+    });
+    input.addEventListener('input', () => this.setPlayerName(input.value));
+
+    wrap.appendChild(input);
+    document.body.appendChild(wrap);
+    this.domNameWrap = wrap;
+    this.domName = input;
+    input.focus();
   }
 
   // ─── Navigation ───────────────────────────────────────────────────────────
@@ -401,20 +447,8 @@ export class CharacterCreatorScene extends BaseScene {
     // Right-side RPG panel — starting skills + tier-1 perks.
     this.buildRpgPanel(gui);
 
-    // Right panel — name + begin
-    const nameInput = new InputText('name-input', 'Operative');
-    nameInput.width = '220px';
-    nameInput.height = '40px';
-    nameInput.color = '#00FFCC';
-    nameInput.background = 'rgba(0,30,40,0.8)';
-    nameInput.fontSize = 16;
-    nameInput.fontFamily = 'monospace';
-    nameInput.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-    nameInput.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
-    nameInput.paddingBottom = '90px';
-    nameInput.paddingRight = '24px';
-    nameInput.onBlurObservable.add(() => this.setPlayerName(nameInput.text));
-    gui.addControl(nameInput);
+    // Right panel — name (native DOM input, see Lesson 15) + begin
+    this.buildDomNameInput();
 
     const beginBtn = Button.CreateSimpleButton('begin', t('common.begin'));
     beginBtn.width = '220px';
@@ -429,7 +463,7 @@ export class CharacterCreatorScene extends BaseScene {
     beginBtn.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
     beginBtn.paddingBottom = '30px';
     beginBtn.paddingRight = '24px';
-    beginBtn.onPointerUpObservable.add(() => void this.onBegin(nameInput.text));
+    beginBtn.onPointerUpObservable.add(() => void this.onBegin(this.domName?.value || 'Operative'));
     gui.addControl(beginBtn);
 
     const backBtn = Button.CreateSimpleButton('back', t('common.back'));
