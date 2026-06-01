@@ -1,9 +1,14 @@
 import {
   Scene, Vector3, Color3, Color4, MeshBuilder, StandardMaterial,
   HemisphericLight, PointLight, ParticleSystem, Texture, AbstractMesh, Mesh, TransformNode,
+  PhysicsAggregate, PhysicsShapeType,
 } from '@babylonjs/core';
 import { WorldZone, ZoneBounds } from '@entities/WorldZone';
-import { MERCADO_PROPS, EXIT_WALL } from '@assets/WorldAssetCatalog';
+import { MERCADO_PROPS, EXIT_WALL, CORRIDOR_COLLIDERS, ZONE_HALF } from '@assets/WorldAssetCatalog';
+
+/** Prop keys that should block the player (solid). Floor-like props (roads,
+ *  sidewalks, food, manhole, drain, decals) are intentionally walkable. */
+const SOLID_PROP = /^(bld-|wall-|vendor-shelf|prop-bollard|prop-acunit|prop-planter)/;
 
 /**
  * Mercado das Sombras — the starting underground street market district.
@@ -16,6 +21,8 @@ export class MercadoSombrasZone extends WorldZone {
 
   private lights: PointLight[] = [];
   private holders: TransformNode[] = [];
+  private colliders: AbstractMesh[] = [];
+  private aggregates: PhysicsAggregate[] = [];
 
   getSpawnPoint(): Vector3 {
     return new Vector3(0, 0, 0);
@@ -190,6 +197,40 @@ export class MercadoSombrasZone extends WorldZone {
       });
     }
     console.warn(`[Mercado] real assets loaded: ${ok}/${MERCADO_PROPS.length}`);
+    if (scene.isPhysicsEnabled()) this.buildColliders(scene);
+  }
+
+  /* istanbul ignore next — physics colliders are browser/Electron only */
+  private buildColliders(scene: Scene): void {
+    // Floor — gives the character controller ground to stand on.
+    this.addBoxCollider(scene, 'col-floor', new Vector3(0, -0.5, 0), new Vector3(ZONE_HALF * 2, 1, ZONE_HALF * 2));
+    // Closed perimeter (side walls + ends).
+    for (const c of CORRIDOR_COLLIDERS) {
+      this.addBoxCollider(scene, c.key, new Vector3(c.position[0], c.position[1], c.position[2]), new Vector3(c.size[0], c.size[1], c.size[2]));
+    }
+    // Black exit wall.
+    this.addBoxCollider(scene, 'col-exit', new Vector3(EXIT_WALL.position[0], EXIT_WALL.position[1], EXIT_WALL.position[2]), new Vector3(EXIT_WALL.size[0], EXIT_WALL.size[1], EXIT_WALL.size[2]));
+    // Solid loaded props (buildings, walls, shelf, bollards, AC, planter) → box
+    // collider from each one's world bounding box.
+    for (const h of this.holders) {
+      if (!SOLID_PROP.test(h.name)) continue;
+      const { min, max } = h.getHierarchyBoundingVectors(true);
+      const size = max.subtract(min);
+      if (size.x < 0.05 || size.y < 0.05 || size.z < 0.05) continue;
+      this.addBoxCollider(scene, `col-${h.name}`, min.add(max).scale(0.5), size);
+    }
+    let count = this.aggregates.length;
+    console.warn(`[Mercado] colliders: ${count}`);
+  }
+
+  /* istanbul ignore next — physics colliders are browser/Electron only */
+  private addBoxCollider(scene: Scene, name: string, center: Vector3, size: Vector3): void {
+    const box = MeshBuilder.CreateBox(name, { width: size.x, height: size.y, depth: size.z }, scene);
+    box.position.copyFrom(center);
+    box.isVisible = false;
+    const agg = new PhysicsAggregate(box, PhysicsShapeType.BOX, { mass: 0 }, scene);
+    this.colliders.push(box);
+    this.aggregates.push(agg);
   }
 
   /* istanbul ignore next */
@@ -223,6 +264,11 @@ export class MercadoSombrasZone extends WorldZone {
     /* istanbul ignore next — holders only exist after browser GLB load */
     this.holders.forEach((h) => h.dispose());
     this.holders = [];
+    /* istanbul ignore next — colliders only exist in browser with physics */
+    this.aggregates.forEach((a) => a.dispose());
+    this.aggregates = [];
+    this.colliders.forEach((c) => c.dispose());
+    this.colliders = [];
     if (this.scene) {
       /* istanbul ignore next — rain particle system only exists in browser */
       this.scene.particleSystems.slice().forEach((ps) => {

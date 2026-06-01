@@ -1,5 +1,6 @@
 import {
-  Engine, Color4, Vector3, AbstractMesh, TransformNode,
+  Engine, Color4, Vector3, AbstractMesh, TransformNode, MeshBuilder,
+  PhysicsAggregate, PhysicsShapeType,
 } from '@babylonjs/core';
 import { BaseScene } from './BaseScene';
 import { ServiceLocator } from '@core/ServiceLocator';
@@ -44,6 +45,8 @@ export class GameWorldScene extends BaseScene {
   private npcVisuals: AssembledCharacter[] = [];
   private npcHolders: TransformNode[] = [];
   private npcLabelAnchor: AbstractMesh | null = null;
+  private entityColliders: AbstractMesh[] = [];
+  private entityAggregates: PhysicsAggregate[] = [];
   private detachInput: (() => void) | null = null;
   private startZoneId = 'mercado_sombras';
   private appearance: CharacterAppearance = DEFAULT_APPEARANCE;
@@ -141,6 +144,17 @@ export class GameWorldScene extends BaseScene {
     this.detachInput = this.inputSystem.attach();
     ServiceLocator.register('inputSystem', this.inputSystem);
 
+    // Physics BEFORE the zone + player so the zone can build static colliders and
+    // the hero gets a Havok character controller. Resilient: if the WASM fails the
+    // world still loads (movement falls back to the kinematic path).
+    this.physics = new PhysicsService();
+    ServiceLocator.register('physics', this.physics);
+    try {
+      await this.physics.init(this.babylonScene);
+    } catch {
+      // ignore — movement falls back to non-physics path
+    }
+
     this.zoneManager = new ZoneManager();
     this.zoneManager.register('mercado_sombras', () => new MercadoSombrasZone());
     ServiceLocator.register('zoneManager', this.zoneManager);
@@ -177,14 +191,30 @@ export class GameWorldScene extends BaseScene {
     this.pauseMenu = new PauseMenu(this.babylonScene);
     this.wirePauseMenu();
 
-    // Physics LAST and resilient — Havok WASM load failure must never block
-    // the world from rendering. PlayerController falls back to direct movement.
-    this.physics = new PhysicsService();
-    ServiceLocator.register('physics', this.physics);
-    try {
-      await this.physics.init(this.babylonScene);
-    } catch {
-      // ignore — movement falls back to non-physics path
+    // Static colliders for the nave + Zara so the hero can't walk through them.
+    if (this.babylonScene.isPhysicsEnabled()) {
+      /* istanbul ignore next — physics colliders are browser/Electron only */
+      this.buildEntityColliders();
+    }
+  }
+
+  /* istanbul ignore next — physics colliders are browser/Electron only */
+  private buildEntityColliders(): void {
+    const targets: Array<AbstractMesh | undefined> = [
+      this.vehicle?.getRoot() as unknown as AbstractMesh,
+      this.npcLabelAnchor ?? undefined,
+    ];
+    for (const t of targets) {
+      if (!t) continue;
+      const { min, max } = t.getHierarchyBoundingVectors(true);
+      const size = max.subtract(min);
+      if (size.x < 0.05 || size.y < 0.05 || size.z < 0.05) continue;
+      const box = MeshBuilder.CreateBox(`col-entity-${t.name}`, { width: size.x, height: size.y, depth: size.z }, this.babylonScene);
+      box.position.copyFrom(min.add(max).scale(0.5));
+      box.isVisible = false;
+      const agg = new PhysicsAggregate(box, PhysicsShapeType.BOX, { mass: 0 }, this.babylonScene);
+      this.entityColliders.push(box);
+      this.entityAggregates.push(agg);
     }
   }
 
@@ -200,6 +230,11 @@ export class GameWorldScene extends BaseScene {
     this.dialog?.dispose();
     this.pauseMenu?.dispose();
     this.hud?.dispose();
+    /* istanbul ignore next — entity colliders only exist in browser with physics */
+    this.entityAggregates.forEach((a) => a.dispose());
+    this.entityAggregates = [];
+    this.entityColliders.forEach((c) => c.dispose());
+    this.entityColliders = [];
     this.npcMeshes.forEach((m) => m.dispose());
     this.npcMeshes = [];
     this.npcVisuals.forEach((v) => v.dispose());

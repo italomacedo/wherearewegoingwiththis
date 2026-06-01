@@ -1,5 +1,6 @@
 import {
   Scene, Vector3, TransformNode, AbstractMesh, MeshBuilder,
+  PhysicsCharacterController, CharacterSupportedState,
 } from '@babylonjs/core';
 import { InputSystem, MovementAxis } from '@systems/InputSystem';
 import { CharacterAssembler, AssembledCharacter } from '@systems/CharacterAssembler';
@@ -46,6 +47,10 @@ export class PlayerController {
   private locoState: LocoState = 'idle';
   private playingState: LocoState | null = null;
   private interacting = false;
+  /** Havok collide-and-slide controller (browser + physics only; null in tests). */
+  private characterController: PhysicsCharacterController | null = null;
+  private readonly capsuleHalf = 0.9; // capsule centre offset above the feet (root)
+  private readonly downRef = new Vector3(0, -1, 0);
 
   constructor(scene: Scene, input: InputSystem, config?: Partial<PlayerConfig>) {
     this.scene = scene;
@@ -85,6 +90,28 @@ export class PlayerController {
       if (!m.parent) m.parent = this.root;
     });
     this.root.position = position.clone();
+
+    // When physics is live, drive the hero with a Havok character controller so it
+    // collides with the world. Headless / no-physics keeps the kinematic path.
+    if (typeof document !== 'undefined' && this.scene.isPhysicsEnabled()) {
+      /* istanbul ignore next — Havok character controller is browser/Electron only */
+      this.initPhysicsController(position);
+    }
+  }
+
+  /* istanbul ignore next — browser/Electron only */
+  private initPhysicsController(position: Vector3): void {
+    const start = new Vector3(position.x, position.y + this.capsuleHalf, position.z);
+    this.characterController = new PhysicsCharacterController(
+      start,
+      { capsuleHeight: 1.6, capsuleRadius: 0.4 },
+      this.scene
+    );
+  }
+
+  /** True once a Havok character controller is driving the hero. */
+  hasPhysicsController(): boolean {
+    return this.characterController !== null;
   }
 
   /**
@@ -128,13 +155,17 @@ export class PlayerController {
       axis, sprint, this.cameraYaw, dt, this.config
     );
 
-    if (displacement.lengthSquared() > 0) {
-      this.applyMovement(displacement);
-      this.facing = Math.atan2(displacement.x, displacement.z);
-      this.root.rotation.y = this.facing;
+    if (this.characterController) {
+      /* istanbul ignore next — physics-driven movement is browser/Electron only */
+      this.updatePhysicsMovement(displacement, dt);
+    } else {
+      if (displacement.lengthSquared() > 0) {
+        this.applyMovement(displacement);
+        this.facing = Math.atan2(displacement.x, displacement.z);
+        this.root.rotation.y = this.facing;
+      }
+      this.updateVertical(dt);
     }
-
-    this.updateVertical(dt);
 
     // Locomotion state (dt≈0 under NullEngine → speed 0 → idle).
     const speed = dt > 1e-6 ? displacement.length() / dt : 0;
@@ -165,6 +196,25 @@ export class PlayerController {
       }
     }
     void played;
+  }
+
+  /* istanbul ignore next — Havok character-controller step is browser/Electron only */
+  private updatePhysicsMovement(displacement: Vector3, dt: number): void {
+    if (dt <= 1e-6) return;
+    const cc = this.characterController!;
+    const support = cc.checkSupport(dt, this.downRef);
+    const grounded = support.supportedState === CharacterSupportedState.SUPPORTED;
+    const current = cc.getVelocity();
+    const vy = grounded ? 0 : current.y - this.config.gravity * dt;
+    cc.setVelocity(new Vector3(displacement.x / dt, vy, displacement.z / dt));
+    cc.integrate(dt, support, new Vector3(0, -this.config.gravity, 0));
+    const p = cc.getPosition();
+    this.root.position.set(p.x, p.y - this.capsuleHalf, p.z);
+    this.grounded = grounded;
+    if (displacement.lengthSquared() > 0) {
+      this.facing = Math.atan2(displacement.x, displacement.z);
+      this.root.rotation.y = this.facing;
+    }
   }
 
   /** Gravity + landing + fall damage. No-op while grounded. */
@@ -216,6 +266,11 @@ export class PlayerController {
   dispose(): void {
     this.parts.forEach((m) => m.dispose());
     this.parts = [];
+    /* istanbul ignore next — physics controller only exists in browser */
+    if (this.characterController) {
+      (this.characterController as unknown as { dispose?: () => void }).dispose?.();
+      this.characterController = null;
+    }
     this.root.dispose();
   }
 }
