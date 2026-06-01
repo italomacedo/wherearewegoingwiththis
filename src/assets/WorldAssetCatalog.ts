@@ -77,17 +77,25 @@ const DEAD_END: readonly WorldProp[] = [
   { key: 'bld-deadend', model: `${DT}building_large_2.glb`, position: [-29, 0, 0], rotationY: DEADEND_ROT },
 ];
 
-// Doors filling each building's street-level entrance opening (MegaKit Door_1/2/3,
-// 1×2.2). Placed just in front of the facade, facing the street like the building.
+// Doors filling each building's street-level entrance (MegaKit Door_1/2/3, 1×2.2).
+// Some buildings have a raised stoop, so the opening sits above ground — lift the
+// door per building model. `dy` = entrance-platform height; `inset` = distance from
+// the facade line toward the street (door sits at the top of the stoop).
 const DOOR_MODELS = ['door_1', 'door_2', 'door_3'];
+const DOOR_FIT: Record<string, { dy: number; inset: number }> = {
+  building_small_1: { dy: 1.05, inset: 0.05 },        // tall stoop → raised entrance
+  building_medium_2_001: { dy: 0, inset: 0.1 },        // ~flush
+  building_large_2: { dy: 0, inset: 0.1 },             // ~flush
+};
+const fit = (m: string) => DOOR_FIT[m] ?? { dy: 0, inset: 0.1 };
 const DOORS: readonly WorldProp[] = [
-  ...NORTH_BUILDINGS.map(([x], i) => ({
+  ...NORTH_BUILDINGS.map(([x, m], i) => ({
     key: `door-n-${i}`, model: `${DT}${DOOR_MODELS[i % DOOR_MODELS.length]}.glb`,
-    position: [x, 0, BUILDING_Z - 0.1] as [number, number, number], rotationY: NORTH_ROT,
+    position: [x, fit(m).dy, BUILDING_Z - fit(m).inset] as [number, number, number], rotationY: NORTH_ROT,
   })),
-  ...SOUTH_BUILDINGS.map(([x], i) => ({
+  ...SOUTH_BUILDINGS.map(([x, m], i) => ({
     key: `door-s-${i}`, model: `${DT}${DOOR_MODELS[i % DOOR_MODELS.length]}.glb`,
-    position: [x, 0, -(BUILDING_Z - 0.1)] as [number, number, number], rotationY: SOUTH_ROT,
+    position: [x, fit(m).dy, -(BUILDING_Z - fit(m).inset)] as [number, number, number], rotationY: SOUTH_ROT,
   })),
   { key: 'door-deadend', model: `${DT}door_1.glb`, position: [-(ZONE_HALF - 0.6), 0, 0], rotationY: DEADEND_ROT },
 ];
