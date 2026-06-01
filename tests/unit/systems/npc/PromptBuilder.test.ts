@@ -186,6 +186,18 @@ describe('PromptBuilder', () => {
     });
   });
 
+  describe('buildCombatNarrationPrompt', () => {
+    it('embeds the beat, sets the language, and forbids mechanics', () => {
+      const p = PromptBuilder.buildCombatNarrationPrompt('Hero lands a hit on Zara.', 'Portuguese');
+      expect(p).toContain('Hero lands a hit on Zara.');
+      expect(p).toContain('Portuguese');
+      expect(p).toContain('Do NOT mention dice');
+    });
+    it('defaults to English', () => {
+      expect(PromptBuilder.buildCombatNarrationPrompt('Zara reloads.')).toContain('in English');
+    });
+  });
+
   describe('buildSessionPrimer', () => {
     it('includes persona and history', () => {
       const primer = PromptBuilder.buildSessionPrimer({

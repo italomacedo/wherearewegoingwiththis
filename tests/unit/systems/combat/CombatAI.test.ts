@@ -1,0 +1,78 @@
+import { chooseCombatAction, prefersMelee, AI_LOW_HP, CombatAIView } from '@systems/combat/CombatAI';
+import { DEFAULT_COMBAT_TUNING, MELEE_RANGE } from '@systems/combat/CombatMath';
+import { createDefaultStats, CharacterStats } from '@entities/CharacterStats';
+
+function stats(over: Partial<{ melee: number; firearms: number }> = {}): CharacterStats {
+  const s = createDefaultStats();
+  if (over.melee !== undefined) s.skills.combate_corpo_a_corpo = over.melee;
+  if (over.firearms !== undefined) s.skills.armas_de_fogo = over.firearms;
+  return s;
+}
+
+const base = (over: Partial<CombatAIView> = {}): CombatAIView => ({
+  ap: 6, distance: 6, hpFraction: 1, cover: 0, prefersMelee: false, ...over,
+});
+
+describe('prefersMelee', () => {
+  it('true when melee skill beats firearms, else false (ties → ranged)', () => {
+    expect(prefersMelee(stats({ melee: 70, firearms: 40 }))).toBe(true);
+    expect(prefersMelee(stats({ melee: 40, firearms: 70 }))).toBe(false);
+    expect(prefersMelee(stats({ melee: 50, firearms: 50 }))).toBe(false);
+  });
+});
+
+describe('chooseCombatAction — defensive', () => {
+  it('takes cover when hurt and exposed', () => {
+    expect(chooseCombatAction(base({ hpFraction: AI_LOW_HP, cover: 0 }))).toEqual({ type: 'cover' });
+  });
+  it('does not re-cover when already in cover (fights on)', () => {
+    const a = chooseCombatAction(base({ hpFraction: 0.2, cover: 20 }));
+    expect(a.type).toBe('attack');
+  });
+  it('does not take cover when it cannot afford the secondary', () => {
+    // ranged, hurt, 0 AP → end_turn (no cover possible)
+    expect(chooseCombatAction(base({ hpFraction: 0.2, ap: 0 }))).toEqual({ type: 'end_turn' });
+  });
+});
+
+describe('chooseCombatAction — gunner (ranged)', () => {
+  it('shoots while AP allows', () => {
+    expect(chooseCombatAction(base({ prefersMelee: false, ap: 6 }))).toEqual({ type: 'attack', attackKind: 'ranged' });
+  });
+  it('spends leftover AP on cover, else ends', () => {
+    expect(chooseCombatAction(base({ ap: 1 }))).toEqual({ type: 'cover' });
+    expect(chooseCombatAction(base({ ap: 1, cover: 20 }))).toEqual({ type: 'end_turn' });
+    expect(chooseCombatAction(base({ ap: 0 }))).toEqual({ type: 'end_turn' });
+  });
+});
+
+describe('chooseCombatAction — brawler (melee)', () => {
+  it('closes the gap, reserving AP for the strike', () => {
+    // distance 6, MELEE_RANGE 1.5 → gap 5; ap 6, reserve primary(2) → can move 4
+    const a = chooseCombatAction(base({ prefersMelee: true, distance: 6, ap: 6 }));
+    expect(a.type).toBe('move');
+    expect(a.toward).toBe(true);
+    expect(a.meters).toBe(4);
+  });
+  it('strikes when already in range', () => {
+    expect(chooseCombatAction(base({ prefersMelee: true, distance: MELEE_RANGE, ap: 6 })))
+      .toEqual({ type: 'attack', attackKind: 'melee' });
+  });
+  it('ends the turn when it cannot move or strike', () => {
+    // far away, only 0 AP
+    expect(chooseCombatAction(base({ prefersMelee: true, distance: 10, ap: 0 }))).toEqual({ type: 'end_turn' });
+  });
+  it('in range but cannot afford a strike → end_turn', () => {
+    expect(chooseCombatAction(base({ prefersMelee: true, distance: 1, ap: 1 }))).toEqual({ type: 'end_turn' });
+  });
+  it('spends all AP closing when it cannot also reserve a strike', () => {
+    // ap 1: reserve 0 (cannot afford primary+move), moves 1m toward
+    const a = chooseCombatAction(base({ prefersMelee: true, distance: 10, ap: 1 }));
+    expect(a).toEqual({ type: 'move', meters: 1, toward: true });
+  });
+  it('honours a custom tuning', () => {
+    const a = chooseCombatAction(base({ prefersMelee: true, distance: 6, ap: 6, tuning: { ...DEFAULT_COMBAT_TUNING, moveApPerMeter: 2 } }));
+    expect(a.type).toBe('move'); // 6 AP, reserve 2, (6-2)/2 = 2m
+    expect(a.meters).toBe(2);
+  });
+});

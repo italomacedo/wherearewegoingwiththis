@@ -125,6 +125,20 @@ export class PromptBuilder {
   }
 
   /**
+   * Dramatize a single combat beat (one cinematic sentence, no mechanics). The
+   * `beat` is the pure factual summary from combatBeat(); Claude only adds flavour.
+   */
+  static buildCombatNarrationPrompt(beat: string, language = 'English'): string {
+    return [
+      `Narrate, in ${language}, in ONE short cinematic sentence, this beat of a gunfight/brawl`,
+      'on a rainy, neon-lit cyberpunk street. Keep it grounded and visceral.',
+      'Do NOT mention dice, numbers, hit points, action points, skills, or game mechanics.',
+      'No quotation marks, no new named characters.',
+      `Beat: ${beat}`,
+    ].join('\n');
+  }
+
+  /**
    * Ambient "react to the surroundings" prompt — used by the global chat when the
    * player addresses no specific NPC. Second-person, atmospheric, no invented NPCs.
    */
