@@ -5,12 +5,44 @@ import { WorldSnapshot, PromptBuilder } from '@systems/npc/PromptBuilder';
 import { ConversationContext, ConversationState } from '@systems/npc/ConversationContext';
 import { ActionClassification } from '@systems/npc/EmoteIntent';
 import { NPCDisposition } from '@entities/NPCAgent';
+import { IntentCandidate, NPCIntent, parseIntent } from '@systems/npc/Intent';
+import { ClaudeCallQueue } from '@systems/ClaudeCallQueue';
 
 export const COOLDOWN_SECONDS = 3;
 
 /** A persisted NPC's memory: its conversation plus its dynamic disposition. */
 export type NPCMemoryEntry = ConversationState & { disposition?: NPCDisposition };
 export type NPCMemoryMap = Record<string, NPCMemoryEntry>;
+
+/** A queued autonomous job (currently only deliberation runs through the queue). */
+export interface AutonomyJob {
+  agentId: string;
+  kind: 'deliberation';
+}
+
+/** Per-tick context the scene supplies to the autonomy mechanism. */
+export interface AutonomyContext {
+  /** Human-readable time-of-day label injected into the deliberation prompt. */
+  gameTimeLabel: string;
+  /** Whether the player is present in the scene. */
+  playerPresent: boolean;
+  /** Deliberation cooldown per NPC, ms (= reflection interval). */
+  reflectionMs: number;
+  /** Reply language for any text (gossip). */
+  language: string;
+  /** Other NPCs near a given agent the agent could approach/attack. */
+  nearbyOf: (agent: NPCAgent) => IntentCandidate[];
+}
+
+/** What one autonomy tick did. */
+export interface AutonomyResult {
+  /** NPCs that flagged an immediate attack intent (hostile + player present). */
+  attackers: string[];
+  /** How many deliberation jobs were newly enqueued this tick. */
+  enqueued: number;
+  /** The intent produced if a deliberation dispatched this tick, else null. */
+  deliberated: NPCIntent | null;
+}
 
 /**
  * Owns the active NPCs in a zone: spawns them, updates proximity each frame,
@@ -122,6 +154,100 @@ export class NPCManager {
   async narrateAmbient(message: string, gameTime: string, surroundings: string, language = 'English'): Promise<string> {
     if (!this.service) return '';
     return this.service.narrate('world', PromptBuilder.buildAmbientReactionPrompt(message, gameTime, surroundings, language));
+  }
+
+  // ─── Autonomy (Fase 5): deliberation + gossip, throttled ───────────────────
+
+  /**
+   * One autonomy tick (mechanism only — the caller gates it on the autonomy
+   * setting and supplies the per-frame context). It: (1) flags an immediate
+   * `attack` intent for any already-hostile NPC that sees the player (a stub —
+   * no Claude call, no combat yet); (2) enqueues a throttled deliberation job
+   * for each eligible NPC; (3) dispatches at most one job and runs it. Returns a
+   * summary of what happened. Async because a dispatched deliberation calls Claude.
+   */
+  async tickAutonomy(
+    queue: ClaudeCallQueue<AutonomyJob>,
+    now: number,
+    ctx: AutonomyContext,
+  ): Promise<AutonomyResult> {
+    const result: AutonomyResult = { attackers: [], enqueued: 0, deliberated: null };
+    if (!this.service) return result;
+
+    this.agents.forEach((agent) => {
+      const id = agent.definition.id;
+      if (agent.shouldInitiateCombat(ctx.playerPresent)) {
+        agent.setIntent({ kind: 'attack' });
+        result.attackers.push(id);
+        return; // hostile NPCs don't deliberate — they're already committed
+      }
+      if (!NPCManager.isDeliberable(agent.getState())) return;
+      const ok = queue.enqueue({
+        id: `${id}:delib`,
+        payload: { agentId: id, kind: 'deliberation' },
+        cooldownKey: `${id}:deliberation`,
+        cooldownMs: ctx.reflectionMs,
+      });
+      if (ok) result.enqueued += 1;
+    });
+
+    const job = queue.tryDispatch(now);
+    if (job && job.payload.kind === 'deliberation') {
+      result.deliberated = await this.runDeliberation(job.payload.agentId, ctx);
+    }
+    return result;
+  }
+
+  /** Run one NPC's intent deliberation through Claude and store the result. */
+  async runDeliberation(agentId: string, ctx: AutonomyContext): Promise<NPCIntent | null> {
+    const agent = this.agents.get(agentId);
+    if (!agent || !this.service) return null;
+    const nearby = ctx.nearbyOf(agent);
+    const prompt = PromptBuilder.buildIntentPrompt({
+      selfName: agent.definition.name,
+      role: agent.definition.role,
+      mood: agent.getMood(),
+      disposition: agent.getDisposition(),
+      gameTime: ctx.gameTimeLabel,
+      nearbyNpcs: nearby,
+      playerPresent: ctx.playerPresent,
+    });
+    const raw = await this.service.deliberate(agentId, prompt);
+    const intent = parseIntent(raw, nearby.map((n) => n.id), ctx.playerPresent);
+    agent.setIntent(intent);
+    return intent;
+  }
+
+  /**
+   * Run a short on-screen gossip exchange: `speaker` says a line to `listener`,
+   * then `listener` replies. Both lines are recorded in each agent's memory.
+   * Returns the two lines. No-op (empty) without a service.
+   */
+  async runGossip(speakerId: string, listenerId: string, language = 'English'): Promise<{ speaker: string; listener: string }> {
+    const speaker = this.agents.get(speakerId);
+    const listener = this.agents.get(listenerId);
+    if (!speaker || !listener || !this.service) return { speaker: '', listener: '' };
+
+    const sName = speaker.definition.name;
+    const lName = listener.definition.name;
+    const line1 = await this.service.gossip(
+      speakerId,
+      PromptBuilder.buildGossipPrompt(sName, lName, speaker.definition.relationships ?? '', null, language),
+    );
+    const line2 = await this.service.gossip(
+      listenerId,
+      PromptBuilder.buildGossipPrompt(lName, sName, listener.definition.relationships ?? '', line1 || null, language),
+    );
+    if (line1 || line2) {
+      speaker.conversation.recordExchange(`(to ${lName})`, line1);
+      listener.conversation.recordExchange(`(${sName}: ${line1})`, line2);
+    }
+    return { speaker: line1, listener: line2 };
+  }
+
+  /** An NPC may deliberate only when idle/aware (not mid-conversation or hostile). */
+  private static isDeliberable(state: string): boolean {
+    return state === 'idle' || state === 'aware';
   }
 
   // ─── Save / load memory ───────────────────────────────────────────────────

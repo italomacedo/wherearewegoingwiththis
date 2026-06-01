@@ -5,6 +5,8 @@ import { NPCDefinition } from '../../../src/entities/NPCAgent';
 import { ConversationContext } from '../../../src/systems/npc/ConversationContext';
 import { WorldSnapshot } from '../../../src/systems/npc/PromptBuilder';
 import { createZara } from '../../../src/entities/npcs/zara';
+import { ClaudeCallQueue } from '../../../src/systems/ClaudeCallQueue';
+import { AutonomyContext, AutonomyJob } from '../../../src/systems/NPCManager';
 
 const def: NPCDefinition = {
   id: 'npc_a',
@@ -210,6 +212,89 @@ describe('NPCManager', () => {
   it('works with Zara definition', () => {
     const zara = manager.spawn(createZara());
     expect(zara.definition.name).toBe('Zara');
+  });
+});
+
+describe('NPCManager autonomy (Fase 5)', () => {
+  const ctx = (over: Partial<AutonomyContext> = {}): AutonomyContext => ({
+    gameTimeLabel: '23:00 (night)',
+    playerPresent: false,
+    reflectionMs: 480_000,
+    language: 'English',
+    nearbyOf: () => [{ id: 'npc_b', name: 'B' }],
+    ...over,
+  });
+
+  it('returns an empty result without a Claude service', async () => {
+    const m = new NPCManager(null);
+    m.spawn(def);
+    const q = new ClaudeCallQueue<AutonomyJob>({ minGapMs: 0, maxPerMinute: 8 }, () => 0);
+    const r = await m.tickAutonomy(q, 0, ctx());
+    expect(r).toEqual({ attackers: [], enqueued: 0, deliberated: null });
+    m.dispose();
+  });
+
+  it('enqueues then dispatches a deliberation and sets the parsed intent', async () => {
+    const { service } = makeService('INTENT=approach\nTARGET=npc_b');
+    const m = new NPCManager(service);
+    const agent = m.spawn(def);
+    const q = new ClaudeCallQueue<AutonomyJob>({ minGapMs: 0, maxPerMinute: 8 }, () => 0);
+    const r = await m.tickAutonomy(q, 0, ctx());
+    expect(r.enqueued).toBe(1);
+    expect(r.deliberated).toEqual({ kind: 'approach', targetNpcId: 'npc_b' });
+    expect(agent.getIntent()).toEqual({ kind: 'approach', targetNpcId: 'npc_b' });
+    m.dispose();
+  });
+
+  it('flags an attack for a hostile NPC that sees the player and skips its deliberation', async () => {
+    const { service } = makeService('INTENT=stay');
+    const m = new NPCManager(service);
+    const agent = m.spawn({ ...def, initialDisposition: 'hostile' });
+    const q = new ClaudeCallQueue<AutonomyJob>({ minGapMs: 0, maxPerMinute: 8 }, () => 0);
+    const r = await m.tickAutonomy(q, 0, ctx({ playerPresent: true }));
+    expect(r.attackers).toEqual(['npc_a']);
+    expect(r.enqueued).toBe(0);
+    expect(agent.getIntent()).toEqual({ kind: 'attack' });
+    m.dispose();
+  });
+
+  it('honours the queue throttle across ticks (cooldown blocks re-enqueue)', async () => {
+    const { service } = makeService('INTENT=stay');
+    const m = new NPCManager(service);
+    m.spawn(def);
+    const q = new ClaudeCallQueue<AutonomyJob>({ minGapMs: 0, maxPerMinute: 8 }, () => 0);
+    const first = await m.tickAutonomy(q, 0, ctx());
+    expect(first.enqueued).toBe(1);
+    // Same NPC within its reflection cooldown → not re-enqueued.
+    const second = await m.tickAutonomy(q, 1000, ctx());
+    expect(second.enqueued).toBe(0);
+    m.dispose();
+  });
+
+  it('runGossip exchanges two lines and records them in both agents', async () => {
+    const { service } = makeService('word on the street is bad');
+    const m = new NPCManager(service);
+    const a = m.spawn(def);
+    const b = m.spawn({ ...def, id: 'npc_b', name: 'B' });
+    const lines = await m.runGossip('npc_a', 'npc_b', 'English');
+    expect(lines.speaker).toBe('word on the street is bad');
+    expect(lines.listener).toBe('word on the street is bad');
+    expect(a.conversation.getHistoryCount()).toBe(1);
+    expect(b.conversation.getHistoryCount()).toBe(1);
+    m.dispose();
+  });
+
+  it('runGossip is a no-op without a service or missing agents', async () => {
+    const m = new NPCManager(null);
+    expect(await m.runGossip('x', 'y')).toEqual({ speaker: '', listener: '' });
+    m.dispose();
+  });
+
+  it('runDeliberation returns null for an unknown agent', async () => {
+    const { service } = makeService('INTENT=stay');
+    const m = new NPCManager(service);
+    expect(await m.runDeliberation('ghost', ctx())).toBeNull();
+    m.dispose();
   });
 });
 

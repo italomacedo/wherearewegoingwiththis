@@ -135,6 +135,24 @@ export class ClaudeNPCService {
     }
   }
 
+  /** One-shot intent deliberation (autonomous). Fails to '' → parses as `stay`. */
+  async deliberate(npcId: string, prompt: string): Promise<string> {
+    try {
+      return await this.oneShot(`${npcId}::intent`, prompt, 'deliberate');
+    } catch {
+      return '';
+    }
+  }
+
+  /** One-shot gossip line an NPC speaks to another NPC. Fails to '' on error. */
+  async gossip(npcId: string, prompt: string): Promise<string> {
+    try {
+      return await this.oneShot(`${npcId}::gossip`, prompt, 'gossip');
+    } catch {
+      return '';
+    }
+  }
+
   /** Run a single prompt and return the full trimmed reply (no session, no history). */
   private async oneShot(id: string, prompt: string, label = 'one-shot'): Promise<string> {
     let response = '';

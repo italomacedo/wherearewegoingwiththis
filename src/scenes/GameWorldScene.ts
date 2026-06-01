@@ -22,7 +22,11 @@ import { MercadoSombrasZone } from '@entities/zones/MercadoSombrasZone';
 import { WorldZone } from '@entities/WorldZone';
 import { GameClock, DayPeriod } from '@systems/GameClock';
 import { CharacterAppearance, DEFAULT_APPEARANCE } from '@entities/CharacterData';
-import { NPCManager, NPCMemoryMap } from '@systems/NPCManager';
+import { NPCManager, NPCMemoryMap, AutonomyContext, AutonomyJob } from '@systems/NPCManager';
+import { ClaudeCallQueue, queueConfigFromSettings } from '@systems/ClaudeCallQueue';
+import { IntentCandidate } from '@systems/npc/Intent';
+import { computeRoute } from '@systems/Pathfinding';
+import { WAYPOINT_GRAPH } from '@assets/WorldAssetCatalog';
 import { ClaudeNPCService, ClaudeBridge } from '@systems/ClaudeNPCService';
 import { DialogSystem, DialogLine } from '@systems/DialogSystem';
 import { createZara } from '@entities/npcs/zara';
@@ -65,7 +69,18 @@ export class GameWorldScene extends BaseScene {
   private npcMeshes: AbstractMesh[] = [];
   private npcVisuals: AssembledCharacter[] = [];
   private npcHolders: TransformNode[] = [];
+  private npcHolderById = new Map<string, TransformNode>();
   private npcLabelAnchor: AbstractMesh | null = null;
+  // ─── Autonomy (Fase 5) ──────────────────────────────────────────────────────
+  private autonomyQueue: ClaudeCallQueue<AutonomyJob> | null = null;
+  private autonomyAccumMs = 0;
+  /** Active approach routes per NPC id: polyline + cursor + who they walk toward. */
+  private npcRoutes = new Map<string, { path: Vector3[]; i: number; partnerId: string }>();
+  /** NPC ids currently mid-gossip (so a route completion fires the exchange once). */
+  private gossiping = new Set<string>();
+  private static readonly AUTONOMY_TICK_MS = 1000; // throttle the driver itself
+  private static readonly NPC_WALK_SPEED = 2.2;    // u/s for autonomous walking
+  private static readonly ENGAGE_DIST = 1.8;       // arrival threshold for gossip
   private entityColliders: AbstractMesh[] = [];
   private entityAggregates: PhysicsAggregate[] = [];
   private detachInput: (() => void) | null = null;
@@ -264,6 +279,12 @@ export class GameWorldScene extends BaseScene {
     this.npcVisuals = [];
     this.npcHolders.forEach((h) => h.dispose());
     this.npcHolders = [];
+    this.npcHolderById.clear();
+    this.autonomyQueue?.clear();
+    this.autonomyQueue = null;
+    this.autonomyAccumMs = 0;
+    this.npcRoutes.clear();
+    this.gossiping.clear();
     this.npcLabelAnchor = null;
     this.player = null;
     this.vehicle = null;
@@ -346,8 +367,15 @@ export class GameWorldScene extends BaseScene {
 
     const zara = createZara();
     const conversation = NPCManager.restoreConversation(this.npcMemory, zara.id);
-    this.npcManager.spawn(zara, conversation);
+    const agent = this.npcManager.spawn(zara, conversation);
+    agent.setDisposition(NPCManager.restoreDisposition(this.npcMemory, zara.id, zara.initialDisposition ?? 'neutral'));
     this.npcLabelAnchor = await this.buildNPCVisual(zara);
+
+    // Autonomy queue (throttled per the player's Options). Mechanism is live even
+    // with one NPC (deliberation/react); gossip needs ≥2 co-located NPCs.
+    this.autonomyQueue = new ClaudeCallQueue<AutonomyJob>(
+      queueConfigFromSettings(SettingsService.get('npcCallsPerMinute')),
+    );
   }
 
   /**
@@ -370,6 +398,7 @@ export class GameWorldScene extends BaseScene {
     idle?.start(true);
     this.npcVisuals.push(assembled);
     this.npcHolders.push(holder);
+    this.npcHolderById.set(npc.id, holder);
     return assembled.rootMesh;
   }
 
@@ -388,6 +417,110 @@ export class GameWorldScene extends BaseScene {
   private updateNPCs(dt: number): void {
     if (!this.npcManager || !this.player) return;
     this.npcManager.update(this.player.getPosition(), this.derivePlayerAction(), dt);
+    this.driveAutonomy(dt);
+    this.stepNpcMovers(dt);
+  }
+
+  /**
+   * Autonomy driver (browser/Electron only — the pure decision logic lives in
+   * NPCManager.tickAutonomy and is unit-tested). Gated on the Options switch;
+   * throttled to AUTONOMY_TICK_MS so we deliberate at most ~1×/s, then the
+   * ClaudeCallQueue applies the real cost throttle on top.
+   */
+  /* istanbul ignore next — browser/Electron autonomy loop (Claude + meshes) */
+  private driveAutonomy(dt: number): void {
+    if (typeof document === 'undefined') return;
+    if (!this.npcManager || !this.autonomyQueue) return;
+    if (!SettingsService.get('npcAutonomy')) return;
+
+    this.autonomyAccumMs += dt * 1000;
+    if (this.autonomyAccumMs < GameWorldScene.AUTONOMY_TICK_MS) return;
+    const now = this.autonomyAccumMs;
+
+    const ctx: AutonomyContext = {
+      gameTimeLabel: this.formatGameTime(),
+      playerPresent: true,
+      reflectionMs: SettingsService.get('npcReflectionMinutes') * 60_000,
+      language: languageName(getLocale()),
+      nearbyOf: (agent) => this.nearbyCandidatesFor(agent),
+    };
+
+    void this.npcManager.tickAutonomy(this.autonomyQueue, now, ctx).then((res) => {
+      if (res.deliberated?.kind === 'approach' && res.deliberated.targetNpcId) {
+        this.beginApproach(res.deliberated.targetNpcId, res.deliberated.targetNpcId);
+      }
+      if (res.attackers.length > 0) {
+        console.warn(`[NPC] attack intent flagged (combat stub): ${res.attackers.join(', ')}`);
+      }
+    });
+  }
+
+  /** Other known NPCs near the given agent (within ~20m) it could engage. */
+  /* istanbul ignore next — browser-only helper */
+  private nearbyCandidatesFor(agent: NPCAgent): IntentCandidate[] {
+    const out: IntentCandidate[] = [];
+    this.npcManager?.getAgents().forEach((other) => {
+      if (other.definition.id === agent.definition.id) return;
+      if (agent.distanceTo(other.getPosition()) > 20) return;
+      out.push({ id: other.definition.id, name: other.getDisplayName() });
+    });
+    return out;
+  }
+
+  /** Plan an A* route for `moverId` to walk toward `partnerId`. */
+  /* istanbul ignore next — browser-only mesh routing */
+  private beginApproach(moverId: string, partnerId: string): void {
+    const mover = this.npcHolderById.get(moverId);
+    const partner = this.npcHolderById.get(partnerId);
+    if (!mover || !partner || this.npcRoutes.has(moverId) || this.gossiping.has(moverId)) return;
+    const from: [number, number, number] = [mover.position.x, 0, mover.position.z];
+    const to: [number, number, number] = [partner.position.x, 0, partner.position.z];
+    const poly = computeRoute(WAYPOINT_GRAPH, from, to);
+    if (!poly) return;
+    this.npcRoutes.set(moverId, { path: poly.map((p) => new Vector3(p[0], 0, p[2])), i: 1, partnerId });
+  }
+
+  /** Advance any NPCs walking a route; on arrival, run a one-shot gossip exchange. */
+  /* istanbul ignore next — browser-only mesh stepping */
+  private stepNpcMovers(dt: number): void {
+    if (this.npcRoutes.size === 0) return;
+    const step = GameWorldScene.NPC_WALK_SPEED * dt;
+    this.npcRoutes.forEach((route, moverId) => {
+      const holder = this.npcHolderById.get(moverId);
+      const partner = this.npcHolderById.get(route.partnerId);
+      if (!holder || !partner) { this.npcRoutes.delete(moverId); return; }
+
+      if (Vector3.Distance(holder.position, partner.position) <= GameWorldScene.ENGAGE_DIST) {
+        this.npcRoutes.delete(moverId);
+        this.triggerGossip(moverId, route.partnerId);
+        return;
+      }
+      const target = route.path[route.i];
+      if (!target) { this.npcRoutes.delete(moverId); return; }
+      const to = target.subtract(holder.position);
+      const dist = to.length();
+      if (dist <= step) {
+        holder.position.copyFrom(target);
+        route.i += 1;
+      } else {
+        holder.position.addInPlace(to.scale(step / dist));
+        holder.rotation.y = Math.atan2(to.x, to.z);
+      }
+    });
+  }
+
+  /** Fire a single live gossip exchange between two NPCs and surface it. */
+  /* istanbul ignore next — browser-only Claude gossip */
+  private triggerGossip(speakerId: string, listenerId: string): void {
+    if (!this.npcManager || this.gossiping.has(speakerId)) return;
+    this.gossiping.add(speakerId);
+    void this.npcManager.runGossip(speakerId, listenerId, languageName(getLocale())).then((lines) => {
+      const sp = this.npcManager?.getAgent(speakerId)?.getDisplayName() ?? 'NPC';
+      const lp = this.npcManager?.getAgent(listenerId)?.getDisplayName() ?? 'NPC';
+      if (lines.speaker) this.dialog?.addNarrationLine(`${sp}: ${lines.speaker}`);
+      if (lines.listener) this.dialog?.addNarrationLine(`${lp}: ${lines.listener}`);
+      this.gossiping.delete(speakerId);
+    });
   }
 
   /** Derives the perceived player action from current input. */

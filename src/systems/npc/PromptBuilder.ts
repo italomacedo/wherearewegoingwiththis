@@ -169,6 +169,28 @@ export class PromptBuilder {
     return lines.join('\n');
   }
 
+  /**
+   * Gossip line an NPC speaks to another NPC (autonomous, on-screen). One short
+   * line in the world language; `lastLine` (if any) is what the other just said.
+   */
+  static buildGossipPrompt(
+    speaker: string,
+    listener: string,
+    relationshipHint: string,
+    lastLine: string | null,
+    language = 'English',
+  ): string {
+    const lines: string[] = [];
+    lines.push(`You are ${speaker}, talking to ${listener} on a cyberpunk street.`);
+    if (relationshipHint) lines.push(`Context: ${relationshipHint}`);
+    if (lastLine) lines.push(`${listener} just said: ${JSON.stringify(lastLine)}`);
+    lines.push(
+      `Say ONE short line to ${listener} in ${language} (gossip, a rumour, a complaint — ` +
+      'whatever fits). One sentence, in character, no quotation marks, no narration.',
+    );
+    return lines.join('\n');
+  }
+
   /** One-time session primer sent when graduating to session mode. */
   static buildSessionPrimer(inputs: Omit<PromptInputs, 'playerMessage'>): string {
     const { definition, mood, world, history } = inputs;
