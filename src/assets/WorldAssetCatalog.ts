@@ -77,6 +77,21 @@ const DEAD_END: readonly WorldProp[] = [
   { key: 'bld-deadend', model: `${DT}building_large_2.glb`, position: [-29, 0, 0], rotationY: DEADEND_ROT },
 ];
 
+// Doors filling each building's street-level entrance opening (MegaKit Door_1/2/3,
+// 1×2.2). Placed just in front of the facade, facing the street like the building.
+const DOOR_MODELS = ['door_1', 'door_2', 'door_3'];
+const DOORS: readonly WorldProp[] = [
+  ...NORTH_BUILDINGS.map(([x], i) => ({
+    key: `door-n-${i}`, model: `${DT}${DOOR_MODELS[i % DOOR_MODELS.length]}.glb`,
+    position: [x, 0, BUILDING_Z - 0.1] as [number, number, number], rotationY: NORTH_ROT,
+  })),
+  ...SOUTH_BUILDINGS.map(([x], i) => ({
+    key: `door-s-${i}`, model: `${DT}${DOOR_MODELS[i % DOOR_MODELS.length]}.glb`,
+    position: [x, 0, -(BUILDING_Z - 0.1)] as [number, number, number], rotationY: SOUTH_ROT,
+  })),
+  { key: 'door-deadend', model: `${DT}door_1.glb`, position: [-(ZONE_HALF - 0.6), 0, 0], rotationY: DEADEND_ROT },
+];
+
 // Textured-pack buildings (Phase B GLBs, ~2u → scale 4) as skyline depth behind the facade.
 const BACKDROP_BUILDINGS: readonly WorldProp[] = [
   { key: 'bld-back-n0', model: 'world/buildings/6story_stack_mat.glb', position: [-14, 0, BACKDROP_Z], rotationY: NORTH_ROT, scale: 4 },
@@ -158,6 +173,7 @@ export const MERCADO_PROPS: readonly WorldProp[] = [
   ...LINING_BUILDINGS,
   ...DEAD_END,
   ...WALLS,
+  ...DOORS,
   ...BACKDROP_BUILDINGS,
   ...PROPS,
   ...VENDOR,

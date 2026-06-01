@@ -50,6 +50,12 @@ describe('WorldAssetCatalog — downtown city block (pure)', () => {
     expect(MERCADO_PROPS.find((p) => p.key === 'wall-deadend')).toBeDefined();
   });
 
+  it('puts a door on each lining building (+ dead end)', () => {
+    const doors = byKey(/^door-/);
+    expect(doors.length).toBeGreaterThanOrEqual(7); // 3 north + 3 south + dead end
+    for (const d of doors) expect(d.model).toMatch(/door_\d\.glb$/);
+  });
+
   it('defines a black exit wall at the +X end', () => {
     expect(EXIT_WALL.key).toBe('exit-wall');
     expect(EXIT_WALL.position[0]).toBeCloseTo(ZONE_HALF);
