@@ -4,10 +4,13 @@ import { ClaudeNPCService } from '@systems/ClaudeNPCService';
 import { WorldSnapshot, PromptBuilder } from '@systems/npc/PromptBuilder';
 import { ConversationContext, ConversationState } from '@systems/npc/ConversationContext';
 import { ActionClassification } from '@systems/npc/EmoteIntent';
+import { NPCDisposition } from '@entities/NPCAgent';
 
 export const COOLDOWN_SECONDS = 3;
 
-export type NPCMemoryMap = Record<string, ConversationState>;
+/** A persisted NPC's memory: its conversation plus its dynamic disposition. */
+export type NPCMemoryEntry = ConversationState & { disposition?: NPCDisposition };
+export type NPCMemoryMap = Record<string, NPCMemoryEntry>;
 
 /**
  * Owns the active NPCs in a zone: spawns them, updates proximity each frame,
@@ -126,7 +129,7 @@ export class NPCManager {
   serializeMemory(): NPCMemoryMap {
     const map: NPCMemoryMap = {};
     this.agents.forEach((agent, id) => {
-      map[id] = agent.conversation.toState();
+      map[id] = { ...agent.conversation.toState(), disposition: agent.getDisposition() };
     });
     return map;
   }
@@ -135,6 +138,15 @@ export class NPCManager {
   static restoreConversation(memory: NPCMemoryMap | undefined, npcId: string): ConversationContext {
     const state = memory?.[npcId];
     return state ? ConversationContext.fromState(state) : new ConversationContext();
+  }
+
+  /** The persisted disposition for an NPC, or the definition's fallback. */
+  static restoreDisposition(
+    memory: NPCMemoryMap | undefined,
+    npcId: string,
+    fallback: NPCDisposition,
+  ): NPCDisposition {
+    return memory?.[npcId]?.disposition ?? fallback;
   }
 
   dispose(): void {

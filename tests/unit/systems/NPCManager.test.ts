@@ -187,6 +187,20 @@ describe('NPCManager', () => {
     expect(ctx.getHistoryCount()).toBe(0);
   });
 
+  it('serializeMemory persists each agent disposition', () => {
+    const agent = manager.spawn({ ...def, initialDisposition: 'wary' });
+    agent.worsenDisposition(); // wary → hostile
+    const memory = manager.serializeMemory();
+    expect(memory['npc_a'].disposition).toBe('hostile');
+  });
+
+  it('restoreDisposition reads the saved value or falls back', () => {
+    const memory = { npc_a: { mode: 'stateless' as const, sessionId: null, history: [], disposition: 'hostile' as const } };
+    expect(NPCManager.restoreDisposition(memory, 'npc_a', 'neutral')).toBe('hostile');
+    expect(NPCManager.restoreDisposition(memory, 'npc_z', 'wary')).toBe('wary');
+    expect(NPCManager.restoreDisposition(undefined, 'npc_a', 'friendly')).toBe('friendly');
+  });
+
   it('dispose clears agents and cooldowns', () => {
     manager.spawn(def);
     manager.dispose();

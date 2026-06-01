@@ -90,14 +90,50 @@ describe('NPCAgent', () => {
 
   // ─── Threat reaction ──────────────────────────────────────────────────────
 
+  it('defaults disposition to neutral, or the definition value', () => {
+    expect(agent.getDisposition()).toBe('neutral');
+    expect(new NPCAgent({ ...def, initialDisposition: 'wary' }).getDisposition()).toBe('wary');
+  });
+
+  it('worsenDisposition steps friendly→neutral→wary→hostile and clamps', () => {
+    const a = new NPCAgent({ ...def, initialDisposition: 'friendly' });
+    expect(a.worsenDisposition()).toBe('neutral');
+    expect(a.worsenDisposition()).toBe('wary');
+    expect(a.worsenDisposition()).toBe('hostile');
+    expect(a.worsenDisposition()).toBe('hostile'); // clamped
+  });
+
+  it('onHostilePlayerAction worsens + issues an ultimatum the first time, not when already hostile', () => {
+    const a = new NPCAgent({ ...def, initialDisposition: 'neutral' });
+    expect(a.onHostilePlayerAction()).toEqual({ ultimatum: true });
+    expect(a.getDisposition()).toBe('wary');
+    expect(a.getMood()).toBe('hostile');
+    a.setDisposition('hostile');
+    expect(a.onHostilePlayerAction()).toEqual({ ultimatum: false });
+  });
+
+  it('shouldInitiateCombat only when hostile and player present', () => {
+    const a = new NPCAgent({ ...def, initialDisposition: 'hostile' });
+    expect(a.shouldInitiateCombat(true)).toBe(true);
+    expect(a.shouldInitiateCombat(false)).toBe(false);
+    a.setDisposition('wary');
+    expect(a.shouldInitiateCombat(true)).toBe(false);
+  });
+
+  it('stores and returns a deliberated intent', () => {
+    expect(agent.getIntent()).toEqual({ kind: 'stay' });
+    agent.setIntent({ kind: 'approach', targetNpcId: 'npc_x' });
+    expect(agent.getIntent()).toEqual({ kind: 'approach', targetNpcId: 'npc_x' });
+  });
+
   it('weapon_drawn turns suspicious NPC hostile', () => {
     agent.updateProximity(new Vector3(5, 0, 0), 'weapon_drawn');
     expect(agent.getState()).toBe('hostile');
     expect(agent.getMood()).toBe('hostile');
   });
 
-  it('weapon_drawn makes friendly NPC scared', () => {
-    const friendly = new NPCAgent({ ...def, defaultMood: 'friendly' });
+  it('weapon_drawn makes a friendly-disposition NPC scared', () => {
+    const friendly = new NPCAgent({ ...def, initialDisposition: 'friendly' });
     friendly.updateProximity(new Vector3(5, 0, 0), 'weapon_drawn');
     expect(friendly.getState()).toBe('hostile');
     expect(friendly.getMood()).toBe('scared');

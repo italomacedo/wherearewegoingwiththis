@@ -1,6 +1,7 @@
 import { Vector3 } from '@babylonjs/core';
 import { ConversationContext } from '@systems/npc/ConversationContext';
 import { CharacterAppearance } from '@entities/CharacterData';
+import type { NPCIntent } from '@systems/npc/Intent';
 
 export type NPCMood = 'neutral' | 'friendly' | 'suspicious' | 'hostile' | 'scared';
 
@@ -60,11 +61,68 @@ export class NPCAgent {
   private state: NPCState = 'idle';
   private mood: NPCMood;
   private nameKnown = false;
+  private disposition: NPCDisposition;
+  private intent: NPCIntent = { kind: 'stay' };
 
   constructor(definition: NPCDefinition, conversation?: ConversationContext) {
     this.definition = definition;
     this.mood = definition.defaultMood;
     this.conversation = conversation ?? new ConversationContext();
+    this.disposition = definition.initialDisposition ?? 'neutral';
+  }
+
+  // ─── Disposition toward the player (dynamic, persisted via npcMemory) ────────
+
+  getDisposition(): NPCDisposition {
+    return this.disposition;
+  }
+
+  setDisposition(d: NPCDisposition): void {
+    this.disposition = d;
+  }
+
+  /**
+   * Worsen the disposition one step toward hostile (friendly→neutral→wary→
+   * hostile, clamped). Returns the new value.
+   */
+  worsenDisposition(): NPCDisposition {
+    const order: NPCDisposition[] = ['friendly', 'neutral', 'wary', 'hostile'];
+    const i = order.indexOf(this.disposition);
+    this.disposition = order[Math.min(i + 1, order.length - 1)]!;
+    return this.disposition;
+  }
+
+  /**
+   * The player did something hostile (via the emote/action pipeline). The
+   * disposition worsens one step. Returns whether the NPC should issue a spoken
+   * ULTIMATUM rather than immediately fighting: yes when it was non-hostile and
+   * is now (the warning shot); no when it was already hostile (combat is flagged
+   * elsewhere). Always forces the hostile *state* + mood so it reacts now.
+   */
+  onHostilePlayerAction(): { ultimatum: boolean } {
+    const wasHostile = this.disposition === 'hostile';
+    this.worsenDisposition();
+    this.state = 'hostile';
+    this.mood = 'hostile';
+    return { ultimatum: !wasHostile };
+  }
+
+  /**
+   * Whether seeing the player should make this NPC start a confrontation
+   * (the `attack` intent stub). True only for an already-hostile disposition.
+   */
+  shouldInitiateCombat(playerPresent: boolean): boolean {
+    return playerPresent && this.disposition === 'hostile';
+  }
+
+  // ─── Current deliberated intent (set by the autonomy layer) ─────────────────
+
+  getIntent(): NPCIntent {
+    return this.intent;
+  }
+
+  setIntent(intent: NPCIntent): void {
+    this.intent = intent;
   }
 
   /** True once the NPC has revealed its name to the player. */
@@ -166,8 +224,9 @@ export class NPCAgent {
 
   private onThreat(): void {
     this.state = 'hostile';
-    // suspicious/neutral NPCs turn hostile; timid personas would be scared
-    this.mood = this.definition.defaultMood === 'friendly' ? 'scared' : 'hostile';
+    // React to a drawn weapon by disposition: a friendly NPC is frightened;
+    // a wary/neutral one turns hostile; an already-hostile one stays hostile.
+    this.mood = this.disposition === 'friendly' ? 'scared' : 'hostile';
   }
 
   setMood(mood: NPCMood): void {

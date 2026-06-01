@@ -1,6 +1,7 @@
 import { NPCDefinition, NPCMood, PlayerAction } from '@entities/NPCAgent';
 import { SKILLS, ATTRIBUTES } from '@entities/CharacterStats';
 import { Exchange } from './ConversationContext';
+import { IntentPromptInputs } from './Intent';
 
 export interface WorldSnapshot {
   cityName: string;
@@ -136,6 +137,36 @@ export class PromptBuilder {
       `Time: ${gameTime}. Setting: ${surroundings}.`,
       `The player does/says: ${message}`,
     ].join('\n');
+  }
+
+  /**
+   * Intent deliberation prompt (Fase 5). The NPC picks ONE action from a tiny
+   * constrained menu + an optional target. Output is two fixed lines so it
+   * parses cheaply (see parseIntent). English by design — the output is a label,
+   * not player-facing text.
+   */
+  static buildIntentPrompt(inputs: IntentPromptInputs): string {
+    const { selfName, role, mood, disposition, gameTime, nearbyNpcs, playerPresent } = inputs;
+    const lines: string[] = [];
+    lines.push(`You are ${selfName}, a ${role}. Decide what you do next, in character.`);
+    lines.push(`Mood: ${mood}. Your disposition toward the player: ${disposition}. Time: ${gameTime}.`);
+    lines.push(`The player is ${playerPresent ? 'present in the scene' : 'NOT here right now'}.`);
+    if (nearbyNpcs.length > 0) {
+      lines.push('People nearby you could approach or confront:');
+      nearbyNpcs.forEach((n) => lines.push(`- ${n.id} (${n.name})`));
+    } else {
+      lines.push('No one else is nearby.');
+    }
+    lines.push('');
+    lines.push('Choose ONE action. Output EXACTLY these two lines and nothing else:');
+    lines.push('INTENT=stay or approach or attack or react_to_player');
+    lines.push('TARGET=<one nearby id from the list, or none>');
+    lines.push('');
+    lines.push('stay = keep doing your own thing. approach = walk over to chat/gossip with a');
+    lines.push('nearby person (needs a TARGET). attack = move to confront a nearby person you');
+    lines.push('dislike (needs a TARGET). react_to_player = turn your attention to the player.');
+    lines.push('Only pick approach/attack if someone is actually listed. Stay in character.');
+    return lines.join('\n');
   }
 
   /** One-time session primer sent when graduating to session mode. */
