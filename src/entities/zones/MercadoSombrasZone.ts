@@ -57,27 +57,23 @@ export class MercadoSombrasZone extends WorldZone {
 
   private buildLighting(scene: Scene): void {
     const ambient = new HemisphericLight('ambient', new Vector3(0, 1, 0), scene);
-    ambient.intensity = 0.18;
-    ambient.diffuse = new Color3(0.3, 0.4, 0.7);
-    ambient.groundColor = new Color3(0.05, 0.05, 0.08);
+    ambient.intensity = 0.45; // brighter so the textured downtown reads at night
+    ambient.diffuse = new Color3(0.45, 0.5, 0.7);
+    ambient.groundColor = new Color3(0.12, 0.12, 0.16);
 
-    const neonColors = [
-      new Color3(0, 1, 0.8),
-      new Color3(0.6, 0, 1),
-      new Color3(1, 0.2, 0.5),
-      new Color3(0.1, 0.6, 1),
+    // Neon streetlights lining the street (alternating sides along X).
+    const neon: Array<[number, number, Color3]> = [
+      [-18, 6, new Color3(0, 1, 0.8)],
+      [-6, -6, new Color3(0.6, 0, 1)],
+      [6, 6, new Color3(1, 0.2, 0.5)],
+      [18, -6, new Color3(0.1, 0.6, 1)],
     ];
-    neonColors.forEach((c, i) => {
-      const angle = (i / neonColors.length) * Math.PI * 2;
-      const light = new PointLight(
-        `neon-${i}`,
-        new Vector3(Math.cos(angle) * 12, 5, Math.sin(angle) * 12),
-        scene
-      );
+    neon.forEach(([x, z, c], i) => {
+      const light = new PointLight(`neon-${i}`, new Vector3(x, 7, z), scene);
       light.diffuse = c;
       light.specular = c;
-      light.intensity = 2.2;
-      light.range = 22;
+      light.intensity = 2.4;
+      light.range = 24;
       this.lights.push(light);
     });
   }

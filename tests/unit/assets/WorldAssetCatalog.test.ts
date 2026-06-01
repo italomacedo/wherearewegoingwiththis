@@ -20,21 +20,28 @@ describe('WorldAssetCatalog — downtown city block (pure)', () => {
     for (const p of MERCADO_PROPS) expect(within(p)).toBe(true);
   });
 
-  it('has a 4-way intersection at the origin plus four road arms', () => {
-    const inter = MERCADO_PROPS.find((p) => p.key === 'road-intersection');
-    expect(inter).toBeDefined();
-    expect(inter!.position).toEqual([0, 0, 0]);
-    expect(inter!.model).toMatch(/intersection/);
-    expect(byKey(/^road-[nsew]$/)).toHaveLength(4);
+  it('lays a road of 4-lane tiles along the street axis', () => {
+    const road = byKey(/^road-\d+$/);
+    expect(road.length).toBeGreaterThanOrEqual(3);
+    for (const r of road) {
+      expect(r.model).toMatch(/street_4lane/);
+      expect(r.position[2]).toBe(0); // centred on the street line
+    }
   });
 
-  it('places a building on each of the four corner lots', () => {
-    const corners = byKey(/^bld-(ne|nw|se|sw)$/);
-    expect(corners).toHaveLength(4);
-    for (const b of corners) {
-      expect(b.model).toMatch(/^world\/downtown\/building_.+\.glb$/);
-      expect(Math.abs(b.position[0])).toBeGreaterThan(12); // outside the intersection
-    }
+  it('lines both sides of the street with buildings + a left dead end', () => {
+    const lining = byKey(/^bld-[ns]-\d+$/);
+    expect(lining.length).toBeGreaterThanOrEqual(4);
+    // North-side buildings sit at +Z, south-side at −Z.
+    expect(byKey(/^bld-n-\d+$/).every((b) => b.position[2] > 0)).toBe(true);
+    expect(byKey(/^bld-s-\d+$/).every((b) => b.position[2] < 0)).toBe(true);
+    const deadEnd = MERCADO_PROPS.find((p) => p.key === 'bld-deadend');
+    expect(deadEnd).toBeDefined();
+    expect(deadEnd!.position[0]).toBeLessThan(-20); // walls off the far-left end
+  });
+
+  it('includes sidewalks for the vendor calçada', () => {
+    expect(byKey(/^sidewalk-/).length).toBeGreaterThan(0);
   });
 
   it('includes street props and a sidewalk vendor stall with food', () => {

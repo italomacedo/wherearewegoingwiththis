@@ -162,8 +162,8 @@ describe('GameWorldScene', () => {
 
   it('pressing interact near an NPC opens the dialog', async () => {
     await scene.onEnter();
-    // Move player next to Zara (at [7,0,7])
-    scene.getPlayer()!.getRoot().position.set(7, 0, 6);
+    // Move player next to Zara (at [3,0,6])
+    scene.getPlayer()!.getRoot().position.set(3, 0, 5);
     scene.getInputSystem()!.handleKeyDown('KeyE');
     scene.update();
     expect(scene.getDialog()!.isOpen()).toBe(true);
@@ -172,7 +172,7 @@ describe('GameWorldScene', () => {
   it('pressing interact while dialog open closes it', async () => {
     await scene.onEnter();
     const input = scene.getInputSystem()!;
-    scene.getPlayer()!.getRoot().position.set(7, 0, 6);
+    scene.getPlayer()!.getRoot().position.set(3, 0, 5);
     input.handleKeyDown('KeyE');
     scene.update();
     expect(scene.getDialog()!.isOpen()).toBe(true);
@@ -193,7 +193,7 @@ describe('GameWorldScene', () => {
 
   it('sendToActiveNPC is a no-op with no Claude service (Node)', async () => {
     await scene.onEnter();
-    scene.getPlayer()!.getRoot().position.set(7, 0, 6);
+    scene.getPlayer()!.getRoot().position.set(3, 0, 5);
     // No window.electronAPI in Node → npcManager has null service → sendMessage throws,
     // caught internally and dialog shows "..."
     await scene.sendToActiveNPC('hello');
@@ -248,7 +248,7 @@ describe('GameWorldScene', () => {
   it('ESC closes the dialog instead of pausing when a dialog is open', async () => {
     await scene.onEnter();
     const input = scene.getInputSystem()!;
-    scene.getPlayer()!.getRoot().position.set(7, 0, 6);
+    scene.getPlayer()!.getRoot().position.set(3, 0, 5);
     input.handleKeyDown('KeyE');
     scene.update(); // open dialog
     expect(scene.getDialog()!.isOpen()).toBe(true);
@@ -271,7 +271,7 @@ describe('GameWorldScene', () => {
 
   it('HUD shows a generic talk prompt near an unintroduced NPC', async () => {
     await scene.onEnter();
-    scene.getPlayer()!.getRoot().position.set(7, 0, 6);
+    scene.getPlayer()!.getRoot().position.set(3, 0, 5);
     scene.update();
     // Name is hidden until the NPC introduces itself (no metagaming).
     expect(scene.getHud()!.getActionPrompt()).toBe('[E] Talk');
@@ -282,7 +282,7 @@ describe('GameWorldScene', () => {
     const { service } = makeInjectedService('Name’s Zara. What do you want?');
     scene.setClaudeService(service);
     await scene.onEnter();
-    scene.getPlayer()!.getRoot().position.set(7, 0, 6);
+    scene.getPlayer()!.getRoot().position.set(3, 0, 5);
     await scene.sendToActiveNPC('who are you?');
     const agent = scene.getNpcManager()!.getAgent('npc_zara_vendor_01')!;
     expect(agent.isNameKnown()).toBe(true);
@@ -297,7 +297,7 @@ describe('GameWorldScene', () => {
     const { service } = makeInjectedService('What do you want?');
     scene.setClaudeService(service);
     await scene.onEnter();
-    scene.getPlayer()!.getRoot().position.set(7, 0, 6);
+    scene.getPlayer()!.getRoot().position.set(3, 0, 5);
     await scene.sendToActiveNPC('hey');
     expect(scene.getNpcManager()!.getAgent('npc_zara_vendor_01')!.isNameKnown()).toBe(false);
     expect(scene.getHud()!.getLabelText('npc')).toBe('Unknown');
@@ -517,7 +517,7 @@ describe('GameWorldScene', () => {
 
   it('freezes player movement while the dialog is open', async () => {
     await scene.onEnter();
-    scene.getPlayer()!.getRoot().position.set(7, 0, 6);
+    scene.getPlayer()!.getRoot().position.set(3, 0, 5);
     scene.getInputSystem()!.handleKeyDown('KeyE');
     scene.update(); // opens dialog
     expect(scene.getDialog()!.isOpen()).toBe(true);
@@ -531,7 +531,7 @@ describe('GameWorldScene', () => {
   it('does not close the dialog on interact while the input is focused', async () => {
     await scene.onEnter();
     const dialog = scene.getDialog()!;
-    scene.getPlayer()!.getRoot().position.set(7, 0, 6);
+    scene.getPlayer()!.getRoot().position.set(3, 0, 5);
     scene.getInputSystem()!.handleKeyDown('KeyE');
     scene.update();
     expect(dialog.isOpen()).toBe(true);
@@ -548,7 +548,7 @@ describe('GameWorldScene', () => {
     const { service, prompts } = makeInjectedService('Hey.');
     scene.setClaudeService(service);
     await scene.onEnter();
-    scene.getPlayer()!.getRoot().position.set(7, 0, 6);
+    scene.getPlayer()!.getRoot().position.set(3, 0, 5);
     await scene.sendToActiveNPC('hi');
     // A moderation prompt now precedes the NPC prompt; the player name is in the latter.
     expect(prompts.some((p) => p.includes('Rei'))).toBe(true);
@@ -558,7 +558,7 @@ describe('GameWorldScene', () => {
     const { service, prompts } = makeInjectedService('BLOCK');
     scene.setClaudeService(service);
     await scene.onEnter();
-    scene.getPlayer()!.getRoot().position.set(7, 0, 6);
+    scene.getPlayer()!.getRoot().position.set(3, 0, 5);
     await scene.sendToActiveNPC('something disallowed');
     const lines = scene.getDialog()!.getState().lines;
     expect(lines.some((l) => l.role === 'system' && l.text.includes("can't say or do"))).toBe(true);
@@ -573,7 +573,7 @@ describe('GameWorldScene', () => {
     const { service } = makeInjectedService('Hello there.');
     scene.setClaudeService(service);
     await scene.onEnter();
-    scene.getPlayer()!.getRoot().position.set(7, 0, 6);
+    scene.getPlayer()!.getRoot().position.set(3, 0, 5);
     await scene.sendToActiveNPC('got chips?');
     expect(scene.getDialog()!.getState().npcText).toBe('Hello there.');
   });
