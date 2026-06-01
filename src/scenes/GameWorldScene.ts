@@ -1,6 +1,6 @@
 import {
   Engine, Color4, Vector3, AbstractMesh, TransformNode, MeshBuilder,
-  PhysicsAggregate, PhysicsShapeType,
+  PhysicsAggregate, PhysicsShapeType, AnimationGroup,
 } from '@babylonjs/core';
 import { BaseScene } from './BaseScene';
 import { ServiceLocator } from '@core/ServiceLocator';
@@ -71,6 +71,7 @@ export class GameWorldScene extends BaseScene {
   private npcVisuals: AssembledCharacter[] = [];
   private npcHolders: TransformNode[] = [];
   private npcHolderById = new Map<string, TransformNode>();
+  private npcAnimById = new Map<string, { walk: AnimationGroup | null; idle: AnimationGroup | null }>();
   private npcAnchors: AbstractMesh[] = [];
   // ─── Autonomy (Fase 5) ──────────────────────────────────────────────────────
   private autonomyQueue: ClaudeCallQueue<AutonomyJob> | null = null;
@@ -281,6 +282,7 @@ export class GameWorldScene extends BaseScene {
     this.npcHolders.forEach((h) => h.dispose());
     this.npcHolders = [];
     this.npcHolderById.clear();
+    this.npcAnimById.clear();
     this.npcAnchors = [];
     this.autonomyQueue?.clear();
     this.autonomyQueue = null;
@@ -398,11 +400,13 @@ export class GameWorldScene extends BaseScene {
       if (!m.parent) m.parent = holder;
     });
     const groups = assembled.getAnimationGroups?.() ?? [];
-    const idle = groups.find((g) => g.name.toLowerCase().includes('idle'));
+    const idle = groups.find((g) => g.name.toLowerCase().includes('idle')) ?? null;
+    const walk = groups.find((g) => g.name.toLowerCase().includes('walk')) ?? null;
     idle?.start(true);
     this.npcVisuals.push(assembled);
     this.npcHolders.push(holder);
     this.npcHolderById.set(npc.id, holder);
+    this.npcAnimById.set(npc.id, { walk, idle });
     return assembled.rootMesh;
   }
 
@@ -485,6 +489,10 @@ export class GameWorldScene extends BaseScene {
     const poly = computeRoute(WAYPOINT_GRAPH, from, to);
     if (!poly) return;
     this.npcRoutes.set(moverId, { path: poly.map((p) => new Vector3(p[0], 0, p[2])), i: 1, partnerId });
+    // Play the walk clip while travelling (avatar has Idle/Walk groups).
+    const anim = this.npcAnimById.get(moverId);
+    anim?.idle?.stop();
+    anim?.walk?.start(true);
   }
 
   /** Advance any NPCs walking a route; on arrival, run a one-shot gossip exchange. */
@@ -499,6 +507,11 @@ export class GameWorldScene extends BaseScene {
 
       if (Vector3.Distance(holder.position, partner.position) <= GameWorldScene.ENGAGE_DIST) {
         this.npcRoutes.delete(moverId);
+        // Stop walking, turn to face the partner, back to idle, then gossip.
+        const anim = this.npcAnimById.get(moverId);
+        anim?.walk?.stop();
+        anim?.idle?.start(true);
+        holder.rotation.y = Math.atan2(partner.position.x - holder.position.x, partner.position.z - holder.position.z);
         this.triggerGossip(moverId, route.partnerId);
         return;
       }
@@ -524,10 +537,30 @@ export class GameWorldScene extends BaseScene {
     void this.npcManager.runGossip(speakerId, listenerId, languageName(getLocale())).then((lines) => {
       const sp = this.npcManager?.getAgent(speakerId)?.getDisplayName() ?? 'NPC';
       const lp = this.npcManager?.getAgent(listenerId)?.getDisplayName() ?? 'NPC';
-      if (lines.speaker) this.dialog?.addNarrationLine(`${sp}: ${lines.speaker}`);
-      if (lines.listener) this.dialog?.addNarrationLine(`${lp}: ${lines.listener}`);
+      // Surface the exchange as floating speech bubbles above each NPC (visible
+      // without opening the chat) + keep it in the transcript as history. The
+      // listener's line shows after a short beat so it reads like a back-and-forth.
+      if (lines.speaker) {
+        this.showGossipBubble(speakerId, lines.speaker);
+        this.dialog?.addNarrationLine(`${sp}: ${lines.speaker}`);
+      }
+      if (lines.listener) {
+        setTimeout(() => this.showGossipBubble(listenerId, lines.listener), 2200);
+        this.dialog?.addNarrationLine(`${lp}: ${lines.listener}`);
+      }
       this.gossiping.delete(speakerId);
     });
+  }
+
+  /** Show a transient speech bubble above an NPC for a few seconds. */
+  /* istanbul ignore next — browser-only GUI */
+  private showGossipBubble(npcId: string, text: string): void {
+    const holder = this.npcHolderById.get(npcId);
+    if (!holder || !this.hud) return;
+    const key = `gossip-${npcId}`;
+    this.hud.removeLabel(key);
+    this.hud.addSpeech(holder, text, key);
+    setTimeout(() => this.hud?.removeLabel(key), 5000);
   }
 
   /** Derives the perceived player action from current input. */

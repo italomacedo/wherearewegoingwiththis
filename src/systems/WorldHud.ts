@@ -84,6 +84,27 @@ export class WorldHud {
     return this.labels.get(key)?.text ?? null;
   }
 
+  /** Whether a label/bubble with this key is currently shown. */
+  hasLabel(key: string): boolean {
+    return this.labels.has(key);
+  }
+
+  /** A transient speech bubble above a node (NPC↔NPC gossip). Wider + wrapping. */
+  addSpeech(node: TransformNode, text: string, key: string): void {
+    this.labels.set(key, { text, box: null, block: null });
+    if (typeof document === 'undefined') return;
+    /* istanbul ignore next — browser GUI only */
+    this.addSpeechBrowser(node, text, key);
+  }
+
+  /** Remove a label/bubble by key (disposes its GUI box in the browser). */
+  removeLabel(key: string): void {
+    const entry = this.labels.get(key);
+    /* istanbul ignore next — browser GUI only */
+    if (entry?.box) entry.box.dispose();
+    this.labels.delete(key);
+  }
+
   private buildUI(): void {
     if (typeof document === 'undefined') return;
     /* istanbul ignore next — browser GUI only */
@@ -169,6 +190,31 @@ export class WorldHud {
     tb.fontFamily = '"Courier New", monospace';
     label.addControl(tb);
     this.labels.set(key, { text, box: label, block: tb });
+  }
+
+  /* istanbul ignore next — browser GUI only */
+  private addSpeechBrowser(node: TransformNode, text: string, key: string): void {
+    if (!this.gui) return;
+    const bubble = new Rectangle(`speech-${key}`);
+    bubble.width = '230px';
+    bubble.height = '54px';
+    bubble.cornerRadius = 8;
+    bubble.thickness = 1;
+    bubble.color = '#FFB347';
+    bubble.background = 'rgba(20,10,0,0.78)';
+    this.gui.addControl(bubble);
+    bubble.linkWithMesh(node);
+    bubble.linkOffsetY = -95;
+
+    const tb = new TextBlock(`speech-text-${key}`, text);
+    tb.color = '#FFE0B2';
+    tb.fontSize = 13;
+    tb.fontFamily = '"Courier New", monospace';
+    tb.textWrapping = true;
+    tb.paddingLeft = '6px';
+    tb.paddingRight = '6px';
+    bubble.addControl(tb);
+    this.labels.set(key, { text, box: bubble, block: tb });
   }
 
   dispose(): void {
