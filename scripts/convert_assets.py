@@ -47,6 +47,31 @@ def clear_scene():
                 pass
 
 
+def fix_materials():
+    """Some FBX imports bring base-color ALPHA in as 0 -> fully transparent in
+    glTF (invisible). Force every material opaque with alpha 1."""
+    for mat in bpy.data.materials:
+        try:
+            mat.blend_method = "OPAQUE"
+        except Exception:
+            pass
+        try:
+            dc = mat.diffuse_color
+            mat.diffuse_color = (dc[0], dc[1], dc[2], 1.0)
+        except Exception:
+            pass
+        if getattr(mat, "use_nodes", False) and mat.node_tree:
+            for node in mat.node_tree.nodes:
+                if node.type == "BSDF_PRINCIPLED":
+                    bc = node.inputs.get("Base Color")
+                    if bc and hasattr(bc, "default_value") and len(bc.default_value) == 4:
+                        v = bc.default_value
+                        bc.default_value = (v[0], v[1], v[2], 1.0)
+                    al = node.inputs.get("Alpha")
+                    if al and hasattr(al, "default_value"):
+                        al.default_value = 1.0
+
+
 def convert(src):
     out = os.path.join(OUT, key_of(src) + ".glb")
     clear_scene()
@@ -57,6 +82,7 @@ def convert(src):
     for obj in list(bpy.data.objects):
         if obj.type in {"LIGHT", "CAMERA"}:
             bpy.data.objects.remove(obj, do_unlink=True)
+    fix_materials()
     bpy.ops.export_scene.gltf(
         filepath=out, export_format="GLB", use_selection=False,
         export_animations=ANIM, export_skins=ANIM, export_yup=True,

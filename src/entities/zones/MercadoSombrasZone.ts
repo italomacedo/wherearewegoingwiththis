@@ -1,6 +1,6 @@
 import {
   Scene, Vector3, Color3, Color4, MeshBuilder, StandardMaterial,
-  HemisphericLight, PointLight, ParticleSystem, Texture, AbstractMesh, Mesh,
+  HemisphericLight, PointLight, ParticleSystem, Texture, AbstractMesh, Mesh, TransformNode,
 } from '@babylonjs/core';
 import { WorldZone, ZoneBounds } from '@entities/WorldZone';
 import { MERCADO_PROPS } from '@assets/WorldAssetCatalog';
@@ -15,6 +15,7 @@ export class MercadoSombrasZone extends WorldZone {
   readonly displayName = 'Mercado das Sombras';
 
   private lights: PointLight[] = [];
+  private holders: TransformNode[] = [];
 
   getSpawnPoint(): Vector3 {
     return new Vector3(0, 0, 0);
@@ -141,26 +142,35 @@ export class MercadoSombrasZone extends WorldZone {
 
   /* istanbul ignore next — browser/Electron GLB loading; verified manually */
   private async loadRealAssets(scene: Scene): Promise<void> {
-    const { SceneLoader } = await import('@babylonjs/core');
+    const { SceneLoader, TransformNode } = await import('@babylonjs/core');
     await import('@babylonjs/loaders/glTF');
+    let ok = 0;
     for (const p of MERCADO_PROPS) {
       try {
         const c = await SceneLoader.LoadAssetContainerAsync('/assets/', p.model, scene);
         c.addAllToScene();
-        const root = c.meshes.find((m) => m.name === '__root__') ?? c.meshes[0];
-        if (root) {
-          root.position.set(p.position[0], p.position[1], p.position[2]);
-          if (p.rotationY) root.addRotation(0, p.rotationY, 0);
-          root.scaling = root.scaling.scale(p.scale ?? 1);
-          root.name = p.key;
+        // Wrap in a holder node and parent every top-level loaded node to it, so
+        // position/rotation/scale apply to the whole model (mirrors VehicleController).
+        const holder = new TransformNode(p.key, scene);
+        holder.position.set(p.position[0], p.position[1], p.position[2]);
+        holder.rotation.y = p.rotationY ?? 0;
+        holder.scaling.setAll(p.scale ?? 1);
+        for (const m of c.meshes) {
+          if (!m.parent) m.parent = holder;
+        }
+        for (const t of c.transformNodes) {
+          if (!t.parent) t.parent = holder;
         }
         this.meshes.push(...(c.meshes as AbstractMesh[]));
+        this.holders.push(holder);
         // Hide the procedural placeholder this prop replaces (real asset won).
         if (p.replaces) scene.getMeshByName(p.replaces)?.setEnabled(false);
+        ok += 1;
       } catch (err) {
-        console.warn(`[Mercado] prop "${p.key}" failed to load, keeping placeholder:`, err);
+        console.warn(`[Mercado] prop "${p.key}" (${p.model}) failed to load, keeping placeholder:`, err);
       }
     }
+    console.warn(`[Mercado] real assets loaded: ${ok}/${MERCADO_PROPS.length}`);
   }
 
   /* istanbul ignore next */
@@ -191,6 +201,9 @@ export class MercadoSombrasZone extends WorldZone {
   protected onUnload(): void {
     this.lights.forEach((l) => l.dispose());
     this.lights = [];
+    /* istanbul ignore next — holders only exist after browser GLB load */
+    this.holders.forEach((h) => h.dispose());
+    this.holders = [];
     if (this.scene) {
       /* istanbul ignore next — rain particle system only exists in browser */
       this.scene.particleSystems.slice().forEach((ps) => {
