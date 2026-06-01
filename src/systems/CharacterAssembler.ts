@@ -8,7 +8,7 @@ import {
   DEFAULT_COLORS, MORPH_REGISTRY, resolveLayers, getSkinTone, clampMorph,
 } from '@entities/CharacterData';
 import { CharacterAssets, resolveAssetPath, resolveBasePath, mapMorphName } from '@assets/AssetManifest';
-import { outfitByKey, DEFAULT_OUTFIT, LOCO_CLIPS, tintRoleForMaterial } from '@assets/AvatarMeshCatalog';
+import { outfitByKey, DEFAULT_OUTFIT, LOCO_CLIPS, tintRoleForMaterial, genderOfOutfit } from '@assets/AvatarMeshCatalog';
 
 export interface AssembledCharacter {
   rootMesh: AbstractMesh;
@@ -331,7 +331,11 @@ export class CharacterAssembler {
    */
   private buildPlaceholderBody(bodyBase = ''): Mesh[] {
     const meshes: Mesh[] = [];
-    const male = bodyBase.includes('_male_');
+    // Female if it's a known `w_`-prefixed Quaternius outfit, or a legacy MakeHuman
+    // `*female*` base; male otherwise. (genderOfOutfit defaults unknown keys to
+    // male, so detect female explicitly and invert.)
+    const female = genderOfOutfit(bodyBase) === 'female' || bodyBase.includes('female');
+    const male = !female;
 
     const headDia = male ? 0.26 : 0.235;
     const torsoDia = male ? 0.40 : 0.30;

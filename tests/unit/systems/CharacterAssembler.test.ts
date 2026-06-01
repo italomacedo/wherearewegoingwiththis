@@ -193,6 +193,16 @@ describe('CharacterAssembler', () => {
     female.dispose();
   });
 
+  it('Quaternius outfit keys drive placeholder gender (Mback male vs Zara female)', async () => {
+    const mback = await assembler.assemble({ ...DEFAULT_APPEARANCE, bodyBase: 'suit' });
+    const zara = await assembler.assemble({ ...DEFAULT_APPEARANCE, bodyBase: 'w_punk' });
+    const mW = mback.meshes.find((m) => m.name === 'torso')!.getBoundingInfo().boundingBox.extendSize.x;
+    const zW = zara.meshes.find((m) => m.name === 'torso')!.getBoundingInfo().boundingBox.extendSize.x;
+    expect(mW).toBeGreaterThan(zW);
+    mback.dispose();
+    zara.dispose();
+  });
+
   it('different skin tones produce valid characters', async () => {
     for (const tone of ['#FFFFFF', '#8B6355', '#2D1B0E']) {
       const char = await assembler.assemble(withSkin(tone));
