@@ -20,13 +20,15 @@ export interface VehicleConfig {
 }
 
 /**
- * Relative path (under `public/assets/`) of the real bike model. A user-supplied
- * CC0/Claude-generated GLB; loaded in Electron, falls back to the procedural
- * placeholder headlessly (and if the file is missing). See Lesson 17.
+ * Relative path (under `public/assets/`) of the real vehicle model — a small
+ * atmospheric "nave" (Quaternius Ultimate Spaceships, CC0). Loaded in Electron,
+ * falls back to the procedural placeholder headlessly (and if the file is
+ * missing). Large Spaceships models are reserved for interplanetary travel. See
+ * gap #4 / Lesson 17.
  */
-export const VEHICLE_MODEL_PATH = 'vehicles/cyberpunk_harley.glb';
+export const VEHICLE_MODEL_PATH = 'vehicles/nave.glb';
 /** Uniform scale + Y-rotation applied to the loaded model to match the placeholder footprint. */
-export const VEHICLE_MODEL_SCALE = 1.0;
+export const VEHICLE_MODEL_SCALE = 0.6;
 export const VEHICLE_MODEL_YAW = Math.PI; // glTF exports tend to face away from our camera
 
 /** Agile open-air flying motorcycle (Phase 9 MVP). */

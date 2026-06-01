@@ -47,7 +47,7 @@ export class WorldHud {
     return this.playerHpFraction;
   }
 
-  /** Bike status text (e.g. "BIKE 45%" / "BIKE DESTROYED"), or null to hide. */
+  /** Nave status text (e.g. "NAVE 45%" / "NAVE DESTROYED"), or null to hide. */
   setVehicleStatus(text: string | null): void {
     if (text === this.vehicleStatus) return;
     this.vehicleStatus = text;

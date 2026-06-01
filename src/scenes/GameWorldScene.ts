@@ -167,7 +167,7 @@ export class GameWorldScene extends BaseScene {
     const npc = this.npcManager?.getAgents()[0];
     // Show the NPC's name only after it introduces itself (no metagaming).
     if (zaraMesh && npc) this.hud.addLabel(zaraMesh, npc.getDisplayName(), 'npc');
-    if (this.vehicle) this.hud.addLabel(this.vehicle.getRoot(), 'Flying Bike', 'vehicle');
+    if (this.vehicle) this.hud.addLabel(this.vehicle.getRoot(), 'Nave', 'vehicle');
 
     // Pause menu (ESC) with in-game Save (Phase 5 evidence).
     this.pauseMenu = new PauseMenu(this.babylonScene);
@@ -484,12 +484,12 @@ export class GameWorldScene extends BaseScene {
     this.hud.setActionPrompt(this.deriveActionPrompt(dialogOpen));
   }
 
-  /** Bike status line: destroyed / live HP% while relevant, else hidden. */
+  /** Nave status line: destroyed / live HP% while relevant, else hidden. */
   private deriveVehicleStatus(): string | null {
     if (!this.vehicle) return null;
-    if (this.vehicle.isDestroyed()) return 'BIKE DESTROYED';
+    if (this.vehicle.isDestroyed()) return 'NAVE DESTROYED';
     if (this.vehicle.isOccupied() || this.vehicle.isSmoking()) {
-      return `BIKE ${Math.round(this.vehicle.getHealth().fraction() * 100)}%`;
+      return `NAVE ${Math.round(this.vehicle.getHealth().fraction() * 100)}%`;
     }
     return null;
   }

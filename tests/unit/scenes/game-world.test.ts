@@ -361,13 +361,13 @@ describe('GameWorldScene', () => {
     expect(scene.getPlayer()!.isGrounded()).toBe(false); // hero is falling
   });
 
-  it('HUD shows bike HP status while piloting', async () => {
+  it('HUD shows nave HP status while piloting', async () => {
     await scene.onEnter();
     const v = scene.getVehicle()!;
     scene.getPlayer()!.getRoot().position.copyFrom(v.getPosition());
     scene.getInputSystem()!.handleKeyDown('KeyF');
     scene.update();
-    expect(scene.getHud()!.getVehicleStatus()).toBe('BIKE 100%');
+    expect(scene.getHud()!.getVehicleStatus()).toBe('NAVE 100%');
   });
 
   it('returns to the main menu when the hero dies (game over)', async () => {

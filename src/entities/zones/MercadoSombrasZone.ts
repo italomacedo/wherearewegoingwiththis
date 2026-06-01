@@ -3,6 +3,7 @@ import {
   HemisphericLight, PointLight, ParticleSystem, Texture, AbstractMesh, Mesh,
 } from '@babylonjs/core';
 import { WorldZone, ZoneBounds } from '@entities/WorldZone';
+import { MERCADO_PROPS } from '@assets/WorldAssetCatalog';
 
 /**
  * Mercado das Sombras — the starting underground street market district.
@@ -138,11 +139,28 @@ export class MercadoSombrasZone extends WorldZone {
     this.buildRainBrowser(scene);
   }
 
-  /* istanbul ignore next */
+  /* istanbul ignore next — browser/Electron GLB loading; verified manually */
   private async loadRealAssets(scene: Scene): Promise<void> {
-    // Layered GLTF props + Poly Haven PBR textures go here once downloaded.
-    // Falls back silently to the procedural geometry already built above.
-    void scene;
+    const { SceneLoader } = await import('@babylonjs/core');
+    await import('@babylonjs/loaders/glTF');
+    for (const p of MERCADO_PROPS) {
+      try {
+        const c = await SceneLoader.LoadAssetContainerAsync('/assets/', p.model, scene);
+        c.addAllToScene();
+        const root = c.meshes.find((m) => m.name === '__root__') ?? c.meshes[0];
+        if (root) {
+          root.position.set(p.position[0], p.position[1], p.position[2]);
+          if (p.rotationY) root.addRotation(0, p.rotationY, 0);
+          root.scaling = root.scaling.scale(p.scale ?? 1);
+          root.name = p.key;
+        }
+        this.meshes.push(...(c.meshes as AbstractMesh[]));
+        // Hide the procedural placeholder this prop replaces (real asset won).
+        if (p.replaces) scene.getMeshByName(p.replaces)?.setEnabled(false);
+      } catch (err) {
+        console.warn(`[Mercado] prop "${p.key}" failed to load, keeping placeholder:`, err);
+      }
+    }
   }
 
   /* istanbul ignore next */

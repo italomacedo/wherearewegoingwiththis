@@ -67,15 +67,15 @@ describe('WorldHud', () => {
 
   it('vehicle status starts null and updates', () => {
     expect(hud.getVehicleStatus()).toBeNull();
-    hud.setVehicleStatus('BIKE 50%');
-    expect(hud.getVehicleStatus()).toBe('BIKE 50%');
+    hud.setVehicleStatus('NAVE 50%');
+    expect(hud.getVehicleStatus()).toBe('NAVE 50%');
     hud.setVehicleStatus(null);
     expect(hud.getVehicleStatus()).toBeNull();
   });
 
   it('dispose resets prompt and vehicle status', () => {
     hud.setActionPrompt('x');
-    hud.setVehicleStatus('BIKE 10%');
+    hud.setVehicleStatus('NAVE 10%');
     hud.dispose();
     expect(hud.getActionPrompt()).toBeNull();
     expect(hud.getVehicleStatus()).toBeNull();
