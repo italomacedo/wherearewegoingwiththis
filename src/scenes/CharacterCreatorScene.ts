@@ -337,6 +337,15 @@ export class CharacterCreatorScene extends BaseScene {
     }
     this.assembled?.dispose();
     this.assembled = next;
+    this.playIdle(next);
+  }
+
+  /** Loop the idle clip so the preview isn't stuck in a T-pose (browser only). */
+  /* istanbul ignore next — AnimationGroup playback is browser/Electron only */
+  private playIdle(assembled: AssembledCharacter): void {
+    const groups = assembled.getAnimationGroups?.() ?? [];
+    const idle = groups.find((g) => g.name.toLowerCase().includes('idle'));
+    idle?.start(true);
   }
 
   // ─── Setup (called on enter) ───────────────────────────────────────────────
