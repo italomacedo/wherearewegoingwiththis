@@ -43,7 +43,7 @@ describe('NPCManager', () => {
 
   it('classifyAction defaults to NARRATIVE and narrate* to "" with no service', async () => {
     await expect(manager.classifyAction('npc_a', '*x*')).resolves.toEqual(
-      { deterministic: false, skillId: null, attribute: null, difficulty: 50 }
+      { deterministic: false, skillId: null, attribute: null, difficulty: 50, hostile: false }
     );
     await expect(manager.narrateAmbient('hi', '20:00', 'street')).resolves.toBe('');
     await expect(manager.narrateOutcome('*x*', true)).resolves.toBe('');

@@ -699,6 +699,22 @@ describe('GameWorldScene', () => {
     expect(scene.getDialog()!.getState().npcText).not.toBe('');    // NPC reacted
   });
 
+  it('a hostile action worsens the NPC disposition, then turns it hostile and starts the duel', async () => {
+    const { service } = makeInjectedService('VERDICT=DETERMINISTIC\nSKILL=combate_corpo_a_corpo\nATTR=forca\nDIFF=medium\nHOSTILE=yes');
+    scene.setClaudeService(service);
+    await scene.onEnter();
+    scene.getPlayer()!.getRoot().position.set(3, 0, 5); // next to Zara (3,0,6)
+    const zara = scene.getNpcManager()!.getAgent('npc_zara_vendor_01')!;
+    zara.setDisposition('neutral');
+
+    await scene.sendToActiveNPC('*punches Zara in the face*');
+    expect(zara.getDisposition()).toBe('wary');           // first hostile action escalates
+
+    await scene.sendToActiveNPC('*punches Zara again, hard*');
+    expect(zara.getDisposition()).toBe('hostile');         // second turns it hostile
+    expect(zara.shouldInitiateCombat(true)).toBe(true);    // → combat trigger fires
+  });
+
   it('a self-exam emote narrates the condition (no NPC call)', async () => {
     await scene.onEnter(); // no service needed — pure check + descriptor
     scene.getPlayer()!.getRoot().position.set(3, 0, 5);

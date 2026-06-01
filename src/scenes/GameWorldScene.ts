@@ -35,7 +35,7 @@ import { PlayerAction, NPCDefinition, NPCAgent } from '@entities/NPCAgent';
 import { CharacterAssembler, AssembledCharacter } from '@systems/CharacterAssembler';
 import { WorldSnapshot } from '@systems/npc/PromptBuilder';
 import { resolveAddressee, AddressCandidate, stripShout } from '@systems/npc/Addressing';
-import { hasEmote, isCheckTimeEmote, isSelfExamEmote, narrateTime } from '@systems/npc/EmoteIntent';
+import { hasEmote, isCheckTimeEmote, isSelfExamEmote, narrateTime, ActionClassification } from '@systems/npc/EmoteIntent';
 import {
   CharacterStats, AttributeId, createDefaultStats, checkValue, applySkillUse,
 } from '@entities/CharacterStats';
@@ -824,6 +824,14 @@ export class GameWorldScene extends BaseScene {
 
     this.dialog.setThinking(true);
     const cls = await this.npcManager.classifyAction(agent?.definition.id ?? 'world', message);
+
+    // A hostile action aimed at a present NPC worsens its disposition (F5 path);
+    // once it turns hostile, the turn-based duel begins (consumes the attack stub).
+    if (agent && cls.hostile) {
+      const handled = await this.handleHostileAction(agent, message, cls);
+      if (handled) return true;
+    }
+
     if (!cls.deterministic) return false;
 
     // Resolve the check: skill% if one fits, else the governing attribute%
@@ -844,6 +852,33 @@ export class GameWorldScene extends BaseScene {
     if (agent) {
       await this.streamNpcReply(agent, this.buildWorldSnapshot(agent.distanceTo(this.player!.getPosition())), message);
     }
+    return true;
+  }
+
+  /**
+   * The player struck/threatened a present NPC. Resolve the strike for flavour,
+   * worsen the NPC's disposition; if that pushed it to hostile, start the duel
+   * (the F5 attack path → turn-based combat). Otherwise the NPC reacts with its
+   * ultimatum. Always returns true (the action is fully handled here).
+   */
+  private async handleHostileAction(agent: NPCAgent, message: string, cls: ActionClassification): Promise<boolean> {
+    if (!this.dialog || !this.npcManager || !this.player) return false;
+    const value = checkValue(this.playerStats, cls.skillId ?? 'combate_corpo_a_corpo', cls.attribute ?? 'forca');
+    const result = resolveCheck({ value, opponent: cls.difficulty });
+    if (result.success && cls.skillId) {
+      this.playerStats = applySkillUse(this.playerStats, cls.skillId, SettingsService.get('skillGainMultiplier'));
+    }
+    agent.onHostilePlayerAction();
+    const narration = await this.npcManager.narrateOutcome(message, result.success, languageName(getLocale()));
+    this.dialog.addNarrationLine(narration || (result.success ? 'Your blow lands hard.' : 'They reel back, snarling.'));
+
+    if (agent.shouldInitiateCombat(true)) {
+      this.dialog.close();
+      this.startCombat(agent.definition.id);
+      return true;
+    }
+    // Not yet hostile — the NPC reacts (its ultimatum) via a normal turn.
+    await this.streamNpcReply(agent, this.buildWorldSnapshot(agent.distanceTo(this.player.getPosition())), message);
     return true;
   }
 

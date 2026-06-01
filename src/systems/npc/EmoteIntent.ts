@@ -36,6 +36,8 @@ export interface ActionClassification {
   skillId: string | null;
   attribute: AttributeId | null;
   difficulty: number;
+  /** True when the action is aggression aimed at a person present (→ disposition worsens, may start combat). */
+  hostile: boolean;
 }
 
 /**
@@ -60,7 +62,9 @@ export function parseActionClassification(raw: string): ActionClassification {
   const diffMatch = raw.match(/DIFF\s*=\s*([a-z]+)/i);
   const difficulty = diffMatch ? difficultyValue(diffMatch[1]!) : DIFFICULTY_LEVELS.medium;
 
-  return { deterministic, skillId, attribute, difficulty };
+  const hostile = /HOSTILE\s*=\s*(yes|true|sim)\b/i.test(raw);
+
+  return { deterministic, skillId, attribute, difficulty, hostile };
 }
 
 /** True when the message contains at least one *emote* segment. */

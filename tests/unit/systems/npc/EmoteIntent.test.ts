@@ -84,6 +84,12 @@ describe('EmoteIntent (pure)', () => {
       expect(r.skillId).toBeNull();
       expect(r.attribute).toBeNull();
       expect(r.difficulty).toBe(50);
+      expect(r.hostile).toBe(false);
+    });
+    it('parses HOSTILE=yes (and treats sim/true as hostile)', () => {
+      expect(parseActionClassification('VERDICT=DETERMINISTIC\nSKILL=combate_corpo_a_corpo\nATTR=forca\nDIFF=medium\nHOSTILE=yes').hostile).toBe(true);
+      expect(parseActionClassification('HOSTILE=sim').hostile).toBe(true);
+      expect(parseActionClassification('VERDICT=DETERMINISTIC\nHOSTILE=no').hostile).toBe(false);
     });
   });
 
