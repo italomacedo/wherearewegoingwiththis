@@ -83,9 +83,10 @@ const DEAD_END: readonly WorldProp[] = [
 // (pivot at local x=0, leaf to x=−1 → leaf centre −0.5), so add a half-leaf pivot.
 // Buildings are placed with rotationY π (north) / 0 (south), which flips local X.
 const DOOR_MODELS = ['door_1', 'door_2', 'door_3'];
-const DOOR_PIVOT = 0.5; // half the door-leaf width (recentres the hinged leaf)
+const DOOR_PIVOT = 0.5;  // half the door-leaf width (recentres the hinged leaf)
+const DOOR_DEPTH = 0.3;  // push the door into the recessed opening (off the sidewalk)
 const DOOR_FIT: Record<string, { openX: number; dy: number }> = {
-  building_large_2: { openX: 1, dy: 0 },
+  building_large_2: { openX: 0.3, dy: 0 }, // opening barely off-centre; was overshooting
   building_medium_2_001: { openX: 0, dy: 0 },
   building_small_1: { openX: 0, dy: 1.0 }, // raised stoop entrance
 };
@@ -94,13 +95,13 @@ const DOORS: readonly WorldProp[] = [
   // North side. (Empirically the leaf lands on the opening with +openX +pivot.)
   ...NORTH_BUILDINGS.map(([x, m], i) => ({
     key: `door-n-${i}`, model: `${DT}${DOOR_MODELS[i % DOOR_MODELS.length]}.glb`,
-    position: [x + dfit(m).openX + DOOR_PIVOT, dfit(m).dy, BUILDING_Z - 0.1] as [number, number, number],
+    position: [x + dfit(m).openX + DOOR_PIVOT, dfit(m).dy, BUILDING_Z + DOOR_DEPTH] as [number, number, number],
     rotationY: NORTH_ROT,
   })),
   // South side (mirrored).
   ...SOUTH_BUILDINGS.map(([x, m], i) => ({
     key: `door-s-${i}`, model: `${DT}${DOOR_MODELS[i % DOOR_MODELS.length]}.glb`,
-    position: [x - dfit(m).openX - DOOR_PIVOT, dfit(m).dy, -(BUILDING_Z - 0.1)] as [number, number, number],
+    position: [x - dfit(m).openX - DOOR_PIVOT, dfit(m).dy, -(BUILDING_Z + DOOR_DEPTH)] as [number, number, number],
     rotationY: SOUTH_ROT,
   })),
   { key: 'door-deadend', model: `${DT}door_1.glb`, position: [-(ZONE_HALF - 0.5), 0, 0.5], rotationY: DEADEND_ROT },
