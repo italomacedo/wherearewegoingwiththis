@@ -383,9 +383,12 @@ export class GameWorldScene extends BaseScene {
         { role: 'npc' as const, text: ex.npc },
       ]);
       this.dialog.open(agent.getDisplayName(), seed);
-      // Cinematic framing: focus the NPC we're talking to (single NPC for now —
-      // multi-NPC will map agent.id → its holder).
-      if (this.npcLabelAnchor) this.cameraSystem?.enterConversationMode(this.npcLabelAnchor);
+      // Cinematic framing: focus the NPC we're talking to. Target the holder (a
+      // top-level node at the NPC's world position) — the camera follows
+      // target.position (local), so the parented mesh anchor would frame the
+      // scene origin instead. Single NPC for now; multi-NPC maps agent.id → holder.
+      const holder = this.npcHolders[0];
+      if (holder) this.cameraSystem?.enterConversationMode(holder);
     }
   }
 
