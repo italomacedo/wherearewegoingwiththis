@@ -1,6 +1,6 @@
 import {
   WorldProp, ZONE_HALF, facingCenter, MERCADO_PROPS, NAVE_MODEL, VENDOR_SPOT,
-  EXIT_WALL, CORRIDOR_COLLIDERS, BUILDING_DOORS,
+  EXIT_WALL, CORRIDOR_COLLIDERS,
 } from '../../../src/assets/WorldAssetCatalog';
 
 const within = (p: WorldProp) =>
@@ -50,12 +50,10 @@ describe('WorldAssetCatalog — downtown city block (pure)', () => {
     expect(MERCADO_PROPS.find((p) => p.key === 'wall-deadend')).toBeDefined();
   });
 
-  it('defines a black door panel for each building (+ dead end)', () => {
-    expect(BUILDING_DOORS.length).toBeGreaterThanOrEqual(7); // 3 north + 3 south + dead end
-    for (const d of BUILDING_DOORS) {
-      expect(d.size.every((s) => s > 0)).toBe(true);
-      expect(Math.abs(d.position[0])).toBeLessThanOrEqual(ZONE_HALF);
-    }
+  it('puts a door on each lining building (+ dead end)', () => {
+    const doors = byKey(/^door-/);
+    expect(doors.length).toBeGreaterThanOrEqual(7); // 3 north + 3 south + dead end
+    for (const d of doors) expect(d.model).toMatch(/door_\d\.glb$/);
   });
 
   it('defines a black exit wall at the +X end', () => {

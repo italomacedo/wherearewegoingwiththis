@@ -77,37 +77,33 @@ const DEAD_END: readonly WorldProp[] = [
   { key: 'bld-deadend', model: `${DT}building_large_2.glb`, position: [-29, 0, 0], rotationY: DEADEND_ROT },
 ];
 
-// Doors: a simple black panel sized to the entrance, filling each building's
-// opening. The opening sits at the building's GEOMETRIC centre (some models are
-// asymmetric, e.g. large is x∈[-9.3,11.3] → centre +1), not at the origin — that
-// off-centre is why a centred panel is needed. `cx` = geometric-centre X offset;
-// `baseY` = entrance-platform height (raised on stoop buildings). Built procedurally
-// by the zone (see MercadoSombrasZone.buildDoors). Pure data → unit-tested.
-const DOOR_W = 1.4;
-const DOOR_H = 2.5;
-const DOOR_T = 0.3;
-const DOOR_FIT: Record<string, { cx: number; baseY: number }> = {
-  building_large_2: { cx: 1.0, baseY: 0 },
-  building_medium_2_001: { cx: 0, baseY: 0 },
-  building_small_1: { cx: -1.0, baseY: 1.05 }, // raised stoop entrance
+// Doors (MegaKit Door_1/2/3, 1×2.2). The opening's X is model-specific (measured
+// from each building's interior-floor mesh): large is offset +1, medium/small are
+// centred; small sits on a raised stoop. The door GLB's leaf is hinged off-centre
+// (pivot at local x=0, leaf to x=−1 → leaf centre −0.5), so add a half-leaf pivot.
+// Buildings are placed with rotationY π (north) / 0 (south), which flips local X.
+const DOOR_MODELS = ['door_1', 'door_2', 'door_3'];
+const DOOR_PIVOT = 0.5; // half the door-leaf width (recentres the hinged leaf)
+const DOOR_FIT: Record<string, { openX: number; dy: number }> = {
+  building_large_2: { openX: 1, dy: 0 },
+  building_medium_2_001: { openX: 0, dy: 0 },
+  building_small_1: { openX: 0, dy: 1.0 }, // raised stoop entrance
 };
 const dfit = (m: string) => DOOR_FIT[m]!; // all lining-building models are in DOOR_FIT
-const NS_SIZE: [number, number, number] = [DOOR_W, DOOR_H, DOOR_T];
-export const BUILDING_DOORS: readonly ColliderBox[] = [
-  // North side (building rotated π → local +X maps to world −X, so subtract cx).
+const DOORS: readonly WorldProp[] = [
+  // North (rotationY π → world x = bx − localx; leaf-centre lands at bx − openX).
   ...NORTH_BUILDINGS.map(([x, m], i) => ({
-    key: `door-n-${i}`,
-    position: [x - dfit(m).cx, dfit(m).baseY + DOOR_H / 2, BUILDING_Z - 0.02] as [number, number, number],
-    size: NS_SIZE,
+    key: `door-n-${i}`, model: `${DT}${DOOR_MODELS[i % DOOR_MODELS.length]}.glb`,
+    position: [x - dfit(m).openX - DOOR_PIVOT, dfit(m).dy, BUILDING_Z - 0.1] as [number, number, number],
+    rotationY: NORTH_ROT,
   })),
-  // South side (no rotation → add cx).
+  // South (rotationY 0 → world x = bx + localx).
   ...SOUTH_BUILDINGS.map(([x, m], i) => ({
-    key: `door-s-${i}`,
-    position: [x + dfit(m).cx, dfit(m).baseY + DOOR_H / 2, -(BUILDING_Z - 0.02)] as [number, number, number],
-    size: NS_SIZE,
+    key: `door-s-${i}`, model: `${DT}${DOOR_MODELS[i % DOOR_MODELS.length]}.glb`,
+    position: [x + dfit(m).openX + DOOR_PIVOT, dfit(m).dy, -(BUILDING_Z - 0.1)] as [number, number, number],
+    rotationY: SOUTH_ROT,
   })),
-  // Dead-end building (faces +X) → thin panel on the X axis.
-  { key: 'door-deadend', position: [-(ZONE_HALF - 0.02), DOOR_H / 2, 0], size: [DOOR_T, DOOR_H, DOOR_W] },
+  { key: 'door-deadend', model: `${DT}door_1.glb`, position: [-(ZONE_HALF - 0.5), 0, 0.5], rotationY: DEADEND_ROT },
 ];
 
 // Textured-pack buildings (Phase B GLBs, ~2u → scale 4) as skyline depth behind the facade.
@@ -191,6 +187,7 @@ export const MERCADO_PROPS: readonly WorldProp[] = [
   ...LINING_BUILDINGS,
   ...DEAD_END,
   ...WALLS,
+  ...DOORS,
   ...BACKDROP_BUILDINGS,
   ...PROPS,
   ...VENDOR,
