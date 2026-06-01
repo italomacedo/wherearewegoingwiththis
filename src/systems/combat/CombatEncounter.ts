@@ -126,6 +126,7 @@ export class CombatEncounter {
   getOutcome(): CombatOutcome { return this.outcome; }
   isOver(): boolean { return this.outcome !== 'ongoing'; }
   getDistance(): number { return this.distance; }
+  getTuning(): CombatTuning { return this.tuning; }
   apOf(id: string): number { return this.slots.get(id)?.ap ?? 0; }
   coverOf(id: string): number { return this.slots.get(id)?.cover ?? COVER_NONE; }
   isAlive(id: string): boolean { return !(this.slots.get(id)?.health.isDead() ?? true); }

@@ -156,6 +156,12 @@ export class NPCManager {
     return this.service.narrate('world', PromptBuilder.buildAmbientReactionPrompt(message, gameTime, surroundings, language));
   }
 
+  /** One-shot cinematic dramatization of a combat beat (no mechanics/numbers). */
+  async narrateCombat(beat: string, language = 'English'): Promise<string> {
+    if (!this.service) return '';
+    return this.service.narrate('combat', PromptBuilder.buildCombatNarrationPrompt(beat, language));
+  }
+
   // ─── Autonomy (Fase 5): deliberation + gossip, throttled ───────────────────
 
   /**

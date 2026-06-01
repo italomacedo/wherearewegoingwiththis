@@ -47,6 +47,7 @@ describe('NPCManager', () => {
     );
     await expect(manager.narrateAmbient('hi', '20:00', 'street')).resolves.toBe('');
     await expect(manager.narrateOutcome('*x*', true)).resolves.toBe('');
+    await expect(manager.narrateCombat('Hero lands a hit on Zara.')).resolves.toBe('');
   });
 
   it('classifyAction / narrate* delegate to the Claude service', async () => {
@@ -58,7 +59,8 @@ describe('NPCManager', () => {
     await expect(m.classifyAction('npc_a', '*picks lock*')).resolves.toMatchObject({ deterministic: true, skillId: 'furtividade' });
     await expect(m.narrateAmbient('look around', '20:00', 'a street')).resolves.toBe('Rain hisses on neon.');
     await expect(m.narrateOutcome('*shoots*', false)).resolves.toBe('Rain hisses on neon.');
-    expect(svc.narrate).toHaveBeenCalledTimes(2);
+    await expect(m.narrateCombat('Zara reloads.')).resolves.toBe('Rain hisses on neon.');
+    expect(svc.narrate).toHaveBeenCalledTimes(3);
     m.dispose();
   });
 

@@ -42,6 +42,10 @@ import {
 import { resolveCheck } from '@systems/SkillCheck';
 import { t, getLocale, languageName } from '@systems/I18n';
 import { SettingsService } from '@systems/SettingsService';
+import { CombatOverlay } from '@systems/combat/CombatOverlay';
+import { CombatController } from '@systems/combat/CombatController';
+import { CombatEncounter, CombatantInit } from '@systems/combat/CombatEncounter';
+import { combatTuningFromSettings } from '@systems/combat/CombatMath';
 
 export class GameWorldScene extends BaseScene {
   /** Setting used for the ambient "react to surroundings" narration (global chat). */
@@ -66,6 +70,7 @@ export class GameWorldScene extends BaseScene {
   private dialog: DialogSystem | null = null;
   private chatMode: 'npc' | 'global' = 'npc';
   private pauseMenu: PauseMenu | null = null;
+  private combat: CombatOverlay | null = null;
   private hud: WorldHud | null = null;
   private npcMeshes: AbstractMesh[] = [];
   private npcVisuals: AssembledCharacter[] = [];
@@ -234,6 +239,9 @@ export class GameWorldScene extends BaseScene {
     this.pauseMenu = new PauseMenu(this.babylonScene);
     this.wirePauseMenu();
 
+    // Turn-based combat overlay (triggered by a hostile NPC's attack intent).
+    this.combat = new CombatOverlay(this.babylonScene);
+
     // Static colliders for the nave + Zara so the hero can't walk through them.
     if (this.babylonScene.isPhysicsEnabled()) {
       /* istanbul ignore next — physics colliders are browser/Electron only */
@@ -272,6 +280,7 @@ export class GameWorldScene extends BaseScene {
     this.npcManager?.dispose();
     this.dialog?.dispose();
     this.pauseMenu?.dispose();
+    this.combat?.dispose();
     this.hud?.dispose();
     /* istanbul ignore next — entity colliders only exist in browser with physics */
     this.entityAggregates.forEach((a) => a.dispose());
@@ -317,6 +326,13 @@ export class GameWorldScene extends BaseScene {
     // paused, the world is frozen — only the menu (and camera follow) live on.
     this.handlePauseInput();
     if (this.pauseMenu?.isOpen()) {
+      this.cameraSystem?.update();
+      this.inputSystem?.endFrame();
+      return;
+    }
+
+    // Turn-based combat owns the screen: freeze the world, only the camera lives.
+    if (this.combat?.isOpen()) {
       this.cameraSystem?.update();
       this.inputSystem?.endFrame();
       return;
@@ -462,10 +478,75 @@ export class GameWorldScene extends BaseScene {
         // The agent that deliberated walks toward its chosen target.
         this.beginApproach(d.agentId, d.intent.targetNpcId);
       }
-      if (res.attackers.length > 0) {
-        console.warn(`[NPC] attack intent flagged (combat stub): ${res.attackers.join(', ')}`);
+      if (res.attackers.length > 0 && !this.combat?.isOpen()) {
+        // A hostile NPC commits to an attack → start the turn-based duel.
+        this.startCombat(res.attackers[0]!);
       }
     });
+  }
+
+  /**
+   * Begin a turn-based duel between the player and a hostile NPC. Builds the pure
+   * CombatEncounter from both sheets, wires the overlay (Claude dramatizes salient
+   * beats), and applies the outcome on resolution. Browser-only.
+   */
+  /* istanbul ignore next — browser-only combat wiring (pure logic is tested in CombatController) */
+  private startCombat(enemyId: string): void {
+    if (typeof document === 'undefined' || !this.combat) return;
+    const agent = this.npcManager?.getAgent(enemyId);
+    if (!agent) return;
+
+    const enemyStats = this.enemyStatsFor(agent);
+    const player: CombatantInit = {
+      id: 'player', name: this.playerName, isPlayer: true,
+      stats: this.playerStats, health: this.playerHealthState,
+    };
+    const enemy: CombatantInit = {
+      id: enemyId, name: agent.getDisplayName(), isPlayer: false,
+      stats: enemyStats, health: { current: 100, max: 100 },
+    };
+    const initialDistance = Math.max(2, Math.min(20, Math.round(agent.distanceTo(this.player?.getPosition() ?? Vector3.Zero()))));
+    const enc = new CombatEncounter([player, enemy], {
+      tuning: combatTuningFromSettings(SettingsService.load()),
+      initialDistance,
+    });
+    const controller = new CombatController(enc, { player: this.playerName, [enemyId]: agent.getDisplayName() }, 'player', enemyId, enemyStats);
+
+    const language = languageName(getLocale());
+    this.combat.setHandlers({
+      narrate: (beat) => this.npcManager?.narrateCombat(beat, language) ?? Promise.resolve(beat),
+      onEnd: (outcome) => this.endCombat(enemyId, outcome),
+    });
+    this.combat.start(controller);
+  }
+
+  /** Apply a resolved combat outcome to the world (player HP, defeat, disposition). */
+  /* istanbul ignore next — browser-only combat wiring */
+  private endCombat(enemyId: string, outcome: 'player_won' | 'player_lost' | 'fled' | 'ongoing'): void {
+    const state = this.combat?.getController()?.getState();
+    const me = state?.combatants.find((c) => c.isPlayer);
+    if (me) {
+      this.playerHealthState = { current: me.hp.current, max: me.hp.max };
+      this.player?.setHealthState(this.playerHealthState);
+    }
+    if (outcome === 'player_won') {
+      // The enemy is down: relax their hostility for now (defeated, not dead-coded).
+      this.npcManager?.getAgent(enemyId)?.setDisposition('wary');
+    }
+    this.combat?.close();
+    // On a loss the player HP is now 0 → checkGameOver ends the run next frame.
+  }
+
+  /** A credible combat sheet for an NPC (no per-NPC stats yet — a street-tough block). */
+  /* istanbul ignore next — browser-only combat wiring */
+  private enemyStatsFor(_agent: NPCAgent): CharacterStats {
+    const s = createDefaultStats();
+    s.attributes.destreza = 45;
+    s.attributes.forca = 40;
+    s.skills.armas_de_fogo = 45;
+    s.skills.combate_corpo_a_corpo = 40;
+    s.skills.percepcao = 35;
+    return s;
   }
 
   /** Other known NPCs near the given agent (within ~20m) it could engage. */
@@ -926,5 +1007,6 @@ export class GameWorldScene extends BaseScene {
   getNpcManager(): NPCManager | null { return this.npcManager; }
   getDialog(): DialogSystem | null { return this.dialog; }
   getPauseMenu(): PauseMenu | null { return this.pauseMenu; }
+  getCombat(): CombatOverlay | null { return this.combat; }
   getHud(): WorldHud | null { return this.hud; }
 }

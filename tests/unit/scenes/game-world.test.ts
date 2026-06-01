@@ -252,6 +252,26 @@ describe('GameWorldScene', () => {
     expect(scene.getPlayer()!.getPosition().z).toBeCloseTo(z);
   });
 
+  it('freezes the world while a combat encounter is open', async () => {
+    const { CombatEncounter } = await import('../../../src/systems/combat/CombatEncounter');
+    const { CombatController } = await import('../../../src/systems/combat/CombatController');
+    const { createDefaultStats } = await import('../../../src/entities/CharacterStats');
+    await scene.onEnter();
+    jest.spyOn(engine, 'getDeltaTime').mockReturnValue(100);
+    const enemyStats = createDefaultStats();
+    const enc = new CombatEncounter([
+      { id: 'player', name: 'Hero', isPlayer: true, stats: createDefaultStats(), health: { current: 100, max: 100 } },
+      { id: 'zara', name: 'Zara', isPlayer: false, stats: enemyStats, health: { current: 100, max: 100 } },
+    ], { rng: () => 0 });
+    scene.getCombat()!.start(new CombatController(enc, { player: 'Hero', zara: 'Zara' }, 'player', 'zara', enemyStats));
+    expect(scene.getCombat()!.isOpen()).toBe(true);
+    const z = scene.getPlayer()!.getPosition().z;
+    scene.getInputSystem()!.handleKeyDown('KeyW');
+    scene.update();
+    scene.update();
+    expect(scene.getPlayer()!.getPosition().z).toBeCloseTo(z);
+  });
+
   it('ESC closes the dialog instead of pausing when a dialog is open', async () => {
     await scene.onEnter();
     const input = scene.getInputSystem()!;
