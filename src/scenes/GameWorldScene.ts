@@ -528,6 +528,12 @@ export class GameWorldScene extends BaseScene {
   private async handleDeterministicEmote(npcId: string, message: string): Promise<boolean> {
     if (!this.dialog || !this.npcManager) return false;
     if (!hasEmote(message)) return false;
+    // "Check the time" is unambiguously deterministic — narrate it directly,
+    // skipping the LLM classifier (reliable + no extra call).
+    if (isCheckTimeEmote(message)) {
+      this.dialog.addNarrationLine(this.resolveDeterministicEmote(message));
+      return true;
+    }
     this.dialog.setThinking(true);
     const verdict = await this.npcManager.classifyEmote(npcId, message);
     if (verdict !== 'DETERMINISTIC') return false;

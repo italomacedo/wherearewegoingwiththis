@@ -637,6 +637,14 @@ describe('GameWorldScene', () => {
     expect(scene.getDialog()!.getState().npcText).toBe(''); // NPC was not called
   });
 
+  it('checking the time via the global chat works anywhere, with no Claude call', async () => {
+    await scene.onEnter(); // no injected service at all
+    scene.getPlayer()!.getRoot().position.set(-25, 0, -25); // nowhere near an NPC
+    await scene.sendGlobalMessage('*checa que horas são no meu comm link*');
+    const lines = scene.getDialog()!.getState().lines;
+    expect(lines.some((l) => l.role === 'narration' && l.text.includes('You check the time'))).toBe(true);
+  });
+
   it('a non-time deterministic emote narrates the skill-check placeholder', async () => {
     const { service } = makeInjectedService('DETERMINISTIC');
     scene.setClaudeService(service);
