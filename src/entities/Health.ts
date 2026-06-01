@@ -65,7 +65,7 @@ export class Health {
 
 export type ConditionBand = 'unhurt' | 'lightly wounded' | 'wounded' | 'badly wounded' | 'critical';
 
-/** Map a 0..1 HP fraction to a diegetic condition band (no numbers in-game). */
+/** Precise (clinical) condition band — 5 levels. */
 export function conditionBand(fraction: number): ConditionBand {
   const f = Math.min(1, Math.max(0, fraction));
   if (f >= 0.95) return 'unhurt';
@@ -75,13 +75,21 @@ export function conditionBand(fraction: number): ConditionBand {
   return 'critical';
 }
 
+/** Coarse gut-feel of your own state — always available, no skill needed. */
+export function coarseCondition(fraction: number): string {
+  const f = Math.min(1, Math.max(0, fraction));
+  if (f >= 0.7) return 'basically fine';
+  if (f >= 0.4) return 'roughed up';
+  if (f > 0.15) return 'badly hurt';
+  return 'barely on your feet';
+}
+
 /**
- * Narrate the player's condition for a self-exam / medic read. A precise read
- * (successful Medicina check) states the band; an imprecise read is hedged.
+ * Narrate the player's condition. You ALWAYS sense the rough state from how your
+ * body feels; a successful Medicina check upgrades that to a precise clinical read.
  */
 export function describeCondition(fraction: number, precise: boolean): string {
-  const band = conditionBand(fraction);
   return precise
-    ? `You take stock of yourself — you're ${band}.`
-    : "You can't read your own condition clearly — it might be worse than it feels.";
+    ? `You assess yourself with a clinician's eye — you're ${conditionBand(fraction)}.`
+    : `You take a breath and gauge yourself — you feel ${coarseCondition(fraction)}.`;
 }

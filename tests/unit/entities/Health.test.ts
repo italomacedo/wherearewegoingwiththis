@@ -1,7 +1,7 @@
-import { Health, conditionBand, describeCondition } from '../../../src/entities/Health';
+import { Health, conditionBand, coarseCondition, describeCondition } from '../../../src/entities/Health';
 
-describe('conditionBand / describeCondition (diegetic health)', () => {
-  it('maps HP fraction to a condition band', () => {
+describe('conditionBand / coarseCondition / describeCondition (diegetic health)', () => {
+  it('precise band: 5 levels from HP fraction', () => {
     expect(conditionBand(1)).toBe('unhurt');
     expect(conditionBand(0.8)).toBe('lightly wounded');
     expect(conditionBand(0.5)).toBe('wounded');
@@ -9,9 +9,17 @@ describe('conditionBand / describeCondition (diegetic health)', () => {
     expect(conditionBand(0.05)).toBe('critical');
   });
 
-  it('describeCondition is precise on success, hedged on failure', () => {
+  it('coarse read: always honest, no skill needed', () => {
+    expect(coarseCondition(0.9)).toBe('basically fine');
+    expect(coarseCondition(0.5)).toBe('roughed up');
+    expect(coarseCondition(0.2)).toBe('badly hurt');
+    expect(coarseCondition(0.05)).toBe('barely on your feet');
+  });
+
+  it('describeCondition: coarse always, precise (clinical) on a Medicina success', () => {
+    // Unhurt player: failure still reads honestly (no misleading "might be worse").
+    expect(describeCondition(1, false)).toContain('basically fine');
     expect(describeCondition(0.5, true)).toContain('wounded');
-    expect(describeCondition(0.5, false)).toContain("can't read");
   });
 });
 
