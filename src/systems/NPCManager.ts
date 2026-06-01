@@ -3,7 +3,7 @@ import { NPCAgent, NPCDefinition, PlayerAction } from '@entities/NPCAgent';
 import { ClaudeNPCService } from '@systems/ClaudeNPCService';
 import { WorldSnapshot, PromptBuilder } from '@systems/npc/PromptBuilder';
 import { ConversationContext, ConversationState } from '@systems/npc/ConversationContext';
-import { EmoteVerdict } from '@systems/npc/EmoteIntent';
+import { ActionClassification } from '@systems/npc/EmoteIntent';
 
 export const COOLDOWN_SECONDS = 3;
 
@@ -100,12 +100,19 @@ export class NPCManager {
   }
 
   /**
-   * Classify an emote-bearing message: DETERMINISTIC (→ cRPG check) vs NARRATIVE
-   * (→ chat). Defaults to NARRATIVE when there is no Claude service.
+   * Classify an emote-bearing action: DETERMINISTIC (→ cRPG check, with the
+   * fitting skill/attribute + difficulty) vs NARRATIVE (→ chat). Defaults to a
+   * NARRATIVE classification when there is no Claude service.
    */
-  async classifyEmote(npcId: string, message: string): Promise<EmoteVerdict> {
-    if (!this.service) return 'NARRATIVE';
-    return this.service.classifyEmote(npcId, message);
+  async classifyAction(npcId: string, message: string): Promise<ActionClassification> {
+    if (!this.service) return { deterministic: false, skillId: null, attribute: null, difficulty: 50 };
+    return this.service.classifyAction(npcId, message);
+  }
+
+  /** One-shot narration of a resolved deterministic action's outcome. */
+  async narrateOutcome(message: string, success: boolean): Promise<string> {
+    if (!this.service) return '';
+    return this.service.narrate('action', PromptBuilder.buildOutcomeNarrationPrompt(message, success));
   }
 
   /** One-shot ambient narration for the global chat's "react to surroundings". */

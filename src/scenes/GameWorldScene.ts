@@ -9,7 +9,7 @@ import { SceneManager } from '@core/SceneManager';
 import {
   SaveService, VehicleSaveState, DEFAULT_PLAYER_HEALTH, DEFAULT_VEHICLE_STATE,
 } from '@systems/SaveService';
-import { HealthState } from '@entities/Health';
+import { HealthState, describeCondition } from '@entities/Health';
 import { ZoneManager } from '@systems/ZoneManager';
 import { PauseMenu } from '@systems/PauseMenu';
 import { WorldHud } from '@systems/WorldHud';
@@ -30,13 +30,21 @@ import { PlayerAction, NPCDefinition, NPCAgent } from '@entities/NPCAgent';
 import { CharacterAssembler, AssembledCharacter } from '@systems/CharacterAssembler';
 import { WorldSnapshot } from '@systems/npc/PromptBuilder';
 import { resolveAddressee, AddressCandidate, stripShout } from '@systems/npc/Addressing';
-import { hasEmote, isCheckTimeEmote, narrateTime, DETERMINISTIC_PLACEHOLDER } from '@systems/npc/EmoteIntent';
+import { hasEmote, isCheckTimeEmote, isSelfExamEmote, narrateTime } from '@systems/npc/EmoteIntent';
+import {
+  CharacterStats, AttributeId, createDefaultStats, checkValue, applySkillUse,
+} from '@entities/CharacterStats';
+import { resolveCheck } from '@systems/SkillCheck';
 import { SettingsService } from '@systems/SettingsService';
 
 export class GameWorldScene extends BaseScene {
   /** Setting used for the ambient "react to surroundings" narration (global chat). */
   private static readonly SURROUNDINGS =
     'a rainy, neon-lit downtown street lined with shuttered shopfronts and a vendor stall';
+
+  /** Attribute used for a deterministic action when the classifier names neither
+   *  a skill nor an attribute (rare fallback). */
+  private static readonly DEFAULT_CHECK_ATTRIBUTE: AttributeId = 'forca';
 
   private zoneManager: ZoneManager | null = null;
   private zone: WorldZone | null = null;
@@ -64,6 +72,7 @@ export class GameWorldScene extends BaseScene {
   private appearance: CharacterAppearance = DEFAULT_APPEARANCE;
   private npcMemory: NPCMemoryMap = {};
   private playerName = 'Operative';
+  private playerStats: CharacterStats = createDefaultStats();
   private gameTimeSeconds = 0;
   private saveId = '';
   private spawnOverride: Vector3 | null = null;
@@ -96,6 +105,7 @@ export class GameWorldScene extends BaseScene {
     this.saveId = session.saveId;
     this.appearance = session.character.appearance;
     this.playerName = session.character.name;
+    this.playerStats = session.character.stats ?? createDefaultStats();
     this.npcMemory = session.npcMemory ?? {};
     this.gameTimeSeconds = session.gameTimeSeconds;
     this.playerHealthState = session.playerHealth ?? { ...DEFAULT_PLAYER_HEALTH };
@@ -128,12 +138,14 @@ export class GameWorldScene extends BaseScene {
       ? { health: this.vehicle.getHealth().toState(), destroyed: this.vehicle.isDestroyed() }
       : this.vehicleState;
 
+    const character = { ...save.character, stats: this.playerStats };
     SaveService.save({
-      ...save, world, gameTimeSeconds: this.gameTimeSeconds, npcMemory: memory, playerHealth, vehicle,
+      ...save, character, world, gameTimeSeconds: this.gameTimeSeconds, npcMemory: memory, playerHealth, vehicle,
     });
 
     const session = ServiceLocator.tryGet<GameSession>('gameSession');
     if (session) {
+      session.character = character;
       session.world = world;
       session.npcMemory = memory;
       session.gameTimeSeconds = this.gameTimeSeconds;
@@ -461,9 +473,9 @@ export class GameWorldScene extends BaseScene {
     }
 
     this.dialog.addPlayerLine(spoken);
-    // Emote pipeline: a deterministic action is narrated (cRPG check is Phase 4);
-    // otherwise fall through to a normal NPC reply.
-    if (await this.handleDeterministicEmote(agent.definition.id, spoken)) return;
+    // Emote pipeline: a deterministic action resolves via a cRPG check + narration
+    // (and the NPC reacts); otherwise fall through to a normal NPC reply.
+    if (await this.resolvePlayerAction(spoken, agent)) return;
 
     const world = this.buildWorldSnapshot(agent.distanceTo(this.player.getPosition()));
     await this.streamNpcReply(agent, world, spoken);
@@ -479,7 +491,8 @@ export class GameWorldScene extends BaseScene {
     // Tone + name are read from the raw message; the shout marker is then stripped
     // (it sets reach, it is not a spoken word or an action emote).
     const resolution = resolveAddressee(message, this.playerAim(), this.buildAddressCandidates());
-    const modId = resolution.kind === 'npc' ? resolution.id : 'world';
+    const agent = resolution.kind === 'npc' ? this.npcManager.getAgent(resolution.id) : null;
+    const modId = agent ? agent.definition.id : 'world';
     const spoken = stripShout(message);
 
     this.dialog.setThinking(true);
@@ -490,11 +503,10 @@ export class GameWorldScene extends BaseScene {
     }
 
     this.dialog.addPlayerLine(spoken);
-    if (await this.handleDeterministicEmote(modId, spoken)) return;
+    // Deterministic action → cRPG check + narration (+ NPC reaction if addressed).
+    if (await this.resolvePlayerAction(spoken, agent)) return;
 
-    if (resolution.kind === 'npc') {
-      const agent = this.npcManager.getAgent(resolution.id);
-      if (!agent) { this.dialog.addNarrationLine('No one answers.'); return; }
+    if (agent) {
       this.dialog.setNpcName(agent.getDisplayName());
       await this.streamNpcReply(agent, this.buildWorldSnapshot(agent.distanceTo(this.player.getPosition())), spoken);
     } else {
@@ -525,32 +537,58 @@ export class GameWorldScene extends BaseScene {
   }
 
   /**
-   * If the message is an emote that classifies as a deterministic action, narrate
-   * its outcome (check-the-time today; a placeholder until Phase 4 wires real
-   * skill checks) and return true (handled). Pure speech → false (normal chat).
+   * If the message is an emote that classifies as a deterministic action, resolve
+   * it as a cRPG check and narrate the outcome (no numbers), then — if an NPC is
+   * addressed — let the NPC react. Returns true when handled; pure speech (or a
+   * NARRATIVE emote) → false, so the caller falls through to normal chat.
+   *
+   * "Check the time" short-circuits the classifier (unambiguous + free).
    */
-  private async handleDeterministicEmote(npcId: string, message: string): Promise<boolean> {
+  private async resolvePlayerAction(message: string, agent: NPCAgent | null): Promise<boolean> {
     if (!this.dialog || !this.npcManager) return false;
     if (!hasEmote(message)) return false;
-    // "Check the time" is unambiguously deterministic — narrate it directly,
-    // skipping the LLM classifier (reliable + no extra call).
+
     if (isCheckTimeEmote(message)) {
-      this.dialog.addNarrationLine(this.resolveDeterministicEmote(message));
+      this.dialog.addNarrationLine(
+        narrateTime(this.clock.label(this.gameTimeSeconds), this.clock.period(this.gameTimeSeconds))
+      );
       return true;
     }
-    this.dialog.setThinking(true);
-    const verdict = await this.npcManager.classifyEmote(npcId, message);
-    if (verdict !== 'DETERMINISTIC') return false;
-    this.dialog.addNarrationLine(this.resolveDeterministicEmote(message));
-    return true;
-  }
 
-  /** The narrated result of a deterministic emote (Phase 2: time, else placeholder). */
-  private resolveDeterministicEmote(message: string): string {
-    if (isCheckTimeEmote(message)) {
-      return narrateTime(this.clock.label(this.gameTimeSeconds), this.clock.period(this.gameTimeSeconds));
+    // Self-exam: a Medicina-gated read of your own condition (diegetic, no numbers).
+    if (isSelfExamEmote(message) && this.player) {
+      const value = checkValue(this.playerStats, 'medicina', 'inteligencia');
+      const result = resolveCheck({ value });
+      if (result.success) {
+        this.playerStats = applySkillUse(this.playerStats, 'medicina', SettingsService.get('skillGainMultiplier'));
+      }
+      this.dialog.addNarrationLine(describeCondition(this.player.getHealth().fraction(), result.success));
+      return true;
     }
-    return DETERMINISTIC_PLACEHOLDER;
+
+    this.dialog.setThinking(true);
+    const cls = await this.npcManager.classifyAction(agent?.definition.id ?? 'world', message);
+    if (!cls.deterministic) return false;
+
+    // Resolve the check: skill% if one fits, else the governing attribute%
+    // (fallback), vs the chosen difficulty. One d100 against the power-ratio P.
+    const attribute = cls.attribute ?? GameWorldScene.DEFAULT_CHECK_ATTRIBUTE;
+    const value = checkValue(this.playerStats, cls.skillId, attribute);
+    const result = resolveCheck({ value, opponent: cls.difficulty });
+
+    // Learning by doing — only on success (owner's rule), × the Options multiplier.
+    if (result.success && cls.skillId) {
+      this.playerStats = applySkillUse(this.playerStats, cls.skillId, SettingsService.get('skillGainMultiplier'));
+    }
+
+    const narration = await this.npcManager.narrateOutcome(message, result.success);
+    this.dialog.addNarrationLine(narration || (result.success ? 'You pull it off.' : "It doesn't go your way."));
+
+    // The addressed NPC reacts to the action.
+    if (agent) {
+      await this.streamNpcReply(agent, this.buildWorldSnapshot(agent.distanceTo(this.player!.getPosition())), message);
+    }
+    return true;
   }
 
   private buildWorldSnapshot(distanceMeters: number): WorldSnapshot {

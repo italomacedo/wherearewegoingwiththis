@@ -1,4 +1,5 @@
 import { NPCDefinition, NPCMood, PlayerAction } from '@entities/NPCAgent';
+import { SKILLS, ATTRIBUTES } from '@entities/CharacterStats';
 import { Exchange } from './ConversationContext';
 
 export interface WorldSnapshot {
@@ -85,24 +86,38 @@ export class PromptBuilder {
   }
 
   /**
-   * Emote determinism classifier. Run AFTER moderation on a message that
-   * contains an *emote*: decide whether the action should resolve via a cRPG
-   * skill check (DETERMINISTIC) or is pure roleplay (NARRATIVE). One word out.
+   * Structured action classifier. Run AFTER moderation on an *emote*-bearing
+   * message: decide DETERMINISTIC (resolve via a cRPG check) vs NARRATIVE
+   * (roleplay), and — when deterministic — which skill (or governing attribute)
+   * and how hard. Output is 4 fixed lines so it parses cheaply.
    */
-  static buildEmoteClassifierPrompt(message: string): string {
+  static buildActionClassifierPrompt(message: string): string {
     return [
-      'You classify a player action in a fictional cyberpunk RPG.',
-      'The player may write an action in *asterisks* and/or speech.',
-      'Answer DETERMINISTIC if the action should be resolved by the game systems rather',
-      'than by conversation — EITHER it would plausibly SUCCEED OR FAIL based on the',
-      "character's skills/attributes (picking a lock, hacking, striking someone, spotting",
-      'a tail, climbing) OR it queries concrete game state (checking the time, reading a',
-      'map, glancing at a HUD/comm-link readout).',
-      'Answer NARRATIVE if it is pure roleplay/expression with no game outcome — gestures,',
-      'posing, talking, emoting a feeling.',
-      'Answer with EXACTLY one word and nothing else: DETERMINISTIC or NARRATIVE.',
+      'You classify a player action in a fictional cyberpunk RPG and pick how to resolve it.',
+      'Output EXACTLY these four lines and nothing else:',
+      'VERDICT=DETERMINISTIC or NARRATIVE',
+      'SKILL=<one skill id from the list, or none>',
+      'ATTR=<one attribute id from the list>',
+      'DIFF=trivial or easy or medium or hard or extreme',
+      '',
+      'DETERMINISTIC = the action resolves by game systems (succeeds/fails by skill, or a',
+      'concrete state query). NARRATIVE = pure roleplay/expression with no game outcome.',
+      'Pick the SKILL that best fits the action; if none fits, SKILL=none and choose the',
+      'governing ATTR. DIFF reflects how hard the action is.',
+      `Skills: ${SKILLS.map((s) => s.id).join(', ')}`,
+      `Attributes: ${ATTRIBUTES.map((a) => a.id).join(', ')}`,
       '',
       `Player: ${JSON.stringify(message)}`,
+    ].join('\n');
+  }
+
+  /** Narrate the OUTCOME of a resolved deterministic action (no numbers/mechanics). */
+  static buildOutcomeNarrationPrompt(message: string, success: boolean): string {
+    return [
+      'Narrate, in second person and 1-2 sentences, the OUTCOME of the player action below.',
+      `The action ${success ? 'SUCCEEDS' : 'FAILS'} — make the narration reflect that, grounded and cinematic.`,
+      'Do NOT mention dice, numbers, skills, or game mechanics. No quotation marks.',
+      `Action: ${message}`,
     ].join('\n');
   }
 

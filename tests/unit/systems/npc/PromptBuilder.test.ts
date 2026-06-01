@@ -150,15 +150,25 @@ describe('PromptBuilder', () => {
     });
   });
 
-  describe('buildEmoteClassifierPrompt', () => {
-    it('asks for a one-word DETERMINISTIC/NARRATIVE verdict and includes the message', () => {
-      const p = PromptBuilder.buildEmoteClassifierPrompt('*picks the lock*');
-      expect(p).toContain('DETERMINISTIC or NARRATIVE');
+  describe('buildActionClassifierPrompt', () => {
+    it('asks for the 4 structured lines and includes the message + skill/attr lists', () => {
+      const p = PromptBuilder.buildActionClassifierPrompt('*picks the lock*');
+      expect(p).toContain('VERDICT=DETERMINISTIC or NARRATIVE');
+      expect(p).toContain('SKILL=');
+      expect(p).toContain('ATTR=');
+      expect(p).toContain('DIFF=');
       expect(p).toContain('picks the lock');
+      expect(p).toContain('armas_de_fogo'); // a real skill id is listed
+      expect(p).toContain('inteligencia'); // a real attribute id is listed
     });
-    it('lists checking the time as a deterministic state query', () => {
-      const p = PromptBuilder.buildEmoteClassifierPrompt('*x*');
-      expect(p).toContain('checking the time');
+  });
+
+  describe('buildOutcomeNarrationPrompt', () => {
+    it('frames success vs failure and forbids numbers/mechanics', () => {
+      expect(PromptBuilder.buildOutcomeNarrationPrompt('*pick the lock*', true)).toContain('SUCCEEDS');
+      const fail = PromptBuilder.buildOutcomeNarrationPrompt('*pick the lock*', false);
+      expect(fail).toContain('FAILS');
+      expect(fail).toContain('pick the lock');
     });
   });
 

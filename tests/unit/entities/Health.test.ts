@@ -1,4 +1,19 @@
-import { Health } from '../../../src/entities/Health';
+import { Health, conditionBand, describeCondition } from '../../../src/entities/Health';
+
+describe('conditionBand / describeCondition (diegetic health)', () => {
+  it('maps HP fraction to a condition band', () => {
+    expect(conditionBand(1)).toBe('unhurt');
+    expect(conditionBand(0.8)).toBe('lightly wounded');
+    expect(conditionBand(0.5)).toBe('wounded');
+    expect(conditionBand(0.2)).toBe('badly wounded');
+    expect(conditionBand(0.05)).toBe('critical');
+  });
+
+  it('describeCondition is precise on success, hedged on failure', () => {
+    expect(describeCondition(0.5, true)).toContain('wounded');
+    expect(describeCondition(0.5, false)).toContain("can't read");
+  });
+});
 
 describe('Health', () => {
   it('starts at full by default', () => {

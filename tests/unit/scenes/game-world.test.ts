@@ -661,14 +661,24 @@ describe('GameWorldScene', () => {
     expect(lines.some((l) => l.role === 'narration' && /skill check/i.test(l.text))).toBe(false);
   });
 
-  it('a non-time deterministic emote narrates the skill-check placeholder', async () => {
-    const { service } = makeInjectedService('DETERMINISTIC');
+  it('a deterministic action is resolved + narrated, and the NPC reacts', async () => {
+    const { service } = makeInjectedService('VERDICT=DETERMINISTIC\nSKILL=armas_de_fogo\nATTR=destreza\nDIFF=hard');
     scene.setClaudeService(service);
     await scene.onEnter();
     scene.getPlayer()!.getRoot().position.set(3, 0, 5);
-    await scene.sendToActiveNPC('*pick the lock*');
+    await scene.sendToActiveNPC('*take a shot at the lock*');
     const lines = scene.getDialog()!.getState().lines;
-    expect(lines.some((l) => l.role === 'narration' && /skill check/i.test(l.text))).toBe(true);
+    expect(lines.some((l) => l.role === 'narration')).toBe(true); // outcome narrated
+    expect(scene.getDialog()!.getState().npcText).not.toBe('');    // NPC reacted
+  });
+
+  it('a self-exam emote narrates the condition (no NPC call)', async () => {
+    await scene.onEnter(); // no service needed — pure check + descriptor
+    scene.getPlayer()!.getRoot().position.set(3, 0, 5);
+    await scene.sendToActiveNPC('*check my wounds*');
+    const lines = scene.getDialog()!.getState().lines;
+    expect(lines.some((l) => l.role === 'narration')).toBe(true);
+    expect(scene.getDialog()!.getState().npcText).toBe('');
   });
 
   it('a narrative emote falls through to a normal NPC reply', async () => {

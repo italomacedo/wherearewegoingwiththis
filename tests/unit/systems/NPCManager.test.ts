@@ -39,20 +39,24 @@ describe('NPCManager', () => {
     expect(manager.getAgent('npc_a')).toBe(agent);
   });
 
-  it('classifyEmote defaults to NARRATIVE and narrateAmbient to "" with no service', async () => {
-    await expect(manager.classifyEmote('npc_a', '*x*')).resolves.toBe('NARRATIVE');
+  it('classifyAction defaults to NARRATIVE and narrate* to "" with no service', async () => {
+    await expect(manager.classifyAction('npc_a', '*x*')).resolves.toEqual(
+      { deterministic: false, skillId: null, attribute: null, difficulty: 50 }
+    );
     await expect(manager.narrateAmbient('hi', '20:00', 'street')).resolves.toBe('');
+    await expect(manager.narrateOutcome('*x*', true)).resolves.toBe('');
   });
 
-  it('classifyEmote / narrateAmbient delegate to the Claude service', async () => {
+  it('classifyAction / narrate* delegate to the Claude service', async () => {
     const svc = {
-      classifyEmote: jest.fn().mockResolvedValue('DETERMINISTIC'),
+      classifyAction: jest.fn().mockResolvedValue({ deterministic: true, skillId: 'furtividade', attribute: 'destreza', difficulty: 50 }),
       narrate: jest.fn().mockResolvedValue('Rain hisses on neon.'),
     } as unknown as ClaudeNPCService;
     const m = new NPCManager(svc);
-    await expect(m.classifyEmote('npc_a', '*picks lock*')).resolves.toBe('DETERMINISTIC');
+    await expect(m.classifyAction('npc_a', '*picks lock*')).resolves.toMatchObject({ deterministic: true, skillId: 'furtividade' });
     await expect(m.narrateAmbient('look around', '20:00', 'a street')).resolves.toBe('Rain hisses on neon.');
-    expect(svc.narrate).toHaveBeenCalled();
+    await expect(m.narrateOutcome('*shoots*', false)).resolves.toBe('Rain hisses on neon.');
+    expect(svc.narrate).toHaveBeenCalledTimes(2);
     m.dispose();
   });
 

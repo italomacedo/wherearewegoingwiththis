@@ -1,5 +1,6 @@
 import {
   hasEmote, emoteTexts, isCheckTimeEmote, parseEmoteVerdict, narrateTime, DETERMINISTIC_PLACEHOLDER,
+  isSelfExamEmote, difficultyValue, parseActionClassification, DIFFICULTY_LEVELS,
 } from '../../../../src/systems/npc/EmoteIntent';
 
 describe('EmoteIntent (pure)', () => {
@@ -37,6 +38,52 @@ describe('EmoteIntent (pure)', () => {
       expect(parseEmoteVerdict('NARRATIVE')).toBe('NARRATIVE');
       expect(parseEmoteVerdict('garbled noise')).toBe('NARRATIVE');
       expect(parseEmoteVerdict('')).toBe('NARRATIVE');
+    });
+  });
+
+  describe('isSelfExamEmote', () => {
+    it('matches checking your own condition (en + pt)', () => {
+      expect(isSelfExamEmote('*check my wounds*')).toBe(true);
+      expect(isSelfExamEmote('*avalio meu ferimento*')).toBe(true);
+      expect(isSelfExamEmote('*how is my health*')).toBe(true);
+    });
+    it('does not match unrelated emotes', () => {
+      expect(isSelfExamEmote('*lights a cigarette*')).toBe(false);
+    });
+  });
+
+  describe('difficultyValue', () => {
+    it('maps levels to numbers, defaulting to medium', () => {
+      expect(difficultyValue('trivial')).toBe(DIFFICULTY_LEVELS.trivial);
+      expect(difficultyValue('HARD')).toBe(65);
+      expect(difficultyValue('nonsense')).toBe(50);
+    });
+  });
+
+  describe('parseActionClassification', () => {
+    it('parses a full structured reply', () => {
+      const r = parseActionClassification('VERDICT=DETERMINISTIC\nSKILL=furtividade\nATTR=destreza\nDIFF=hard');
+      expect(r.deterministic).toBe(true);
+      expect(r.skillId).toBe('furtividade');
+      expect(r.attribute).toBe('destreza');
+      expect(r.difficulty).toBe(65);
+    });
+    it('infers the attribute from the skill when ATTR is missing/invalid', () => {
+      const r = parseActionClassification('VERDICT=DETERMINISTIC\nSKILL=medicina\nDIFF=easy');
+      expect(r.attribute).toBe('inteligencia');
+      expect(r.difficulty).toBe(35);
+    });
+    it('SKILL=none → null skill, keeps the named attribute', () => {
+      const r = parseActionClassification('VERDICT=DETERMINISTIC\nSKILL=none\nATTR=forca\nDIFF=medium');
+      expect(r.skillId).toBeNull();
+      expect(r.attribute).toBe('forca');
+    });
+    it('NARRATIVE verdict + defaults when unspecified', () => {
+      const r = parseActionClassification('VERDICT=NARRATIVE');
+      expect(r.deterministic).toBe(false);
+      expect(r.skillId).toBeNull();
+      expect(r.attribute).toBeNull();
+      expect(r.difficulty).toBe(50);
     });
   });
 

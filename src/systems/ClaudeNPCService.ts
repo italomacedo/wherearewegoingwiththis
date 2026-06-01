@@ -1,7 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { NPCAgent } from '@entities/NPCAgent';
 import { PromptBuilder, WorldSnapshot } from '@systems/npc/PromptBuilder';
-import { EmoteVerdict, parseEmoteVerdict } from '@systems/npc/EmoteIntent';
+import { ActionClassification, parseActionClassification } from '@systems/npc/EmoteIntent';
 
 /**
  * IPC query params — structurally matches electron/preload.ts ClaudeQueryParams.
@@ -111,16 +111,16 @@ export class ClaudeNPCService {
   }
 
   /**
-   * Classify an emote-bearing player message as DETERMINISTIC (resolve via a
-   * cRPG skill check) or NARRATIVE (roleplay → normal chat). One-shot call;
-   * fails OPEN to NARRATIVE so a hiccup never blocks normal play.
+   * Classify an emote-bearing player action: DETERMINISTIC (resolve via a cRPG
+   * check — with the fitting skill/attribute + difficulty) vs NARRATIVE
+   * (roleplay → normal chat). One-shot; fails OPEN to NARRATIVE.
    */
-  async classifyEmote(npcId: string, message: string): Promise<EmoteVerdict> {
+  async classifyAction(npcId: string, message: string): Promise<ActionClassification> {
     try {
-      const raw = await this.oneShot(`${npcId}::emote`, PromptBuilder.buildEmoteClassifierPrompt(message));
-      return parseEmoteVerdict(raw);
+      const raw = await this.oneShot(`${npcId}::action`, PromptBuilder.buildActionClassifierPrompt(message));
+      return parseActionClassification(raw);
     } catch {
-      return 'NARRATIVE';
+      return { deterministic: false, skillId: null, attribute: null, difficulty: 50 };
     }
   }
 

@@ -225,16 +225,20 @@ describe('ClaudeNPCService', () => {
 
   // ─── Emote classifier + ambient narration (one-shot) ─────────────────────────
 
-  it('classifyEmote returns DETERMINISTIC on an explicit verdict, via a scoped query', async () => {
-    const { bridge, lastParams } = makeBridge('DETERMINISTIC');
+  it('classifyAction parses the structured verdict + skill/attr/difficulty', async () => {
+    const { bridge, lastParams } = makeBridge('VERDICT=DETERMINISTIC\nSKILL=armas_de_fogo\nATTR=destreza\nDIFF=hard');
     const service = new ClaudeNPCService({ claudePath: 'claude', bridge });
-    await expect(service.classifyEmote('npc_zara', '*picks the lock*')).resolves.toBe('DETERMINISTIC');
+    const r = await service.classifyAction('npc_zara', '*takes a shot*');
+    expect(r.deterministic).toBe(true);
+    expect(r.skillId).toBe('armas_de_fogo');
+    expect(r.attribute).toBe('destreza');
+    expect(r.difficulty).toBe(65); // hard
     const params = lastParams.value as { npcId: string; prompt: string };
-    expect(params.npcId).toBe('npc_zara::emote');
-    expect(params.prompt).toContain('DETERMINISTIC or NARRATIVE');
+    expect(params.npcId).toBe('npc_zara::action');
+    expect(params.prompt).toContain('VERDICT=');
   });
 
-  it('classifyEmote fails open to NARRATIVE when the CLI errors', async () => {
+  it('classifyAction fails open to a NARRATIVE classification when the CLI errors', async () => {
     const bridge: ClaudeBridge = {
       claudeQuery: jest.fn(async () => { throw new Error('cli down'); }),
       claudeCancel: jest.fn(async () => {}),
@@ -242,7 +246,8 @@ describe('ClaudeNPCService', () => {
       onClaudeResponseDone: jest.fn(() => () => {}),
     };
     const service = new ClaudeNPCService({ claudePath: 'claude', bridge });
-    await expect(service.classifyEmote('npc_zara', '*does a thing*')).resolves.toBe('NARRATIVE');
+    const r = await service.classifyAction('npc_zara', '*does a thing*');
+    expect(r.deterministic).toBe(false);
   });
 
   it('narrate returns the one-shot reply, scoped to an ambient id', async () => {
