@@ -32,7 +32,11 @@ export type SlotId =
 export type SlotCategory =
   | 'face_feature' | 'hair_group' | 'makeup' | 'clothing' | 'footwear';
 
-export type ColorKey = 'skin' | 'hair' | 'eyebrow' | 'eye' | 'beard' | 'makeup';
+import { DEFAULT_OUTFIT } from '@assets/AvatarMeshCatalog';
+
+export type ColorKey =
+  | 'skin' | 'hair' | 'eyebrow' | 'eye' | 'beard' | 'makeup'
+  | 'outfit' | 'bottom' | 'shoes' | 'hat';
 
 export type SkinTextureId = 'skin_01' | 'skin_02' | 'skin_03' | 'skin_04';
 
@@ -165,6 +169,12 @@ export interface CharacterAppearance {
   skinTexture: SkinTextureId;
   accessories: string[];
   implants: string[];
+  /**
+   * Dormant attach-piece selection (kept for save compatibility). With the
+   * Ultimate Modular outfit model the whole look is the chosen `bodyBase` outfit,
+   * so this is unused; reserved for future per-part mixing.
+   */
+  avatarPieces: Record<string, string | null>;
 }
 
 // Ethnicity is encoded in the body-base key (one MakeHuman GLB per ethnicity),
@@ -180,7 +190,13 @@ export function bodyBaseKey(gender: Gender, ethnicity: Ethnicity): string {
 }
 
 export function parseGender(bodyBase: string): Gender {
-  return bodyBase.includes('_male_') ? 'male' : 'female';
+  // Handles both Quaternius (superhero_male/female) and legacy (body_<g>_<e>).
+  return bodyBase.includes('female') ? 'female' : 'male';
+}
+
+/** Quaternius base GLB key for a gender (superhero_male / superhero_female). */
+export function genderBase(gender: Gender): string {
+  return `superhero_${gender}`;
 }
 
 export function parseEthnicity(bodyBase: string): Ethnicity {
@@ -202,16 +218,23 @@ export const DEFAULT_COLORS: Record<ColorKey, string> = {
   eye: '#3A2A1A',
   beard: '#1A1A1A',
   makeup: '#A03050',
+  outfit: '#3A4A6B',
+  bottom: '#2A2E38',
+  shoes: '#1A1A1A',
+  hat: '#202833',
 };
 
 export const DEFAULT_APPEARANCE: CharacterAppearance = {
-  bodyBase: 'body_female_african',
+  bodyBase: DEFAULT_OUTFIT, // Quaternius Ultimate Modular outfit key
+  // `slots` is legacy (separate-GLB parts) — dormant for the Quaternius avatar,
+  // but the headless placeholder assembler still renders from it (tests).
   slots: { hair: 'hair_short_01', eyes: 'eyes_default' },
   morphs: {},
   colors: { ...DEFAULT_COLORS },
   skinTexture: 'skin_01',
   accessories: [],
   implants: [],
+  avatarPieces: {},
 };
 
 export const BODY_BASES = [
@@ -308,6 +331,7 @@ export function cloneAppearance(a: CharacterAppearance): CharacterAppearance {
     skinTexture: a.skinTexture,
     accessories: [...a.accessories],
     implants: [...a.implants],
+    avatarPieces: { ...a.avatarPieces },
   };
 }
 
@@ -347,6 +371,7 @@ export function migrateAppearance(raw: unknown): CharacterAppearance {
       skinTexture: (r.skinTexture as SkinTextureId) ?? 'skin_01',
       accessories: Array.isArray(r.accessories) ? [...r.accessories] : [],
       implants: Array.isArray(r.implants) ? [...r.implants] : [],
+      avatarPieces: { ...(r.avatarPieces ?? {}) },
     };
   }
 
@@ -370,5 +395,6 @@ export function migrateAppearance(raw: unknown): CharacterAppearance {
     skinTexture: 'skin_01',
     accessories: Array.isArray(r.accessories) ? [...r.accessories] : [],
     implants: Array.isArray(r.implants) ? [...r.implants] : [],
+    avatarPieces: {},
   };
 }

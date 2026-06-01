@@ -7,7 +7,8 @@ import {
   CharacterAppearance, SlotId, SlotCategory, ColorKey, MorphId,
   DEFAULT_COLORS, MORPH_REGISTRY, resolveLayers, getSkinTone, clampMorph,
 } from '@entities/CharacterData';
-import { CharacterAssets, resolveAssetPath, resolveBasePath, mapMorphName, diffMorphCoverage, diffSkeletonBones, ANIMATION_KEYS } from '@assets/AssetManifest';
+import { CharacterAssets, resolveAssetPath, resolveBasePath, mapMorphName } from '@assets/AssetManifest';
+import { outfitByKey, DEFAULT_OUTFIT, LOCO_CLIPS, tintRoleForMaterial } from '@assets/AvatarMeshCatalog';
 
 export interface AssembledCharacter {
   rootMesh: AbstractMesh;
@@ -180,103 +181,47 @@ export class CharacterAssembler {
     return this.assemblePlaceholder(appearance);
   }
 
-  /* istanbul ignore next — browser/Electron only; exercised via manual verification (phase 6) */
+  /* istanbul ignore next — browser/Electron only; exercised via manual verification */
   private async assembleGltf(appearance: CharacterAppearance): Promise<AssembledCharacter> {
     const { SceneLoader } = await import('@babylonjs/core');
     await import('@babylonjs/loaders/glTF'); // registers the .glb/.gltf loader plugin
-    const plan = buildCharacterPlan(appearance);
     const meshes: AbstractMesh[] = [];
-
     let skeleton: Skeleton | null = null;
     let animationGroups: AnimationGroup[] = [];
-    // morph-target lookup by resolved glTF name, for live slider updates
-    const morphByName = new Map<string, { influence: number }>();
+    const colors = { ...DEFAULT_COLORS, ...appearance.colors };
+    const outfit = outfitByKey(appearance.bodyBase) ?? outfitByKey(DEFAULT_OUTFIT)!;
 
-    // ─── Base body (carries the skeleton, morph targets, animations) ──────────
+    /* eslint-disable no-console */
+    // ─── Outfit (a complete Quaternius character: parts + rig + embedded clips) ─
     try {
-      const container = await SceneLoader.LoadAssetContainerAsync('/assets/', plan.basePath, this.scene);
+      const container = await SceneLoader.LoadAssetContainerAsync('/assets/', outfit.path, this.scene);
       container.addAllToScene();
       meshes.push(...container.meshes);
       skeleton = container.skeletons[0] ?? null;
-      animationGroups = container.animationGroups;
+      // Quaternius faces +Z (= our world forward at rotation.y=0) → no flip.
+      this.tintAvatarMaterials(container.meshes, colors);
 
-      // Mixamo-rigged exports face +Z (our world "forward" at rotation.y=0), so
-      // the model's facing matches PlayerController's `root.rotation.y = facing`
-      // with no baked offset. (The creator camera is positioned to look at this
-      // front — see CharacterCreatorScene.setupCamera.) Do NOT rotate here, or the
-      // hero walks backwards ("moonwalk"). A base that faces -Z would need π here.
-
-      // Collect morph targets from any mesh that has a manager.
-      const available: string[] = [];
-      for (const mesh of container.meshes) {
-        const mgr = (mesh as { morphTargetManager?: { numTargets: number; getTarget(i: number): { name: string; influence: number } } }).morphTargetManager;
-        if (!mgr) continue;
-        for (let i = 0; i < mgr.numTargets; i++) {
-          const t = mgr.getTarget(i);
-          morphByName.set(t.name, t);
-          available.push(t.name);
-        }
+      // Keep only the 4 locomotion clips, renamed to their state key so
+      // PlayerController's name-matching plays exactly one; dispose the rest
+      // (the pack ships 24 embedded clips — combat/guns/etc. — unused for now).
+      const byName = new Map(container.animationGroups.map((g) => [g.name, g]));
+      const kept: AnimationGroup[] = [];
+      for (const [state, clip] of Object.entries(LOCO_CLIPS)) {
+        const g = byName.get(clip);
+        if (!g) { console.warn(`[Avatar] clip "${clip}" (${state}) missing in ${outfit.key}`); continue; }
+        g.name = state;
+        kept.push(g);
       }
-      // Dev verification: dump what the GLB actually contains so we can filter
-      // stray meshes (e.g. MPFB helper geometry) and tune MORPH_TARGET_NAMES.
-      /* eslint-disable no-console */
-      const meshNames = container.meshes.map((m) => m.name).filter((n) => n && n !== '__root__');
-      console.warn('[Avatar] GLB meshes:', meshNames.join(', ') || '(none)');
-      console.warn(
-        `[Avatar] GLB morph targets (${available.length}):`,
-        available.length ? available.join(', ') : '(none — export has no shape keys)',
-      );
-      const coverage = diffMorphCoverage(available);
-      if (coverage.unusedTargets.length > 0) {
-        console.warn('[Avatar] GLB targets with no matching slider:', coverage.unusedTargets.join(', '));
-      }
-      if (coverage.unmappedSliders.length > 0) {
-        console.warn('[Avatar] unmapped morph sliders:', coverage.unmappedSliders.join(', '));
-      }
-      /* eslint-enable no-console */
-
-      // Apply the planned morph weights to their matching targets.
-      for (const { name, weight } of resolveMorphInfluences(plan.morphs, available)) {
-        const target = morphByName.get(name);
-        if (target) target.influence = weight;
-      }
-
-      this.applySkinTexture(container.meshes, plan);
-    } catch {
-      // Base GLB missing — fall back to placeholder body.
+      for (const g of container.animationGroups) { if (!kept.includes(g)) g.dispose(); }
+      animationGroups = kept;
+      console.warn(`[Avatar] outfit loaded: ${outfit.key} (${container.meshes.length} meshes, ${kept.length} clips)`);
+    } catch (err) {
+      console.warn('[Avatar] outfit load failed, using placeholder:', err);
       const placeholderBody = this.buildPlaceholderBody(appearance.bodyBase);
-      this.applySkinTone(placeholderBody, plan.skinTone);
+      this.applySkinTone(placeholderBody, colors.skin ?? DEFAULT_COLORS.skin);
       meshes.push(...placeholderBody);
     }
-
-    // ─── Shared locomotion clips (separate Mixamo GLBs, retargeted to the rig) ─
-    // Dedicated clip files take precedence over any animations embedded in the
-    // base GLB; if none are present we keep whatever the base shipped.
-    if (skeleton) {
-      const clips = await this.loadAnimationClips(skeleton);
-      if (clips.length) {
-        animationGroups.forEach((g) => g.dispose());
-        animationGroups = clips;
-      }
-    }
-
-    // ─── Attached layers (clothing/hair/etc.), sharing the base skeleton ──────
-    // In real-GLB mode a missing part is SKIPPED (not replaced by a floating
-    // placeholder proxy) so the loaded model stays clean.
-    for (const entry of plan.layers) {
-      if (!entry.manifestPath) continue;
-      try {
-        const part = await SceneLoader.LoadAssetContainerAsync('/assets/', entry.manifestPath, this.scene);
-        part.addAllToScene();
-        for (const m of part.meshes) {
-          if (skeleton) m.skeleton = skeleton; // share rig so one animation drives all
-          this.applyPartTint(m, entry, plan.colors);
-          meshes.push(m);
-        }
-      } catch {
-        // part GLB missing/unreachable — skip it (no placeholder in GLB mode)
-      }
-    }
+    /* eslint-enable no-console */
 
     const root = meshes[0] ?? MeshBuilder.CreateBox('char-root', { size: 0.01 }, this.scene);
 
@@ -287,88 +232,39 @@ export class CharacterAssembler {
         animationGroups.forEach((g) => g.dispose());
         meshes.forEach((m) => m.dispose());
       },
-      setMorph: (morphId: MorphId, weight: number) => {
-        const name = mapMorphName(morphId, [...morphByName.keys()]);
-        const target = name ? morphByName.get(name) : undefined;
-        if (target) target.influence = clampMorph(weight);
-      },
       getSkeleton: () => skeleton,
       getAnimationGroups: () => animationGroups,
     };
   }
 
   /**
-   * Loads the shared locomotion clips (idle/walk/run/interact) from separate
-   * GLBs and retargets each onto the base skeleton by bone name, renaming the
-   * group to its manifest key so PlayerController's name-matching playback
-   * (`g.name.includes(state)`) drives it. Missing clip files are skipped, and a
-   * clip whose bones don't match the rig is reported (diffSkeletonBones).
+   * Tint the avatar's materials by region role: the body/suit with the skin
+   * colour, eyes with the eye colour, hair/eyebrows with the hair colour.
+   * (Quaternius bakes body+suit into one material, so the "skin" colour recolours
+   * the whole stylized body.) See AvatarMeshCatalog.tintRoleForMaterial.
    */
-  /* istanbul ignore next — browser/Electron only; exercised via manual verification */
-  private async loadAnimationClips(skeleton: Skeleton): Promise<AnimationGroup[]> {
-    const { SceneLoader } = await import('@babylonjs/core');
-    await import('@babylonjs/loaders/glTF');
-    const out: AnimationGroup[] = [];
-
-    // Drive the base skeleton's transform nodes, looked up by lowercased bone name.
-    const boneNodeByName = new Map<string, unknown>();
-    for (const bone of skeleton.bones) {
-      boneNodeByName.set(bone.name.toLowerCase(), bone.getTransformNode() ?? bone);
-    }
-    const baseBoneNames = skeleton.bones.map((b) => b.name);
-
-    /* eslint-disable no-console */
-    for (const key of ANIMATION_KEYS) {
-      const path = CharacterAssets.animations[key];
-      try {
-        const c = await SceneLoader.LoadAssetContainerAsync('/assets/', path, this.scene);
-        const animBoneNames = (c.skeletons[0]?.bones ?? []).map((b) => b.name);
-        const report = diffSkeletonBones(baseBoneNames, animBoneNames);
-        if (report.missing.length) {
-          console.warn(`[Avatar] anim "${key}" has bones absent from the base rig:`, report.missing.join(', '));
-        }
-        for (const g of c.animationGroups) {
-          out.push(g.clone(key, (oldTarget) => {
-            const name = (oldTarget as { name?: string })?.name?.toLowerCase();
-            return (name && boneNodeByName.get(name)) || oldTarget;
-          }));
-        }
-        // Keep the cloned groups; drop the source container's groups/skeleton/meshes.
-        c.animationGroups.forEach((g) => g.dispose());
-        c.skeletons.forEach((s) => s.dispose());
-        c.meshes.forEach((m) => m.dispose());
-        console.warn(`[Avatar] loaded anim clip "${key}" (${path})`);
-      } catch {
-        // Clip GLB missing/unreachable — that state just won't be animated.
-      }
-    }
-    /* eslint-enable no-console */
-    return out;
-  }
-
-  /* istanbul ignore next — browser-only material/texture wiring */
-  private applySkinTexture(meshes: AbstractMesh[], plan: CharacterPlan): void {
-    const color = Color3.FromHexString(plan.skinTone.padEnd(7, '0'));
-    for (const mesh of meshes) {
-      const mat = mesh.material as (StandardMaterial & { albedoColor?: Color3 }) | null;
-      if (!mat) continue;
-      if ('albedoColor' in mat) {
-        mat.albedoColor = color;           // glTF PBRMaterial
-      } else if (mat instanceof StandardMaterial) {
-        mat.diffuseColor = color;
-      }
-    }
-    // Skin-texture PNG swap + makeup compositing deferred until those PNGs exist
-    // (plan.skinTexturePath / plan.makeup).
-  }
-
   /* istanbul ignore next — browser-only material tint */
-  private applyPartTint(mesh: AbstractMesh, entry: SlotPlanEntry, colors: Record<ColorKey, string>): void {
-    const hex = entry.colorKey ? colors[entry.colorKey] : (CLOTHING_TINTS[entry.slot] ?? null);
-    if (hex && mesh.material instanceof StandardMaterial) {
-      mesh.material.diffuseColor = Color3.FromHexString(hex.padEnd(7, '0'));
+  private tintAvatarMaterials(meshes: AbstractMesh[], colors: Record<ColorKey, string>): void {
+    for (const mesh of meshes) {
+      const mat = mesh.material;
+      if (!mat) continue;
+      const role = tintRoleForMaterial(mat.name);
+      if (!role) continue;
+      const hex = colors[role];
+      if (hex) this.tintMaterial(mat, Color3.FromHexString(hex.padEnd(7, '0')));
     }
   }
+
+  /** Set a material's base colour, handling both PBR (albedoColor) and Standard. */
+  /* istanbul ignore next — browser-only material tint */
+  private tintMaterial(mat: unknown, color: Color3): void {
+    if (mat && typeof mat === 'object' && 'albedoColor' in mat) {
+      (mat as { albedoColor: Color3 }).albedoColor = color;
+    } else if (mat instanceof StandardMaterial) {
+      mat.diffuseColor = color;
+    }
+  }
+
 
   /** Procedural placeholder — used when GLTF files don't exist yet. */
   assemblePlaceholder(appearance: CharacterAppearance): AssembledCharacter {

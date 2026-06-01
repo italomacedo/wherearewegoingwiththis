@@ -2,29 +2,23 @@ import {
   Engine, Color4, ArcRotateCamera, Vector3,
   HemisphericLight, Color3, PointLight,
 } from '@babylonjs/core';
-import { AdvancedDynamicTexture, TextBlock, Button, StackPanel, InputText, Slider, ScrollViewer, Control } from '@babylonjs/gui';
+import { AdvancedDynamicTexture, TextBlock, Button, StackPanel, InputText, ScrollViewer, Control } from '@babylonjs/gui';
 import { BaseScene } from './BaseScene';
 import { SceneManager } from '@core/SceneManager';
 import { ServiceLocator } from '@core/ServiceLocator';
 import { GameSession } from '@core/GameSession';
 import {
-  CharacterData, CharacterAppearance, DEFAULT_APPEARANCE, BODY_BASES,
-  SlotId, ColorKey, SkinTextureId, MorphId, Ethnicity, Gender, ETHNICITIES,
-  SLOT_REGISTRY, MORPH_REGISTRY, applySlot, getHair, cloneAppearance,
-  bodyBaseKey, parseGender, parseEthnicity,
+  CharacterData, DEFAULT_APPEARANCE, ColorKey, cloneAppearance,
 } from '@entities/CharacterData';
-import { CharacterAssets, listAssetKeys } from '@assets/AssetManifest';
+import { type Gender, outfitsForGender, genderOfOutfit } from '@assets/AvatarMeshCatalog';
 
 // ─── Character-creator UI schema (pure, data-driven) ────────────────────────────
 
 export type ControlSpec =
   | { kind: 'gender'; label: string }
-  | { kind: 'ethnicity'; label: string }
-  | { kind: 'bodyCycler'; label: string }
-  | { kind: 'swatch'; label: string; skinTextures: SkinTextureId[] }
   | { kind: 'color'; label: string; colorKey: ColorKey; presets: string[] }
-  | { kind: 'cycler'; label: string; slot: SlotId; options: (string | null)[] }
-  | { kind: 'slider'; label: string; morph: MorphId };
+  // Cycle through the outfits (complete Quaternius characters) of the current gender.
+  | { kind: 'outfit'; label: string };
 
 export interface CategorySpec {
   title: string;
@@ -41,80 +35,37 @@ export const COLOR_PRESETS: Record<ColorKey, string[]> = {
   beard: ['#0A0A0A', '#1A1A1A', '#3B2A1A', '#6A4A2A', '#A86B3C', '#9A9A9A'],
   eye: ['#3A2A1A', '#5A4A2A', '#2A4A6A', '#3A6A4A', '#6A6A6A', '#8A3A3A', '#00A0A0'],
   makeup: ['#A03050', '#C04060', '#3A2A6A', '#202020', '#A0A030', '#00A0A0'],
+  outfit: ['#202833', '#3A4A6B', '#6B2A2A', '#2A5A3A', '#5A2A6A', '#8A8A8A', '#C0C0C0', '#101010', '#00A0A0', '#C97A1E'],
+  bottom: ['#2A2E38', '#1A1A1A', '#3B3020', '#24323F', '#4A2A2A', '#6A6A6A', '#202020', '#3A4A6B'],
+  shoes: ['#1A1A1A', '#3B2A1A', '#6A6A6A', '#101010', '#5A2A2A', '#C0C0C0', '#202833'],
+  hat: ['#202833', '#1A1A1A', '#6B2A2A', '#3A4A6B', '#5A2A6A', '#8A8A8A', '#C97A1E'],
 };
-
-function slotCycler(slot: SlotId, label: string): ControlSpec {
-  return { kind: 'cycler', label, slot, options: [null, ...listAssetKeys(SLOT_REGISTRY[slot].manifestKey)] };
-}
 
 function colorControl(colorKey: ColorKey, label: string): ControlSpec {
   return { kind: 'color', label, colorKey, presets: COLOR_PRESETS[colorKey] };
 }
 
 /**
- * Builds the grouped control schema for the character creator from the slot +
- * morph registries and the asset manifest. Pure + unit-tested; the browser
- * widget factory consumes this so adding a slot needs no new UI code.
+ * Grouped control schema for the character creator (Quaternius Ultimate Modular
+ * model): gender + outfit pick a complete dressed/animated character; colours
+ * tint the shared semantic materials (skin, eyes, hair/eyebrows). Each outfit
+ * keeps its authored clothing colours. Pure + unit-tested.
  */
 export function buildCreatorSchema(): CategorySpec[] {
-  const skinTextures = Object.keys(CharacterAssets.skinTextures) as SkinTextureId[];
-
   return [
     {
       title: 'Body & Skin',
       controls: [
         { kind: 'gender', label: 'Gender' },
-        { kind: 'ethnicity', label: 'Ethnicity' },
-        { kind: 'swatch', label: 'Skin Texture', skinTextures },
         colorControl('skin', 'Skin Tone'),
-      ],
-    },
-    {
-      title: 'Hair & Facial Hair',
-      controls: [
-        slotCycler('hair', 'Hair'),
-        colorControl('hair', 'Hair Color'),
-        slotCycler('eyebrows', 'Eyebrows'),
-        colorControl('eyebrow', 'Eyebrow Color'),
-        slotCycler('beard', 'Beard'),
-        colorControl('beard', 'Beard Color'),
-      ],
-    },
-    {
-      title: 'Eyes',
-      controls: [
-        slotCycler('eyes', 'Eyes'),
         colorControl('eye', 'Eye Color'),
-        slotCycler('teeth', 'Teeth'),
       ],
     },
     {
-      title: 'Tops',
+      title: 'Outfit',
       controls: [
-        slotCycler('t_shirt', 'T-Shirt'),
-        slotCycler('shirt', 'Shirt'),
-        slotCycler('long_sleeve', 'Long Sleeve'),
-        slotCycler('jacket', 'Jacket'),
-        slotCycler('coat', 'Coat'),
-        slotCycler('kutte', 'Kutte'),
-      ],
-    },
-    {
-      title: 'Bottoms & Belt',
-      controls: [
-        slotCycler('pants', 'Pants'),
-        slotCycler('skirt', 'Skirt'),
-        slotCycler('shorts', 'Shorts'),
-        slotCycler('belt', 'Belt'),
-      ],
-    },
-    {
-      title: 'Footwear',
-      controls: [
-        slotCycler('socks', 'Socks'),
-        slotCycler('shoes', 'Shoes'),
-        slotCycler('boots', 'Boots'),
-        slotCycler('sneakers', 'Sneakers'),
+        { kind: 'outfit', label: 'Outfit' },
+        colorControl('hair', 'Hair Color'),
       ],
     },
   ];
@@ -128,17 +79,6 @@ export class CharacterCreatorScene extends BaseScene {
     appearance: cloneAppearance(DEFAULT_APPEARANCE),
   };
 
-  /** Legacy clothing-slot aliases → concrete new slot ids. */
-  private static readonly CLOTHING_SLOT_ALIAS: Record<'top' | 'bottom' | 'shoes', SlotId> = {
-    top: 'shirt',
-    bottom: 'pants',
-    shoes: 'boots',
-  };
-
-  private static readonly HAIR_OPTIONS: (string | null)[] = [
-    'hair_short_01', 'hair_long_01', 'hair_undercut_01',
-    'hair_mohawk_01', 'hair_bun_01', 'hair_dreadlocks_01', null,
-  ];
   private assembler: CharacterAssembler | null = null;
   private assembled: AssembledCharacter | null = null;
 
@@ -196,23 +136,8 @@ export class CharacterCreatorScene extends BaseScene {
     return this.characterData.name;
   }
 
-  async cycleBodyBase(direction: 1 | -1): Promise<void> {
-    const current = BODY_BASES.indexOf(this.characterData.appearance.bodyBase as (typeof BODY_BASES)[number]);
-    const next = (current + direction + BODY_BASES.length) % BODY_BASES.length;
-    this.setAppearance('bodyBase', BODY_BASES[next]!);
-    await this.rebuildCharacter();
-  }
-
   async setSkinTone(hex: string): Promise<void> {
     this.setColor('skin', hex);
-    await this.rebuildCharacter();
-  }
-
-  async cycleHair(direction: 1 | -1): Promise<void> {
-    const opts = CharacterCreatorScene.HAIR_OPTIONS;
-    const current = opts.indexOf(getHair(this.characterData.appearance));
-    const next = (current + direction + opts.length) % opts.length;
-    this.setSlot('hair', opts[next] ?? null);
     await this.rebuildCharacter();
   }
 
@@ -221,69 +146,45 @@ export class CharacterCreatorScene extends BaseScene {
     await this.rebuildCharacter();
   }
 
-  /** Set a slot directly by its id (exclusion-aware). */
-  async setSlotValue(slot: SlotId, value: string | null): Promise<void> {
-    this.setSlot(slot, value);
+  /**
+   * Set the current outfit (a complete Quaternius character key), then rebuild.
+   */
+  async setOutfit(key: string): Promise<void> {
+    this.characterData = {
+      ...this.characterData,
+      appearance: { ...this.characterData.appearance, bodyBase: key },
+    };
     await this.rebuildCharacter();
   }
 
-  /** Set a region tint (skin/hair/eyebrow/eye/beard/makeup) and rebuild. */
+  /** Currently-selected outfit key. */
+  getOutfit(): string {
+    return this.characterData.appearance.bodyBase;
+  }
+
+  /** Cycle through the current gender's outfits. */
+  async cycleOutfit(dir: 1 | -1): Promise<void> {
+    const keys = outfitsForGender(this.getGender()).map((o) => o.key);
+    if (keys.length === 0) return;
+    const idx = keys.indexOf(this.getOutfit());
+    const start = idx === -1 ? 0 : idx;
+    await this.setOutfit(keys[(start + dir + keys.length) % keys.length]!);
+  }
+
+  /** Set a region tint (skin/eye/hair…) and rebuild. */
   async setColorValue(key: ColorKey, hex: string): Promise<void> {
     this.setColor(key, hex);
     await this.rebuildCharacter();
   }
 
-  /** Switch gender, keeping the current ethnicity — selects the matching GLB. */
+  /** Switch gender — picks the first outfit of that gender. */
   async setGender(gender: Gender): Promise<void> {
-    this.setAppearance('bodyBase', bodyBaseKey(gender, this.getEthnicity()));
-    await this.rebuildCharacter();
+    const first = outfitsForGender(gender)[0];
+    if (first) await this.setOutfit(first.key);
   }
 
   getGender(): Gender {
-    return parseGender(this.characterData.appearance.bodyBase);
-  }
-
-  /** Switch ethnicity, keeping gender — selects the matching MakeHuman GLB. */
-  async setEthnicity(ethnicity: Ethnicity): Promise<void> {
-    this.setAppearance('bodyBase', bodyBaseKey(this.getGender(), ethnicity));
-    await this.rebuildCharacter();
-  }
-
-  getEthnicity(): Ethnicity {
-    return parseEthnicity(this.characterData.appearance.bodyBase);
-  }
-
-  /** Choose one of the four skin textures and rebuild. */
-  async setSkinTextureChoice(id: SkinTextureId): Promise<void> {
-    this.characterData = {
-      ...this.characterData,
-      appearance: { ...this.characterData.appearance, skinTexture: id },
-    };
-    await this.rebuildCharacter();
-  }
-
-  /**
-   * Set a morph slider value (0..1). Morphs are applied LIVE to the assembled
-   * character (no full rebuild) — in placeholder mode there are no morph targets,
-   * so this is a visible no-op until a real GLB base is loaded.
-   */
-  async setMorph(morph: string, value: number): Promise<void> {
-    this.characterData = {
-      ...this.characterData,
-      appearance: {
-        ...this.characterData.appearance,
-        morphs: { ...this.characterData.appearance.morphs, [morph]: value },
-      },
-    };
-    this.assembled?.setMorph?.(morph, value);
-  }
-
-  async setClothingSlot(
-    slot: 'top' | 'bottom' | 'shoes',
-    value: string | null
-  ): Promise<void> {
-    this.setSlot(CharacterCreatorScene.CLOTHING_SLOT_ALIAS[slot], value);
-    await this.rebuildCharacter();
+    return genderOfOutfit(this.characterData.appearance.bodyBase);
   }
 
   private setColor(key: ColorKey, hex: string): void {
@@ -293,35 +194,6 @@ export class CharacterCreatorScene extends BaseScene {
         ...this.characterData.appearance,
         colors: { ...this.characterData.appearance.colors, [key]: hex },
       },
-    };
-  }
-
-  private setSlot(slot: SlotId, value: string | null): void {
-    this.characterData = {
-      ...this.characterData,
-      appearance: {
-        ...this.characterData.appearance,
-        slots: applySlot(this.characterData.appearance.slots, slot, value),
-      },
-    };
-  }
-
-  toggleImplant(implantKey: string): void {
-    const implants = [...this.characterData.appearance.implants];
-    const idx = implants.indexOf(implantKey);
-    if (idx === -1) implants.push(implantKey);
-    else implants.splice(idx, 1);
-    this.setAppearance('implants', implants);
-    // implants don't require full rebuild — placeholder only changes color
-  }
-
-  private setAppearance<K extends keyof CharacterAppearance>(
-    key: K,
-    value: CharacterAppearance[K]
-  ): void {
-    this.characterData = {
-      ...this.characterData,
-      appearance: { ...this.characterData.appearance, [key]: value },
     };
   }
 
@@ -505,17 +377,6 @@ export class CharacterCreatorScene extends BaseScene {
     label.height = '18px';
     parent.addControl(label);
 
-    if (spec.kind === 'slider') {
-      const slider = new Slider(`sld-${spec.morph}`);
-      slider.minimum = 0; slider.maximum = 1;
-      slider.value = this.characterData.appearance.morphs[spec.morph] ?? MORPH_REGISTRY[spec.morph]?.defaultValue ?? 0.5;
-      slider.height = '18px'; slider.width = '260px';
-      slider.color = '#00FFCC'; slider.background = 'rgba(0,30,40,0.8)';
-      slider.onValueChangedObservable.add((v) => void this.setMorph(spec.morph, v));
-      parent.addControl(slider);
-      return;
-    }
-
     if (spec.kind === 'color') {
       // In-canvas swatch row (reliable; native DOM colour pickers don't play
       // well over the Babylon canvas — CLAUDE.md Lesson 10).
@@ -527,20 +388,6 @@ export class CharacterCreatorScene extends BaseScene {
         sw.background = hex; sw.color = '#00000000'; sw.thickness = 1;
         sw.onPointerUpObservable.add(() => void this.setColorValue(spec.colorKey, hex));
         row.addControl(sw);
-      }
-      parent.addControl(row);
-      return;
-    }
-
-    if (spec.kind === 'swatch') {
-      const row = new StackPanel(`sw-${spec.label}`);
-      row.isVertical = false; row.height = '30px'; row.spacing = 4;
-      for (const id of spec.skinTextures) {
-        const b = Button.CreateSimpleButton(`sw-${id}`, id.replace('skin_', ''));
-        b.width = '60px'; b.height = '30px';
-        b.color = '#00FFCC'; b.background = 'rgba(0,30,40,0.8)';
-        b.onPointerUpObservable.add(() => void this.setSkinTextureChoice(id));
-        row.addControl(b);
       }
       parent.addControl(row);
       return;
@@ -561,22 +408,7 @@ export class CharacterCreatorScene extends BaseScene {
       return;
     }
 
-    if (spec.kind === 'ethnicity') {
-      const row = new StackPanel('ethnicity-row');
-      row.isVertical = false; row.height = '30px'; row.spacing = 4;
-      ETHNICITIES.forEach((e) => {
-        const b = Button.CreateSimpleButton(`eth-${e}`, e.slice(0, 3).toUpperCase());
-        b.width = '58px'; b.height = '30px';
-        b.color = '#00FFCC'; b.background = 'rgba(0,40,60,0.9)';
-        b.fontFamily = 'monospace';
-        b.onPointerUpObservable.add(() => void this.setEthnicity(e));
-        row.addControl(b);
-      });
-      parent.addControl(row);
-      return;
-    }
-
-    // cycler / bodyCycler — ◄ value ► row
+    // outfit — ◄ ► row cycling the current gender's outfits
     const row = new StackPanel(`row-${spec.label}`);
     row.isVertical = false; row.height = '30px'; row.spacing = 4;
     const prev = Button.CreateSimpleButton(`prev-${spec.label}`, '◄');
@@ -585,24 +417,10 @@ export class CharacterCreatorScene extends BaseScene {
       b.width = '40px'; b.height = '30px';
       b.color = '#00FFCC'; b.background = 'rgba(0,30,40,0.8)';
     });
-    if (spec.kind === 'bodyCycler') {
-      prev.onPointerUpObservable.add(() => void this.cycleBodyBase(-1));
-      next.onPointerUpObservable.add(() => void this.cycleBodyBase(1));
-    } else {
-      prev.onPointerUpObservable.add(() => void this.cycleSlotOption(spec.slot, spec.options, -1));
-      next.onPointerUpObservable.add(() => void this.cycleSlotOption(spec.slot, spec.options, 1));
-    }
+    prev.onPointerUpObservable.add(() => void this.cycleOutfit(-1));
+    next.onPointerUpObservable.add(() => void this.cycleOutfit(1));
     row.addControl(prev);
     row.addControl(next);
     parent.addControl(row);
-  }
-
-  /* istanbul ignore next — browser-only convenience used by the cycler widget */
-  private async cycleSlotOption(slot: SlotId, options: (string | null)[], dir: 1 | -1): Promise<void> {
-    const current = this.characterData.appearance.slots[slot] ?? null;
-    const idx = options.indexOf(current);
-    const start = idx === -1 ? 0 : idx;
-    const nextVal = options[(start + dir + options.length) % options.length] ?? null;
-    await this.setSlotValue(slot, nextVal);
   }
 }

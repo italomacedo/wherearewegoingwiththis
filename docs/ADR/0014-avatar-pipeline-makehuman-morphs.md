@@ -126,6 +126,42 @@ The hero is now rigged and animated in Electron. Decisions and findings:
 
 **Also reused for vehicles:** `VehicleController` loads `vehicles/cyberpunk_harley.glb` via
 the same guarded-load + placeholder-fallback pattern (`useGltf`/`canLoadGltf`).
-**Known issue (deferred):** the hero mesh disappears while mounted on the bike (a separate
-task). **Still deferred:** hair/clothing GLBs (next), skin PNGs, distinct per-ethnicity +
-per-gender rigged exports (the 8 bases are copies of the one Mixamo-rigged male caucasian).
+
+## Addendum 3 (2026-06-01) — MakeHuman quality ceiling, and why we left it
+
+After rig+animation worked, the owner judged the result **aesthetically subpar**: MakeHuman's
+realistic-but-mid base, dated community clothing, and a bald/barefoot default never
+consolidated into a cohesive hero. We tried a "**bake every selectable piece into one rigged
+GLB + toggle visibility per slot**" model (dress the MakeHuman with all hair/clothes, rig the
+lot in Mixamo, `resolveVisibleMeshes` + per-piece tint). It worked mechanically (and taught us
+the per-material tint + visibility-toggle pattern) but: (a) overlapping/positioning glitches,
+(b) clothing skinned to a different bone order distorted, and most importantly (c) **the art
+ceiling is MakeHuman's, not a bug**. For an **isometric** game (far camera), a *stylized,
+cohesive* character reads far better than mid-realism. Decision: **cut losses and pivot.** The
+animation-retarget pipeline and the creator architecture (slots, tint, cyclers) are portable,
+so the pivot wasn't from zero.
+
+## Addendum 4 (2026-06-01) — Pivot to Quaternius "Ultimate Modular" (current)
+
+**Avatar source is now Quaternius Ultimate Modular Men/Women (CC0), not MakeHuman.** Each
+"outfit" is a complete, rigged, **self-animated** character GLB (Punk, SWAT, Suit, Hoodie,
+Sci-Fi, Soldier… — 11 ♂ + 10 ♀) with the 4 parts (Body/Legs/Feet/Head) + 24 embedded clips on
+one Quaternius rig. **Model = whole-outfit swap** (`AvatarMeshCatalog.OUTFITS`), not per-part
+mixing (the parts exist for future mixing).
+
+- **No external animation library / no Mixamo / no hair attach** — clips are embedded;
+  `assembleGltf` keeps the 4 locomotion clips (`Idle`/`Walk`/`Run`/`Interact`), **renames** them
+  to `idle/walk/run/interact` (so `PlayerController` name-matching plays exactly one), and
+  disposes the other 20.
+- **Tint by semantic material name** (`tintRoleForMaterial`): `Skin`→skin tone, `Eye`→eye,
+  `Eyebrows`/`Hair*`→hair. Per-outfit clothing keeps its authored colours.
+- **Faces +Z** (no flip), reuses the creator-camera `alpha=+π/2`.
+- **Creator**: Gender · Skin Tone · Eye Color · **Outfit ◄►** (gender-filtered) · Hair Color.
+  Ethnicity dropped (→ skin tone); `avatarPieces` field kept dormant for future part-mixing.
+- **Assets**: `characters/quaternius/{men,women}/*.glb` (~38 MB total). `scripts/convert_outfits.py`
+  batch-converts the pack's "Individual Characters" glTF → GLB headless.
+- **Cleanup**: all MakeHuman/Mixamo/superhero assets (~326 MB) and the dead
+  `classifyBakedMaterial`/Mixamo-clip code were removed.
+
+**Deferred:** per-part outfit mixing (Body of one + Legs of another — the pack's "Separate
+Skeletal Meshes" support it), clothing recolour, Quaternius environment packs for gap #4.

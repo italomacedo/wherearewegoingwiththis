@@ -186,7 +186,7 @@ describe('CharacterData', () => {
     it('fall back to defaults / null when unset', () => {
       const bare: CharacterAppearance = {
         bodyBase: 'body_male_white', slots: {}, morphs: {}, colors: {},
-        skinTexture: 'skin_01', accessories: [], implants: [],
+        skinTexture: 'skin_01', accessories: [], implants: [], avatarPieces: {},
       };
       expect(getSkinTone(bare)).toBe(DEFAULT_COLORS.skin);
       expect(getHairColor(bare)).toBe(DEFAULT_COLORS.hair);
