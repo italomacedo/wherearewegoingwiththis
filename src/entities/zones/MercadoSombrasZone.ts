@@ -57,11 +57,11 @@ export class MercadoSombrasZone extends WorldZone {
 
   private buildLighting(scene: Scene): void {
     const ambient = new HemisphericLight('ambient', new Vector3(0, 1, 0), scene);
-    ambient.intensity = 0.45; // brighter so the textured downtown reads at night
-    ambient.diffuse = new Color3(0.45, 0.5, 0.7);
-    ambient.groundColor = new Color3(0.12, 0.12, 0.16);
+    ambient.intensity = 0.7; // near-neutral fill so the asphalt reads grey, not flooded
+    ambient.diffuse = new Color3(0.62, 0.64, 0.7);
+    ambient.groundColor = new Color3(0.2, 0.2, 0.24);
 
-    // Neon streetlights lining the street (alternating sides along X).
+    // Neon streetlights lining the street — local accent glows, not a colour wash.
     const neon: Array<[number, number, Color3]> = [
       [-18, 6, new Color3(0, 1, 0.8)],
       [-6, -6, new Color3(0.6, 0, 1)],
@@ -69,11 +69,11 @@ export class MercadoSombrasZone extends WorldZone {
       [18, -6, new Color3(0.1, 0.6, 1)],
     ];
     neon.forEach(([x, z, c], i) => {
-      const light = new PointLight(`neon-${i}`, new Vector3(x, 7, z), scene);
+      const light = new PointLight(`neon-${i}`, new Vector3(x, 5, z), scene);
       light.diffuse = c;
       light.specular = c;
-      light.intensity = 2.4;
-      light.range = 24;
+      light.intensity = 0.9;
+      light.range = 12;
       this.lights.push(light);
     });
   }
