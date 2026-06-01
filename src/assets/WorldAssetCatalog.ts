@@ -116,12 +116,48 @@ const VENDOR: readonly WorldProp[] = [
   { key: 'vendor-food-1', model: 'world/food/bread.glb', position: [VENDOR_SPOT[0] + 0.4, 1.35, SHELF_Z], scale: 0.4 },
 ];
 
+// --- Perimeter walls: continuous brick backing wall per side, just behind the
+//     building line, so the gaps (becos) between buildings show wall, not void.
+//     Mostly occluded by the buildings → the X/Y stretch isn't noticeable. The
+//     −X end is a brick dead-end wall; the +X end is the black exit (procedural). ---
+const WALL_HALF_LEN = ZONE_HALF;       // backing walls span the full street length
+const WALL_TALL: [number, number, number] = [WALL_HALF_LEN, 6.5, 1]; // panel is 2×3 → ~60×19.5
+const WALLS: readonly WorldProp[] = [
+  { key: 'wall-n', model: `${DT}brick_plain_3.glb`, position: [0, 0, BUILDING_Z + 1], rotationY: NORTH_ROT, scale: WALL_TALL },
+  { key: 'wall-s', model: `${DT}brick_plain_3.glb`, position: [0, 0, -(BUILDING_Z + 1)], rotationY: SOUTH_ROT, scale: WALL_TALL },
+  { key: 'wall-deadend', model: `${DT}brick_plain_3.glb`, position: [-ZONE_HALF, 0, 0], rotationY: Math.PI / 2, scale: [BUILDING_Z + 1, 6.5, 1] },
+];
+
+/** The black wall closing the +X end — built procedurally (no MegaKit black piece).
+ *  Touching it will trigger the next-street transition (future). */
+export const EXIT_WALL = {
+  key: 'exit-wall',
+  position: [ZONE_HALF, 7.5, 0] as [number, number, number],
+  size: [1, 15, (BUILDING_Z + 1) * 2] as [number, number, number],
+};
+
+/** Box collider (AABB) data — the closed corridor perimeter. Phase G builds a
+ *  static PhysicsAggregate box per entry; pure data so it's unit-testable. */
+export interface ColliderBox {
+  key: string;
+  position: [number, number, number];
+  size: [number, number, number];
+}
+const WALL_H = 14;
+export const CORRIDOR_COLLIDERS: readonly ColliderBox[] = [
+  { key: 'col-n', position: [0, WALL_H / 2, BUILDING_Z], size: [ZONE_HALF * 2 + 2, WALL_H, 2] },
+  { key: 'col-s', position: [0, WALL_H / 2, -BUILDING_Z], size: [ZONE_HALF * 2 + 2, WALL_H, 2] },
+  { key: 'col-w', position: [-ZONE_HALF, WALL_H / 2, 0], size: [2, WALL_H, BUILDING_Z * 2 + 2] },
+  { key: 'col-e', position: [ZONE_HALF, WALL_H / 2, 0], size: [2, WALL_H, BUILDING_Z * 2 + 2] },
+];
+
 /** Everything the downtown street loads (road first, then structures/props/vendor). */
 export const MERCADO_PROPS: readonly WorldProp[] = [
   ...ROADS,
   ...SIDEWALKS,
   ...LINING_BUILDINGS,
   ...DEAD_END,
+  ...WALLS,
   ...BACKDROP_BUILDINGS,
   ...PROPS,
   ...VENDOR,

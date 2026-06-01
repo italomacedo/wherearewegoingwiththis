@@ -3,7 +3,7 @@ import {
   HemisphericLight, PointLight, ParticleSystem, Texture, AbstractMesh, Mesh, TransformNode,
 } from '@babylonjs/core';
 import { WorldZone, ZoneBounds } from '@entities/WorldZone';
-import { MERCADO_PROPS } from '@assets/WorldAssetCatalog';
+import { MERCADO_PROPS, EXIT_WALL } from '@assets/WorldAssetCatalog';
 
 /**
  * Mercado das Sombras — the starting underground street market district.
@@ -33,6 +33,7 @@ export class MercadoSombrasZone extends WorldZone {
     this.buildLighting(scene);
     this.buildBuildings(scene);
     this.buildStalls(scene);
+    this.buildExitWall(scene);
     this.buildRain(scene);
     // Real assets layered on in browser only
     /* istanbul ignore next — browser/Electron asset loading */
@@ -128,6 +129,22 @@ export class MercadoSombrasZone extends WorldZone {
     mat.emissiveColor = new Color3(0.05, 0.1, 0.12);
     counter.material = mat;
     return counter;
+  }
+
+  /** Black wall closing the +X end of the street (future scene-transition trigger). */
+  private buildExitWall(scene: Scene): void {
+    const wall = MeshBuilder.CreateBox(
+      EXIT_WALL.key,
+      { width: EXIT_WALL.size[0], height: EXIT_WALL.size[1], depth: EXIT_WALL.size[2] },
+      scene
+    );
+    wall.position.set(EXIT_WALL.position[0], EXIT_WALL.position[1], EXIT_WALL.position[2]);
+    const mat = new StandardMaterial('exit-wall-mat', scene);
+    mat.diffuseColor = Color3.Black();
+    mat.specularColor = Color3.Black();
+    mat.emissiveColor = new Color3(0.02, 0.02, 0.04); // faint sheen so it reads as a surface
+    wall.material = mat;
+    this.meshes.push(wall);
   }
 
   private buildRain(scene: Scene): void {

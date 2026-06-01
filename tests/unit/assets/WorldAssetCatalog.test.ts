@@ -1,5 +1,6 @@
 import {
   WorldProp, ZONE_HALF, facingCenter, MERCADO_PROPS, NAVE_MODEL, VENDOR_SPOT,
+  EXIT_WALL, CORRIDOR_COLLIDERS,
 } from '../../../src/assets/WorldAssetCatalog';
 
 const within = (p: WorldProp) =>
@@ -42,6 +43,33 @@ describe('WorldAssetCatalog — downtown city block (pure)', () => {
 
   it('includes sidewalks for the vendor calçada', () => {
     expect(byKey(/^sidewalk-/).length).toBeGreaterThan(0);
+  });
+
+  it('closes both sides + the dead end with backing walls', () => {
+    expect(byKey(/^wall-(n|s)$/)).toHaveLength(2); // continuous side walls
+    expect(MERCADO_PROPS.find((p) => p.key === 'wall-deadend')).toBeDefined();
+  });
+
+  it('defines a black exit wall at the +X end', () => {
+    expect(EXIT_WALL.key).toBe('exit-wall');
+    expect(EXIT_WALL.position[0]).toBeCloseTo(ZONE_HALF);
+    expect(EXIT_WALL.size.every((s) => s > 0)).toBe(true);
+  });
+
+  it('defines a closed corridor of box colliders (2 sides + 2 ends)', () => {
+    expect(CORRIDOR_COLLIDERS).toHaveLength(4);
+    const keys = CORRIDOR_COLLIDERS.map((c) => c.key);
+    expect(new Set(keys).size).toBe(4);
+    for (const c of CORRIDOR_COLLIDERS) {
+      expect(c.size.every((s) => s > 0)).toBe(true);
+      expect(Math.abs(c.position[0])).toBeLessThanOrEqual(ZONE_HALF);
+      expect(Math.abs(c.position[2])).toBeLessThanOrEqual(ZONE_HALF);
+    }
+    // The two side colliders are long along X; the two ends are long along Z.
+    const sides = CORRIDOR_COLLIDERS.filter((c) => c.size[0] > c.size[2]);
+    const ends = CORRIDOR_COLLIDERS.filter((c) => c.size[2] > c.size[0]);
+    expect(sides).toHaveLength(2);
+    expect(ends).toHaveLength(2);
   });
 
   it('includes street props and a sidewalk vendor stall with food', () => {
