@@ -4,8 +4,10 @@ import {
   PhysicsAggregate, PhysicsShapeType,
 } from '@babylonjs/core';
 import { WorldZone, ZoneBounds } from '@entities/WorldZone';
-import { MERCADO_PROPS, EXIT_WALL, CORRIDOR_COLLIDERS, ZONE_HALF } from '@assets/WorldAssetCatalog';
+import { MERCADO_PROPS, EXIT_WALL, CORRIDOR_COLLIDERS, ZONE_HALF, ANIMAL_MODELS } from '@assets/WorldAssetCatalog';
 import { DayPeriod, paletteForPeriod } from '@systems/GameClock';
+import { DOG_SPAWNS, DOG_BOUNDS, BEGGAR_SPOTS, TRASH_SPOTS, stepDog, DogState } from '@entities/AmbientLife';
+import type { Observer } from '@babylonjs/core';
 
 /** Prop keys that should block the player (solid). Floor-like props (roads,
  *  sidewalks, food, manhole, drain, decals) are intentionally walkable. */
@@ -25,6 +27,8 @@ export class MercadoSombrasZone extends WorldZone {
   private holders: TransformNode[] = [];
   private colliders: AbstractMesh[] = [];
   private aggregates: PhysicsAggregate[] = [];
+  /** Per-frame stray-dog animation observer (Fase 6); removed on unload. */
+  private dogObserver: Observer<Scene> | null = null;
 
   getSpawnPoint(): Vector3 {
     return new Vector3(0, 0, 0);
@@ -48,6 +52,7 @@ export class MercadoSombrasZone extends WorldZone {
     /* istanbul ignore next — browser/Electron asset loading */
     if (typeof document !== 'undefined') {
       await this.loadRealAssets(scene);
+      await this.buildAmbientLife(scene);
     }
   }
 
@@ -203,6 +208,93 @@ export class MercadoSombrasZone extends WorldZone {
     if (scene.isPhysicsEnabled()) this.buildColliders(scene);
   }
 
+  /**
+   * Street atmosphere (Fase 6): scattered trash + slumped beggar silhouettes
+   * (procedural) and a few wandering stray dogs (Quaternius CC0 GLBs, animated
+   * via the pure stepDog wander). Browser/Electron only; verified manually.
+   */
+  /* istanbul ignore next — browser/Electron meshes + GLB loading */
+  private async buildAmbientLife(scene: Scene): Promise<void> {
+    // Trash piles — low dark mounds in the gutters (walkable, no collider).
+    const trashMat = new StandardMaterial('trash-mat', scene);
+    trashMat.diffuseColor = new Color3(0.08, 0.08, 0.07);
+    trashMat.specularColor = Color3.Black();
+    TRASH_SPOTS.forEach((t, i) => {
+      const pile = MeshBuilder.CreateBox(`trash-${i}`, { width: t.size * 2, height: t.size, depth: t.size * 1.6 }, scene);
+      pile.position.set(t.x, t.size / 2, t.z);
+      pile.rotation.y = i * 1.1;
+      pile.material = trashMat;
+      this.meshes.push(pile);
+    });
+
+    // Beggars — slumped procedural silhouettes (non-interactive, no collider).
+    const beggarMat = new StandardMaterial('beggar-mat', scene);
+    beggarMat.diffuseColor = new Color3(0.12, 0.1, 0.1);
+    beggarMat.specularColor = Color3.Black();
+    BEGGAR_SPOTS.forEach((sgt, i) => {
+      const body = MeshBuilder.CreateCylinder(`beggar-${i}`, { height: 0.9, diameterTop: 0.5, diameterBottom: 0.8 }, scene);
+      body.position.set(sgt.x, 0.45, sgt.z);
+      body.rotation.y = sgt.rotationY;
+      body.material = beggarMat;
+      const head = MeshBuilder.CreateSphere(`beggar-head-${i}`, { diameter: 0.26 }, scene);
+      head.position.set(sgt.x, 0.95, sgt.z + Math.cos(sgt.rotationY) * 0.1);
+      head.material = beggarMat;
+      this.meshes.push(body, head);
+    });
+
+    // Stray dogs — load each GLB once, instantiate per spawn, wander + animate.
+    await this.buildStrayDogs(scene);
+  }
+
+  /* istanbul ignore next — browser/Electron GLB loading + animation */
+  private async buildStrayDogs(scene: Scene): Promise<void> {
+    const { SceneLoader, TransformNode } = await import('@babylonjs/core');
+    await import('@babylonjs/loaders/glTF');
+
+    interface Dog { holder: TransformNode; state: DogState; walk: import('@babylonjs/core').AnimationGroup | null; idle: import('@babylonjs/core').AnimationGroup | null; }
+    const dogs: Dog[] = [];
+
+    for (let i = 0; i < DOG_SPAWNS.length; i++) {
+      const spawn = DOG_SPAWNS[i];
+      try {
+        const c = await SceneLoader.LoadAssetContainerAsync('/assets/', ANIMAL_MODELS[spawn.model], scene);
+        const entries = c.instantiateModelsToScene((n) => `dog-${i}-${n}`, false);
+        const holder = new TransformNode(`dog-holder-${i}`, scene);
+        holder.scaling.setAll(0.5); // strays read small on the street
+        entries.rootNodes.forEach((rn) => { if (!rn.parent) rn.parent = holder; });
+        const g = entries.animationGroups;
+        const walk = g.find((a) => a.name.toLowerCase().includes('walk')) ?? null;
+        const idle = g.find((a) => /idle$/i.test(a.name)) ?? g.find((a) => a.name.toLowerCase().includes('idle')) ?? null;
+        g.forEach((a) => a.stop());
+        const state = { ...spawn.state };
+        holder.position.set(state.x, 0, state.z);
+        holder.rotation.y = state.heading;
+        (state.moving ? walk : idle)?.start(true);
+        dogs.push({ holder, state, walk, idle });
+        c.meshes.forEach((m) => this.meshes.push(m));
+      } catch (err) {
+        console.warn(`[Mercado] stray dog "${spawn.model}" failed to load:`, err);
+      }
+    }
+    if (dogs.length === 0) return;
+
+    // Per-frame wander: step each dog, move/turn the holder, swap walk/idle clip.
+    this.dogObserver = scene.onBeforeRenderObservable.add(() => {
+      const dt = Math.min(0.1, scene.getEngine().getDeltaTime() / 1000);
+      for (const dog of dogs) {
+        const wasMoving = dog.state.moving;
+        dog.state = stepDog(dog.state, dt, DOG_BOUNDS, Math.random);
+        dog.holder.position.set(dog.state.x, 0, dog.state.z);
+        dog.holder.rotation.y = dog.state.heading;
+        if (dog.state.moving !== wasMoving) {
+          (dog.state.moving ? dog.idle : dog.walk)?.stop();
+          (dog.state.moving ? dog.walk : dog.idle)?.start(true);
+        }
+      }
+    });
+    console.warn(`[Mercado] stray dogs: ${dogs.length}`);
+  }
+
   /* istanbul ignore next — physics colliders are browser/Electron only */
   private buildColliders(scene: Scene): void {
     // Floor — gives the character controller ground to stand on.
@@ -284,6 +376,11 @@ export class MercadoSombrasZone extends WorldZone {
     this.lights.forEach((l) => l.dispose());
     this.lights = [];
     this.ambient = null;
+    /* istanbul ignore next — dog animation observer only exists in browser */
+    if (this.dogObserver && this.scene) {
+      this.scene.onBeforeRenderObservable.remove(this.dogObserver);
+      this.dogObserver = null;
+    }
     /* istanbul ignore next — holders only exist after browser GLB load */
     this.holders.forEach((h) => h.dispose());
     this.holders = [];

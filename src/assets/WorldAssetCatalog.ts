@@ -230,6 +230,13 @@ function buildWaypointGraph(): WaypointGraph {
 /** The downtown street's navigation graph (Fase 5). */
 export const WAYPOINT_GRAPH: WaypointGraph = buildWaypointGraph();
 
+/** Stray-animal GLBs (Quaternius Ultimate Animated Animals, CC0) for the street
+ *  atmosphere (Fase 6). Keyed by the model name used in AmbientLife.DOG_SPAWNS. */
+export const ANIMAL_MODELS: Record<'shibainu' | 'husky', string> = {
+  shibainu: 'world/animals/shibainu.glb',
+  husky: 'world/animals/husky.glb',
+};
+
 /** Atmospheric nave (small Spaceships model) — replaces the flying bike. */
 export const NAVE_MODEL = {
   path: 'vehicles/nave.glb',
