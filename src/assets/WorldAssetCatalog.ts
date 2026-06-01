@@ -22,8 +22,8 @@ export interface WorldProp {
   position: [number, number, number];
   /** Y rotation (radians); default 0. */
   rotationY?: number;
-  /** Uniform scale; default 1. */
-  scale?: number;
+  /** Uniform scale (number) or per-axis [x,y,z]; default 1. */
+  scale?: number | [number, number, number];
 }
 
 /** Half-extent of the Mercado zone bounds (matches MercadoSombrasZone.getBounds). */
@@ -37,25 +37,26 @@ export function facingCenter(x: number, z: number): number {
 const DT = 'world/downtown/';
 
 // Orientation constants (tune in Electron — depend on each model's authored front).
-const ROAD_ROT = Math.PI / 2; // 4-lane tile (6 wide × 18 long) → length along X
-const NORTH_ROT = Math.PI;    // +Z-side buildings face −Z (toward the street)
-const SOUTH_ROT = 0;          // −Z-side buildings face +Z
-const DEADEND_ROT = Math.PI / 2; // far-left building faces +X, walling the street
+// MegaKit buildings have their origin at the FRONT (local z≈0) with the body
+// extending to −z, so placing a building at a Z line puts its facade on that line.
+const NORTH_ROT = Math.PI;     // +Z-side buildings face −Z (toward the street)
+const SOUTH_ROT = 0;           // −Z-side buildings face +Z
+const DEADEND_ROT = -Math.PI / 2; // far-left building faces +X, walling the street
 
-const ROAD_Z = 0;       // street centre line
-const SIDEWALK_Z = 5;   // sidewalk offset from centre (road is ±3 wide)
-const BUILDING_Z = 14;  // building frontage line
-const BACKDROP_Z = 24;  // textured-pack backdrops behind the frontage
+const ROAD_HALF = 4.5;  // road spans z ∈ [−4.5, 4.5] (9 wide, matches asphalt tile)
+const SIDEWALK_Z = 7.25; // sidewalk centre — fills road-edge (4.5) → building front (~10)
+const BUILDING_Z = 10;   // building facade line (front origin sits here)
+const BACKDROP_Z = 20;   // textured-pack backdrops behind the facade
 
-// --- Road: 4-lane tiles laid end-to-end along X (each 18 long after rotation). ---
-const ROADS: readonly WorldProp[] = [-27, -9, 9, 27].map((x, i) => ({
+// --- Road: continuous asphalt. Tile origin is a corner ([-9,0]×[-9,0]); place at
+//     z = +ROAD_HALF so it spans [−4.5, 4.5], stepping 9 along X for a seamless strip. ---
+const ROADS: readonly WorldProp[] = [-22.5, -13.5, -4.5, 4.5, 13.5, 22.5].map((x, i) => ({
   key: `road-${i}`,
-  model: `${DT}street_4lane.glb`,
-  position: [x, 0, ROAD_Z],
-  rotationY: ROAD_ROT,
+  model: `${DT}street_asphalt_9x9.glb`,
+  position: [x, 0.02, ROAD_HALF] as [number, number, number],
 }));
 
-// --- Buildings lining both sides of the street, fronts toward the road. ---
+// --- Buildings lining both sides of the street, facades toward the road. ---
 const NORTH_BUILDINGS: ReadonlyArray<[number, string]> = [
   [-22, 'building_medium_2_001'], [-2, 'building_large_2'], [18, 'building_small_1'],
 ];
@@ -73,10 +74,10 @@ const LINING_BUILDINGS: readonly WorldProp[] = [
 
 // Dead end: a building walling off the far-left (−X) end of the street.
 const DEAD_END: readonly WorldProp[] = [
-  { key: 'bld-deadend', model: `${DT}building_large_2.glb`, position: [-30, 0, 0], rotationY: DEADEND_ROT },
+  { key: 'bld-deadend', model: `${DT}building_large_2.glb`, position: [-29, 0, 0], rotationY: DEADEND_ROT },
 ];
 
-// Textured-pack buildings (Phase B GLBs, ~2u → scale 4) as skyline depth behind the frontage.
+// Textured-pack buildings (Phase B GLBs, ~2u → scale 4) as skyline depth behind the facade.
 const BACKDROP_BUILDINGS: readonly WorldProp[] = [
   { key: 'bld-back-n0', model: 'world/buildings/6story_stack_mat.glb', position: [-14, 0, BACKDROP_Z], rotationY: NORTH_ROT, scale: 4 },
   { key: 'bld-back-n1', model: 'world/buildings/4story_mat.glb', position: [10, 0, BACKDROP_Z], rotationY: NORTH_ROT, scale: 4 },
@@ -84,32 +85,35 @@ const BACKDROP_BUILDINGS: readonly WorldProp[] = [
   { key: 'bld-back-s1', model: 'world/buildings/2story_balcony_mat.glb', position: [10, 0, -BACKDROP_Z], rotationY: SOUTH_ROT, scale: 4 },
 ];
 
-// --- Sidewalks: a stretch on the north side (where the vendor stands) + south. ---
-const SIDEWALKS: readonly WorldProp[] = [-9, -6, -3, 0, 3, 6, 9].flatMap((x, i) => [
-  { key: `sidewalk-n-${i}`, model: `${DT}sidewalk_straight_3m.glb`, position: [x, 0, SIDEWALK_Z] as [number, number, number] },
-  { key: `sidewalk-s-${i}`, model: `${DT}sidewalk_straight_3m.glb`, position: [x, 0, -SIDEWALK_Z] as [number, number, number] },
+// --- Sidewalks: continuous strips against the buildings on both sides. The 3×3
+//     tile is centred; scale it [2,1,~1.8] (6 long × ~5.4 wide) and step 6 in X. ---
+const SIDEWALK_SCALE: [number, number, number] = [2, 1, 1.8];
+const SIDEWALKS: readonly WorldProp[] = [-24, -18, -12, -6, 0, 6, 12, 18, 24].flatMap((x, i) => [
+  { key: `sidewalk-n-${i}`, model: `${DT}sidewalk_straight_3m.glb`, position: [x, 0.03, SIDEWALK_Z] as [number, number, number], scale: SIDEWALK_SCALE },
+  { key: `sidewalk-s-${i}`, model: `${DT}sidewalk_straight_3m.glb`, position: [x, 0.03, -SIDEWALK_Z] as [number, number, number], scale: SIDEWALK_SCALE },
 ]);
 
 // --- Street props (decorative). ---
 const PROPS: readonly WorldProp[] = [
-  { key: 'prop-manhole', model: `${DT}prop_manholecover.glb`, position: [-6, 0, 0] },
-  { key: 'prop-drain', model: `${DT}prop_drain.glb`, position: [8, 0, 2.5] },
-  { key: 'prop-bollard-0', model: `${DT}prop_bollard.glb`, position: [-12, 0, 4] },
-  { key: 'prop-bollard-1', model: `${DT}prop_bollard.glb`, position: [12, 0, 4] },
-  { key: 'prop-bollard-2', model: `${DT}prop_bollard.glb`, position: [-12, 0, -4] },
-  { key: 'prop-bollard-3', model: `${DT}prop_bollard.glb`, position: [12, 0, -4] },
-  { key: 'prop-planter', model: `${DT}prop_planter_single.glb`, position: [-3, 0, 6] },
-  { key: 'prop-acunit', model: `${DT}prop_acunit.glb`, position: [0, 0, 12], rotationY: NORTH_ROT },
+  { key: 'prop-manhole', model: `${DT}prop_manholecover.glb`, position: [-6, 0.03, 0] },
+  { key: 'prop-drain', model: `${DT}prop_drain.glb`, position: [8, 0.03, 3] },
+  { key: 'prop-bollard-0', model: `${DT}prop_bollard.glb`, position: [-12, 0, 5.5] },
+  { key: 'prop-bollard-1', model: `${DT}prop_bollard.glb`, position: [12, 0, 5.5] },
+  { key: 'prop-bollard-2', model: `${DT}prop_bollard.glb`, position: [-12, 0, -5.5] },
+  { key: 'prop-bollard-3', model: `${DT}prop_bollard.glb`, position: [12, 0, -5.5] },
+  { key: 'prop-planter', model: `${DT}prop_planter_single.glb`, position: [-6, 0, 7.5] },
+  { key: 'prop-acunit', model: `${DT}prop_acunit.glb`, position: [9, 0, 9.5], rotationY: NORTH_ROT },
 ];
 
 /** Where Zara (and her stall) stand — on the north sidewalk, near the spawn. */
 export const VENDOR_SPOT: [number, number, number] = [3, 0, 6];
 
-// --- Sidewalk vendor stall (Ultimate shelf + food) beside Zara. ---
+// --- Sidewalk vendor stall (Ultimate shelf + food) on the calçada beside Zara. ---
+const SHELF_Z = 8.6; // on the sidewalk, just in front of the building facade
 const VENDOR: readonly WorldProp[] = [
-  { key: 'vendor-shelf', model: 'world/props/props_shelf_tall.glb', position: [VENDOR_SPOT[0], 0, 7.5], rotationY: NORTH_ROT },
-  { key: 'vendor-food-0', model: 'world/food/apple.glb', position: [VENDOR_SPOT[0] - 0.4, 1.35, 7.5], scale: 0.4 },
-  { key: 'vendor-food-1', model: 'world/food/bread.glb', position: [VENDOR_SPOT[0] + 0.4, 1.35, 7.5], scale: 0.4 },
+  { key: 'vendor-shelf', model: 'world/props/props_shelf_tall.glb', position: [VENDOR_SPOT[0], 0, SHELF_Z], rotationY: NORTH_ROT },
+  { key: 'vendor-food-0', model: 'world/food/apple.glb', position: [VENDOR_SPOT[0] - 0.4, 1.35, SHELF_Z], scale: 0.4 },
+  { key: 'vendor-food-1', model: 'world/food/bread.glb', position: [VENDOR_SPOT[0] + 0.4, 1.35, SHELF_Z], scale: 0.4 },
 ];
 
 /** Everything the downtown street loads (road first, then structures/props/vendor). */

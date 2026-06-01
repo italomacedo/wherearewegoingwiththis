@@ -48,8 +48,8 @@ export class MercadoSombrasZone extends WorldZone {
       scene
     );
     const mat = new StandardMaterial('ground-mat', scene);
-    mat.diffuseColor = new Color3(0.06, 0.06, 0.09);
-    mat.specularColor = new Color3(0.25, 0.28, 0.35); // wet sheen
+    mat.diffuseColor = new Color3(0.1, 0.1, 0.11); // neutral dark asphalt base under the tiles
+    mat.specularColor = new Color3(0.18, 0.2, 0.24); // faint wet sheen
     mat.specularPower = 64;
     ground.material = mat;
     this.meshes.push(ground);
@@ -150,7 +150,8 @@ export class MercadoSombrasZone extends WorldZone {
         const holder = new TransformNode(p.key, scene);
         holder.position.set(p.position[0], p.position[1], p.position[2]);
         holder.rotation.y = p.rotationY ?? 0;
-        holder.scaling.setAll(p.scale ?? 1);
+        if (Array.isArray(p.scale)) holder.scaling.set(p.scale[0], p.scale[1], p.scale[2]);
+        else holder.scaling.setAll(p.scale ?? 1);
         for (const m of c.meshes) {
           if (!m.parent) m.parent = holder;
         }

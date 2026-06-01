@@ -15,9 +15,9 @@ export interface CameraConfig {
 export const DEFAULT_CAMERA_CONFIG: CameraConfig = {
   elevationDeg: 45,
   rotationSnapDeg: 45,
-  zoomMin: 10,
+  zoomMin: 6,
   zoomMax: 50,
-  zoomDefault: 25,
+  zoomDefault: 14, // close, near third-person framing on the hero
   followDamping: 0.1,
 };
 
