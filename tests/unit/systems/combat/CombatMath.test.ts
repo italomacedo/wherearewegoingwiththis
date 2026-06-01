@@ -1,0 +1,165 @@
+import {
+  CombatTuning, DEFAULT_COMBAT_TUNING, combatTuningFromSettings,
+  actionPointsFor, moveApCost, maxMoveMeters,
+  attackValue, dodgeValue, resolveAttack,
+  rollDamage, initiativeOrder,
+  MELEE_RANGE, COVER_NONE, COVER_PARTIAL, COVER_FULL,
+  MELEE_BASE, RANGED_BASE,
+} from '@systems/combat/CombatMath';
+import { CharacterStats, createDefaultStats } from '@entities/CharacterStats';
+
+/** Deterministic RNG returning the queued [0,1) values, then 0. */
+const seq = (...vals: number[]) => {
+  let i = 0;
+  return () => (i < vals.length ? vals[i++] : 0);
+};
+
+/** A stats sheet with explicit attribute/skill overrides. */
+function sheet(over: Partial<{ forca: number; destreza: number; melee: number; firearms: number; perception: number }> = {}): CharacterStats {
+  const s = createDefaultStats();
+  if (over.forca !== undefined) s.attributes.forca = over.forca;
+  if (over.destreza !== undefined) s.attributes.destreza = over.destreza;
+  if (over.melee !== undefined) s.skills.combate_corpo_a_corpo = over.melee;
+  if (over.firearms !== undefined) s.skills.armas_de_fogo = over.firearms;
+  if (over.perception !== undefined) s.skills.percepcao = over.perception;
+  return s;
+}
+
+describe('actionPointsFor', () => {
+  it('minimum Dexterity (20) yields 2 AP — one primary action and nothing else', () => {
+    expect(actionPointsFor(20)).toBe(2);
+  });
+  it('honours Dexterity 60 → 6 AP and 100 → 10 AP', () => {
+    expect(actionPointsFor(60)).toBe(6);
+    expect(actionPointsFor(100)).toBe(10);
+  });
+  it('rounds to the nearest AP', () => {
+    expect(actionPointsFor(34)).toBe(3); // 3.4 → 3
+    expect(actionPointsFor(35)).toBe(4); // 3.5 → 4 (round half up)
+  });
+  it('clamps negatives to 0 and caps at apMax', () => {
+    expect(actionPointsFor(-50)).toBe(0);
+    expect(actionPointsFor(999)).toBe(DEFAULT_COMBAT_TUNING.apMax);
+  });
+  it('respects a custom divisor', () => {
+    const t: CombatTuning = { ...DEFAULT_COMBAT_TUNING, apPerDexterity: 20 };
+    expect(actionPointsFor(60, t)).toBe(3);
+  });
+});
+
+describe('movement cost', () => {
+  it('costs moveApPerMeter AP per metre (rounded up)', () => {
+    expect(moveApCost(3)).toBe(3);
+    expect(moveApCost(2.4)).toBe(3); // partial metre rounds up
+    expect(moveApCost(0)).toBe(0);
+    expect(moveApCost(-5)).toBe(0);
+  });
+  it('scales with a costlier movement setting', () => {
+    const t: CombatTuning = { ...DEFAULT_COMBAT_TUNING, moveApPerMeter: 2 };
+    expect(moveApCost(3, t)).toBe(6);
+  });
+  it('maxMoveMeters is the whole metres affordable with the AP', () => {
+    expect(maxMoveMeters(6)).toBe(6);
+    const t: CombatTuning = { ...DEFAULT_COMBAT_TUNING, moveApPerMeter: 2 };
+    expect(maxMoveMeters(5, t)).toBe(2);
+  });
+  it('maxMoveMeters guards a zero/negative movement cost', () => {
+    const t: CombatTuning = { ...DEFAULT_COMBAT_TUNING, moveApPerMeter: 0 };
+    expect(maxMoveMeters(6, t)).toBe(0);
+    expect(maxMoveMeters(-3)).toBe(0);
+  });
+});
+
+describe('combatTuningFromSettings', () => {
+  it('maps the persisted settings, keeping apMax fixed', () => {
+    const t = combatTuningFromSettings({
+      combatApPerDexterity: 5, combatPrimaryCost: 3, combatSecondaryCost: 2, combatMoveApPerMeter: 2,
+    });
+    expect(t).toEqual({ apPerDexterity: 5, apMax: DEFAULT_COMBAT_TUNING.apMax, primaryCost: 3, secondaryCost: 2, moveApPerMeter: 2 });
+  });
+  it('falls back to the default divisor when given a non-positive value', () => {
+    const t = combatTuningFromSettings({
+      combatApPerDexterity: 0, combatPrimaryCost: 2, combatSecondaryCost: 1, combatMoveApPerMeter: 1,
+    });
+    expect(t.apPerDexterity).toBe(DEFAULT_COMBAT_TUNING.apPerDexterity);
+  });
+});
+
+describe('attackValue / dodgeValue', () => {
+  it('melee uses Combate Corpo-a-Corpo (a Força skill)', () => {
+    expect(attackValue(sheet({ melee: 55 }), 'melee')).toBe(55);
+  });
+  it('ranged uses Armas de Fogo (a Destreza skill)', () => {
+    expect(attackValue(sheet({ firearms: 70 }), 'ranged')).toBe(70);
+  });
+  it('dodge uses Percepção', () => {
+    expect(dodgeValue(sheet({ perception: 42 }))).toBe(42);
+  });
+});
+
+describe('resolveAttack', () => {
+  it('a strong attacker vs a weak dodger almost always hits', () => {
+    const r = resolveAttack(
+      { attacker: sheet({ firearms: 80 }), defender: sheet({ perception: 20 }), kind: 'ranged' },
+      seq(0.5),
+    );
+    expect(r.probability).toBeGreaterThan(0.9);
+    expect(r.success).toBe(true);
+  });
+  it('full cover sharply lowers the hit chance vs partial vs none', () => {
+    const atk = sheet({ firearms: 50 });
+    const def = sheet({ perception: 50 });
+    const none = resolveAttack({ attacker: atk, defender: def, kind: 'ranged', coverMod: COVER_NONE }, seq(0.99));
+    const partial = resolveAttack({ attacker: atk, defender: def, kind: 'ranged', coverMod: COVER_PARTIAL }, seq(0.99));
+    const full = resolveAttack({ attacker: atk, defender: def, kind: 'ranged', coverMod: COVER_FULL }, seq(0.99));
+    expect(none.probability).toBeGreaterThan(partial.probability);
+    expect(partial.probability).toBeGreaterThan(full.probability);
+    expect(none.probability).toBeCloseTo(0.5, 5); // 50 vs 50
+  });
+  it('treats missing coverMod as no cover', () => {
+    const r = resolveAttack({ attacker: sheet({ melee: 50 }), defender: sheet({ perception: 50 }), kind: 'melee' }, seq(0.4));
+    expect(r.defender).toBe(50);
+  });
+  it('uses the default RNG when none is injected', () => {
+    const r = resolveAttack({ attacker: sheet({ firearms: 60 }), defender: sheet({ perception: 30 }), kind: 'ranged' });
+    expect(r.roll).toBeGreaterThanOrEqual(0);
+    expect(r.roll).toBeLessThan(100);
+  });
+});
+
+describe('rollDamage', () => {
+  it('melee = base + Força/10 + variance', () => {
+    expect(rollDamage(sheet({ forca: 60 }), 'melee', seq(0))).toBe(MELEE_BASE + 6 + 0);
+    expect(rollDamage(sheet({ forca: 60 }), 'melee', seq(0.99))).toBe(MELEE_BASE + 6 + 4);
+  });
+  it('ranged = base + Destreza/20 + variance', () => {
+    expect(rollDamage(sheet({ destreza: 80 }), 'ranged', seq(0))).toBe(RANGED_BASE + 4 + 0);
+  });
+  it('uses the default RNG when none is injected (damage in a sane range)', () => {
+    const dmg = rollDamage(sheet({ forca: 20 }), 'melee');
+    expect(dmg).toBeGreaterThanOrEqual(MELEE_BASE + 2);
+    expect(dmg).toBeLessThanOrEqual(MELEE_BASE + 2 + 4);
+  });
+});
+
+describe('initiativeOrder', () => {
+  it('orders by Dexterity descending', () => {
+    expect(initiativeOrder([
+      { id: 'a', dexterity: 20 }, { id: 'b', dexterity: 80 }, { id: 'c', dexterity: 50 },
+    ])).toEqual(['b', 'c', 'a']);
+  });
+  it('breaks ties deterministically by id', () => {
+    expect(initiativeOrder([
+      { id: 'zara', dexterity: 50 }, { id: 'mback', dexterity: 50 },
+    ])).toEqual(['mback', 'zara']);
+  });
+});
+
+describe('constants', () => {
+  it('exposes melee range and cover tiers', () => {
+    expect(MELEE_RANGE).toBeGreaterThan(0);
+    expect(COVER_NONE).toBe(0);
+    expect(COVER_PARTIAL).toBe(20);
+    expect(COVER_FULL).toBe(40);
+  });
+});

@@ -90,6 +90,39 @@ describe('OptionsScene', () => {
     expect(SettingsService.get('npcCallsPerMinute')).toBe(8);
   });
 
+  it('default combat economy = owner-approved values', () => {
+    expect(DEFAULT_SETTINGS.combatApPerDexterity).toBe(10);
+    expect(DEFAULT_SETTINGS.combatPrimaryCost).toBe(2);
+    expect(DEFAULT_SETTINGS.combatSecondaryCost).toBe(1);
+    expect(DEFAULT_SETTINGS.combatMoveApPerMeter).toBe(1);
+  });
+
+  it('cycleCombatApPerDexterity steps 10 → 20 → 5 → 10 and persists', () => {
+    expect(scene.cycleCombatApPerDexterity()).toBe(20);
+    expect(scene.cycleCombatApPerDexterity()).toBe(5);
+    expect(scene.cycleCombatApPerDexterity()).toBe(10);
+    expect(SettingsService.get('combatApPerDexterity')).toBe(10);
+  });
+
+  it('cycleCombatPrimaryCost steps 2 → 3 → 1 → 2 and persists', () => {
+    expect(scene.cycleCombatPrimaryCost()).toBe(3);
+    expect(scene.cycleCombatPrimaryCost()).toBe(1);
+    expect(scene.cycleCombatPrimaryCost()).toBe(2);
+    expect(SettingsService.get('combatPrimaryCost')).toBe(2);
+  });
+
+  it('cycleCombatSecondaryCost toggles 1 → 2 → 1 and persists', () => {
+    expect(scene.cycleCombatSecondaryCost()).toBe(2);
+    expect(scene.cycleCombatSecondaryCost()).toBe(1);
+    expect(SettingsService.get('combatSecondaryCost')).toBe(1);
+  });
+
+  it('cycleCombatMoveApPerMeter toggles 1 → 2 → 1 and persists', () => {
+    expect(scene.cycleCombatMoveApPerMeter()).toBe(2);
+    expect(scene.cycleCombatMoveApPerMeter()).toBe(1);
+    expect(SettingsService.get('combatMoveApPerMeter')).toBe(1);
+  });
+
   it('selectTab changes active tab', () => {
     scene.selectTab('audio');
     expect(scene.getActiveTab()).toBe('audio');

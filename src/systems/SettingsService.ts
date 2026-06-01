@@ -15,6 +15,14 @@ export interface GameSettings {
   npcReflectionMinutes: 4 | 8 | 15;
   /** Scene-wide ceiling on autonomous Claude calls per minute (cost throttle). */
   npcCallsPerMinute: 4 | 8 | 12;
+  /** Turn-based combat economy (owner-tunable). AP = round(Dexterity / apPerDexterity). */
+  combatApPerDexterity: 5 | 10 | 20;
+  /** AP cost of a primary combat action (attack / aimed shot). */
+  combatPrimaryCost: 1 | 2 | 3;
+  /** AP cost of a secondary combat action (take cover / hunker / reload / item). */
+  combatSecondaryCost: 1 | 2;
+  /** AP spent per metre of combat movement. */
+  combatMoveApPerMeter: 1 | 2;
 
   // Display
   resolution: '1280x720' | '1920x1080' | '2560x1440' | '3840x2160';
@@ -46,6 +54,10 @@ export const DEFAULT_SETTINGS: Readonly<GameSettings> = {
   npcAutonomy: true,
   npcReflectionMinutes: 8,
   npcCallsPerMinute: 8,
+  combatApPerDexterity: 10,
+  combatPrimaryCost: 2,
+  combatSecondaryCost: 1,
+  combatMoveApPerMeter: 1,
 
   resolution: '1920x1080',
   windowMode: 'windowed',

@@ -103,6 +103,42 @@ export class OptionsScene extends BaseScene {
     return next;
   }
 
+  /** Cycle the AP-per-Dexterity divisor 5 → 10 → 20 → 5 and persist (combat tempo). */
+  cycleCombatApPerDexterity(): 5 | 10 | 20 {
+    const order: Array<5 | 10 | 20> = [5, 10, 20];
+    const cur = this.getSetting('combatApPerDexterity');
+    const next = order[(order.indexOf(cur) + 1) % order.length]!;
+    this.setSetting('combatApPerDexterity', next);
+    SettingsService.set('combatApPerDexterity', next);
+    return next;
+  }
+
+  /** Cycle the primary-action AP cost 1 → 2 → 3 → 1 and persist. */
+  cycleCombatPrimaryCost(): 1 | 2 | 3 {
+    const order: Array<1 | 2 | 3> = [1, 2, 3];
+    const cur = this.getSetting('combatPrimaryCost');
+    const next = order[(order.indexOf(cur) + 1) % order.length]!;
+    this.setSetting('combatPrimaryCost', next);
+    SettingsService.set('combatPrimaryCost', next);
+    return next;
+  }
+
+  /** Cycle the secondary-action AP cost 1 → 2 → 1 and persist. */
+  cycleCombatSecondaryCost(): 1 | 2 {
+    const next: 1 | 2 = this.getSetting('combatSecondaryCost') === 1 ? 2 : 1;
+    this.setSetting('combatSecondaryCost', next);
+    SettingsService.set('combatSecondaryCost', next);
+    return next;
+  }
+
+  /** Cycle the movement AP-per-metre cost 1 → 2 → 1 and persist. */
+  cycleCombatMoveApPerMeter(): 1 | 2 {
+    const next: 1 | 2 = this.getSetting('combatMoveApPerMeter') === 1 ? 2 : 1;
+    this.setSetting('combatMoveApPerMeter', next);
+    SettingsService.set('combatMoveApPerMeter', next);
+    return next;
+  }
+
   validateAndSaveClaudePath(path: string): { valid: boolean; reason?: string } {
     const result = SettingsService.validateClaudePath(path);
     if (result.valid) {
@@ -334,6 +370,28 @@ export class OptionsScene extends BaseScene {
       'budget', 'options.npcBudget',
       `${this.settings.npcCallsPerMinute}/min`,
       () => `${this.cycleNpcCallsPerMinute()}/min`,
+    );
+
+    // ─── Turn-based combat economy (Game tab) ───────────────────────────────
+    mkCycler(
+      'combat-ap', 'options.combatApPerDex',
+      `Dex/${this.settings.combatApPerDexterity}`,
+      () => `Dex/${this.cycleCombatApPerDexterity()}`,
+    );
+    mkCycler(
+      'combat-primary', 'options.combatPrimaryCost',
+      `${this.settings.combatPrimaryCost} AP`,
+      () => `${this.cycleCombatPrimaryCost()} AP`,
+    );
+    mkCycler(
+      'combat-secondary', 'options.combatSecondaryCost',
+      `${this.settings.combatSecondaryCost} AP`,
+      () => `${this.cycleCombatSecondaryCost()} AP`,
+    );
+    mkCycler(
+      'combat-move', 'options.combatMoveCost',
+      `${this.settings.combatMoveApPerMeter} AP/m`,
+      () => `${this.cycleCombatMoveApPerMeter()} AP/m`,
     );
 
     // Back button

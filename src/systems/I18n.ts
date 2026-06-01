@@ -49,6 +49,10 @@ export const STRINGS: Record<string, Entry> = {
   'options.npcAutonomy': e('Living NPCs:', 'NPCs vivos:'),
   'options.npcReflection': e('NPC Reflection:', 'Reflexão do NPC:'),
   'options.npcBudget': e('NPC Call Budget:', 'Orçamento de Chamadas:'),
+  'options.combatApPerDex': e('Combat AP scale:', 'Escala de PA:'),
+  'options.combatPrimaryCost': e('Primary action:', 'Ação principal:'),
+  'options.combatSecondaryCost': e('Secondary action:', 'Ação secundária:'),
+  'options.combatMoveCost': e('Move cost:', 'Custo de mover:'),
   'common.on': e('ON', 'LIGADO'),
   'common.off': e('OFF', 'DESLIGADO'),
 
