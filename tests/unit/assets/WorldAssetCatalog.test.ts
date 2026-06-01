@@ -1,5 +1,5 @@
 import {
-  WorldProp, ZONE_HALF, STALL_COORDS, facingCenter,
+  WorldProp, ZONE_HALF, STALL_COORDS, BUILDING_COORDS, facingCenter,
   MERCADO_STALLS, MERCADO_FOOD, MERCADO_BUILDINGS, MERCADO_PROPS, NAVE_MODEL,
 } from '../../../src/assets/WorldAssetCatalog';
 
@@ -40,8 +40,14 @@ describe('WorldAssetCatalog — Mercado das Sombras placements (pure)', () => {
     }
   });
 
-  it('buildings are empty until Phase B', () => {
-    expect(MERCADO_BUILDINGS).toHaveLength(0);
+  it('has one building per ring slot, each replacing a procedural tower', () => {
+    expect(MERCADO_BUILDINGS).toHaveLength(BUILDING_COORDS.length);
+    MERCADO_BUILDINGS.forEach((b, i) => {
+      expect(b.replaces).toBe(`building-${i}`);
+      expect(b.position).toEqual([BUILDING_COORDS[i]![0], 0, BUILDING_COORDS[i]![1]]);
+      expect(b.model).toMatch(/^world\/buildings\/.+\.glb$/);
+      expect(b.scale).toBeGreaterThan(1); // scaled up to skyline size
+    });
   });
 
   it('facingCenter points a prop toward the origin', () => {

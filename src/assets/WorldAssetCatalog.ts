@@ -70,8 +70,38 @@ export const MERCADO_FOOD: readonly WorldProp[] = STALL_COORDS.flatMap(([x, z], 
   }));
 });
 
-/** Buildings — filled in Phase B (Textured Building Pack). */
-export const MERCADO_BUILDINGS: readonly WorldProp[] = [];
+/** Building ring — mirrors MercadoSombrasZone.buildBuildings() coordinates/order. */
+export const BUILDING_COORDS: ReadonlyArray<readonly [number, number]> = [
+  [-24, -24], [-12, -26], [0, -27], [12, -26], [24, -24],
+  [-26, 0], [26, 0],
+  [-24, 24], [-12, 26], [0, 27], [12, 26], [24, 24],
+];
+
+/** Curated Textured Building Pack models (colored materials, base at y=0). */
+const BUILDING_MODELS = [
+  'world/buildings/2story_mat.glb',
+  'world/buildings/2story_sign_mat.glb',
+  'world/buildings/3story_small_mat.glb',
+  'world/buildings/4story_mat.glb',
+  'world/buildings/2story_balcony_mat.glb',
+  'world/buildings/6story_stack_mat.glb',
+  'world/buildings/3story_slim_mat.glb',
+  'world/buildings/2story_columns_mat.glb',
+  'world/buildings/4story_center_mat.glb',
+  'world/buildings/1story_sign_mat.glb',
+];
+/** Models are authored ~2 units wide; scale up to read as a skyline. */
+const BUILDING_SCALE = 4;
+
+/** Buildings ringing the market, replacing the procedural box towers. */
+export const MERCADO_BUILDINGS: readonly WorldProp[] = BUILDING_COORDS.map(([x, z], i) => ({
+  key: `building-real-${i}`,
+  model: BUILDING_MODELS[i % BUILDING_MODELS.length]!,
+  position: [x, 0, z],
+  rotationY: facingCenter(x, z),
+  scale: BUILDING_SCALE,
+  replaces: `building-${i}`,
+}));
 
 /** Everything the zone loads, in draw order (buildings, then stalls, then food). */
 export const MERCADO_PROPS: readonly WorldProp[] = [
