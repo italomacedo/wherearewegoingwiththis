@@ -179,13 +179,9 @@ export class GameWorldScene extends BaseScene {
     this.dialog = new DialogSystem(this.babylonScene);
     this.wireDialog();
 
-    // HUD: floating labels + contextual action prompts (Phase 8/9 evidence).
+    // HUD: contextual action prompt only (no floating name tags — more immersive;
+    // the NPC's name lives in the chat window + the [E] Talk prompt once revealed).
     this.hud = new WorldHud(this.babylonScene);
-    const zaraMesh = this.npcLabelAnchor;
-    const npc = this.npcManager?.getAgents()[0];
-    // Show the NPC's name only after it introduces itself (no metagaming).
-    if (zaraMesh && npc) this.hud.addLabel(zaraMesh, npc.getDisplayName(), 'npc');
-    if (this.vehicle) this.hud.addLabel(this.vehicle.getRoot(), 'Nave', 'vehicle');
 
     // Pause menu (ESC) with in-game Save (Phase 5 evidence).
     this.pauseMenu = new PauseMenu(this.babylonScene);
@@ -435,7 +431,6 @@ export class GameWorldScene extends BaseScene {
         this.dialog.setNpcText(reply);
         if (agent.revealNameIfMentioned(reply)) {
           this.dialog.setNpcName(agent.definition.name);
-          this.hud?.setLabelText('npc', agent.definition.name);
         }
       }
     } catch (err) {

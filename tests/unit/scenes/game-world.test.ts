@@ -275,7 +275,6 @@ describe('GameWorldScene', () => {
     scene.update();
     // Name is hidden until the NPC introduces itself (no metagaming).
     expect(scene.getHud()!.getActionPrompt()).toBe('[E] Talk');
-    expect(scene.getHud()!.getLabelText('npc')).toBe('Unknown');
   });
 
   it('reveals the NPC name once it introduces itself in a reply', async () => {
@@ -287,7 +286,6 @@ describe('GameWorldScene', () => {
     const agent = scene.getNpcManager()!.getAgent('npc_zara_vendor_01')!;
     expect(agent.isNameKnown()).toBe(true);
     expect(scene.getDialog()!.getState().npcName).toBe('Zara');
-    expect(scene.getHud()!.getLabelText('npc')).toBe('Zara');
     // Now the prompt uses the real name.
     scene.update();
     expect(scene.getHud()!.getActionPrompt()).toBe('[E] Talk to Zara');
@@ -300,7 +298,6 @@ describe('GameWorldScene', () => {
     scene.getPlayer()!.getRoot().position.set(3, 0, 5);
     await scene.sendToActiveNPC('hey');
     expect(scene.getNpcManager()!.getAgent('npc_zara_vendor_01')!.isNameKnown()).toBe(false);
-    expect(scene.getHud()!.getLabelText('npc')).toBe('Unknown');
   });
 
   it('HUD shows an enter prompt near the vehicle and exit prompt while piloting', async () => {
