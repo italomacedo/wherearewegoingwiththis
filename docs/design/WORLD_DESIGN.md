@@ -4,18 +4,23 @@
 
 NeoBeiraRio, 2087. A megacity built over what was once Porto Alegre, Brazil. Three decades of unchecked corporate expansion turned it into a vertical sprawl of towers, elevated highways, and underground markets. The sky is always overcast. Rain is constant. Neon is everywhere.
 
-> **Implementation status (this cycle) — gap #4 is the next target.** The starting
-> district (Mercado das Sombras) is **fully procedural** (primitives + emissive neon +
-> rain). `MercadoSombrasZone.loadRealAssets` is a no-op and `AssetManifest` lists intended
-> paths under `public/assets/` with **no files present**.
-> **Key constraint discovered:** the coding agent **cannot download/commit binary assets**
-> in this environment (no Sketchfab/Poly Haven MCP wired; `WebFetch` returns text, not
-> binaries). So real assets need either **(a)** the owner dropping files into
-> `public/assets/`, or **(b)** runtime-loading CC0 assets from a CDN URL (Poly Haven) —
-> an architectural choice (offline/latency/external dependency) to confirm first.
-> Recommended next step: build+test the loading pipeline (flip `CharacterAssembler.useGltf`,
-> implement `loadRealAssets`, populate `AssetManifest`) with procedural fallback, then
-> source assets via (a)/(b). The curated CC0/CC-BY catalog below stands for manual download.
+> **Implementation status — gap #4 DONE (downtown V1). See [ADR-0015](../ADR/0015-downtown-assets-and-havok-collision.md).**
+> Mercado das Sombras is now a **closed downtown street** built from **Quaternius CC0**
+> packs (Downtown City MegaKit + Ultimate), not procedural primitives: continuous asphalt,
+> sidewalks, MegaKit buildings lining both sides with **doors** in their openings, brick
+> perimeter walls closing the gaps, a **dead end** (−X) and a **black exit wall** (+X,
+> future scene-transition trigger). Zara is a `w_punk` female avatar with a sidewalk vendor
+> stall; the bike became an atmospheric **nave**. **Havok collision** is live (hero =
+> `PhysicsCharacterController`; static box colliders on perimeter + solid props + nave +
+> Zara; roads/sidewalks walkable).
+> **Pipeline:** the owner drops Quaternius source packs in `~/Downloads`; `scripts/convert_assets.py`
+> (`blender --background`, FBX/glTF→GLB, `--maxtex` downscale, force-opaque) converts a curated
+> subset into `public/assets/world/**` + `vehicles/nave.glb`. Placement is pure data in
+> `src/assets/WorldAssetCatalog.ts`; `MercadoSombrasZone.loadRealAssets` loads + places + builds
+> colliders (procedural fallback when a GLB is missing / headless). (The old "agent can't fetch
+> binaries" constraint is sidestepped: Blender runs locally on user-supplied files.)
+> **Next:** the +X exit wall → a second street (new scene); per-prop instancing to cut texture
+> duplication. The curated CC0/CC-BY catalog below remains a reference for future districts.
 
 ---
 
