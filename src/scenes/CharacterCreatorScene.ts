@@ -401,26 +401,6 @@ export class CharacterCreatorScene extends BaseScene {
     nameInput.onBlurObservable.add(() => this.setPlayerName(nameInput.text));
     gui.addControl(nameInput);
 
-    // Primary attribute cycler (RPG) — picks the 30% attribute.
-    const attrLabelOf = (id: AttributeId): string => ATTRIBUTES.find((a) => a.id === id)?.label ?? id;
-    const primaryBtn = Button.CreateSimpleButton('primary-attr', `Primary: ${attrLabelOf(this.primaryAttribute)}`);
-    primaryBtn.width = '220px';
-    primaryBtn.height = '34px';
-    primaryBtn.color = '#9FD8FF';
-    primaryBtn.background = 'rgba(0,30,40,0.8)';
-    primaryBtn.fontSize = 13;
-    primaryBtn.fontFamily = 'monospace';
-    primaryBtn.thickness = 1;
-    primaryBtn.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-    primaryBtn.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
-    primaryBtn.paddingBottom = '146px';
-    primaryBtn.paddingRight = '24px';
-    primaryBtn.onPointerUpObservable.add(() => {
-      const n = this.cyclePrimaryAttribute();
-      if (primaryBtn.textBlock) primaryBtn.textBlock.text = `Primary: ${attrLabelOf(n)}`;
-    });
-    gui.addControl(primaryBtn);
-
     const beginBtn = Button.CreateSimpleButton('begin', 'BEGIN  ▶');
     beginBtn.width = '220px';
     beginBtn.height = '50px';
@@ -483,6 +463,33 @@ export class CharacterCreatorScene extends BaseScene {
       h.height = '24px';
       panel.addControl(h);
     };
+
+    // ── Attributes (click one to make it the 30% primary; others 20%) ──
+    addHeader('ATTRIBUTES — pick your primary (30%)');
+    const attrLabelOf = (id: AttributeId): string => ATTRIBUTES.find((a) => a.id === id)?.label ?? id;
+    const attrBtns: Array<{ id: AttributeId; btn: Button }> = [];
+    const refreshAttrs = (): void => {
+      attrBtns.forEach(({ id, btn }) => {
+        if (btn.textBlock) btn.textBlock.text = `${attrLabelOf(id)} — ${this.stats.attributes[id]}%`;
+        btn.background = id === this.primaryAttribute ? 'rgba(0,80,60,0.95)' : 'rgba(0,30,40,0.7)';
+      });
+    };
+    for (const a of ATTRIBUTES) {
+      const btn = Button.CreateSimpleButton(`attr-${a.id}`, `${a.label} — ${this.stats.attributes[a.id]}%`);
+      btn.width = '270px';
+      btn.height = '28px';
+      btn.color = '#9FD8FF';
+      btn.fontSize = 12;
+      btn.fontFamily = 'monospace';
+      btn.thickness = 1;
+      btn.onPointerUpObservable.add(() => {
+        this.setPrimaryAttribute(a.id);
+        refreshAttrs();
+      });
+      attrBtns.push({ id: a.id, btn });
+      panel.addControl(btn);
+    }
+    refreshAttrs();
 
     // ── Starting skills (2 majors @40%, 3 minors @20%) ──
     addHeader('STARTING SKILLS');
