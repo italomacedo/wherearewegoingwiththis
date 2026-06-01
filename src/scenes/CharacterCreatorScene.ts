@@ -10,6 +10,11 @@ import { GameSession } from '@core/GameSession';
 import {
   CharacterData, DEFAULT_APPEARANCE, ColorKey, cloneAppearance,
 } from '@entities/CharacterData';
+import {
+  CharacterStats, AttributeId, ATTRIBUTES,
+  createDefaultStats, setPrimaryAttribute as applyPrimaryAttribute,
+  allocateStartingSkills, isValidStartingSkills, choosePerk as applyChoosePerk,
+} from '@entities/CharacterStats';
 import { type Gender, outfitsForGender, genderOfOutfit } from '@assets/AvatarMeshCatalog';
 
 // ─── Character-creator UI schema (pure, data-driven) ────────────────────────────
@@ -82,6 +87,10 @@ export class CharacterCreatorScene extends BaseScene {
   private assembler: CharacterAssembler | null = null;
   private assembled: AssembledCharacter | null = null;
 
+  // RPG sheet — a valid default (primary 'forca' = 30%, others 20%, skills 10%).
+  private primaryAttribute: AttributeId = 'forca';
+  private stats: CharacterStats = applyPrimaryAttribute(createDefaultStats(), 'forca');
+
   constructor(engine: Engine) {
     super(engine);
     this.babylonScene.clearColor = new Color4(0.02, 0.02, 0.06, 1);
@@ -125,7 +134,54 @@ export class CharacterCreatorScene extends BaseScene {
   // ─── Customization actions (testable public API) ───────────────────────────
 
   getCharacterData(): CharacterData {
-    return { ...this.characterData, appearance: cloneAppearance(this.characterData.appearance) };
+    return {
+      ...this.characterData,
+      appearance: cloneAppearance(this.characterData.appearance),
+      stats: this.getStats(),
+    };
+  }
+
+  // ─── RPG allocation (pure, testable) ──────────────────────────────────────
+
+  /** A deep copy of the current RPG sheet. */
+  getStats(): CharacterStats {
+    return {
+      attributes: { ...this.stats.attributes },
+      skills: { ...this.stats.skills },
+      perks: [...this.stats.perks],
+    };
+  }
+
+  getPrimaryAttribute(): AttributeId {
+    return this.primaryAttribute;
+  }
+
+  /** Set the 30% primary attribute (others 20%). */
+  setPrimaryAttribute(attr: AttributeId): void {
+    this.primaryAttribute = attr;
+    this.stats = applyPrimaryAttribute(this.stats, attr);
+  }
+
+  /** Cycle the primary attribute through the four, returning the new one. */
+  cyclePrimaryAttribute(): AttributeId {
+    const ids = ATTRIBUTES.map((a) => a.id);
+    const next = ids[(ids.indexOf(this.primaryAttribute) + 1) % ids.length]!;
+    this.setPrimaryAttribute(next);
+    return next;
+  }
+
+  /** Apply the starting skill allocation (2 majors @40%, 3 minors @20%). Returns false if invalid. */
+  setStartingSkills(majorIds: string[], minorIds: string[]): boolean {
+    if (!isValidStartingSkills(majorIds, minorIds)) return false;
+    this.stats = allocateStartingSkills(this.stats, majorIds, minorIds);
+    return true;
+  }
+
+  /** Choose an unlocked perk (no-op if invalid). Returns true if it took. */
+  choosePerk(perkId: string): boolean {
+    const before = this.stats.perks.length;
+    this.stats = applyChoosePerk(this.stats, perkId);
+    return this.stats.perks.length > before;
   }
 
   setPlayerName(name: string): void {
@@ -333,6 +389,26 @@ export class CharacterCreatorScene extends BaseScene {
     nameInput.paddingRight = '24px';
     nameInput.onBlurObservable.add(() => this.setPlayerName(nameInput.text));
     gui.addControl(nameInput);
+
+    // Primary attribute cycler (RPG) — picks the 30% attribute.
+    const attrLabelOf = (id: AttributeId): string => ATTRIBUTES.find((a) => a.id === id)?.label ?? id;
+    const primaryBtn = Button.CreateSimpleButton('primary-attr', `Primary: ${attrLabelOf(this.primaryAttribute)}`);
+    primaryBtn.width = '220px';
+    primaryBtn.height = '34px';
+    primaryBtn.color = '#9FD8FF';
+    primaryBtn.background = 'rgba(0,30,40,0.8)';
+    primaryBtn.fontSize = 13;
+    primaryBtn.fontFamily = 'monospace';
+    primaryBtn.thickness = 1;
+    primaryBtn.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+    primaryBtn.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+    primaryBtn.paddingBottom = '146px';
+    primaryBtn.paddingRight = '24px';
+    primaryBtn.onPointerUpObservable.add(() => {
+      const n = this.cyclePrimaryAttribute();
+      if (primaryBtn.textBlock) primaryBtn.textBlock.text = `Primary: ${attrLabelOf(n)}`;
+    });
+    gui.addControl(primaryBtn);
 
     const beginBtn = Button.CreateSimpleButton('begin', 'BEGIN  ▶');
     beginBtn.width = '220px';

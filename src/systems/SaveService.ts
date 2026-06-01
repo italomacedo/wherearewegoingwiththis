@@ -1,6 +1,7 @@
 import { CharacterData, DEFAULT_APPEARANCE, cloneAppearance, migrateAppearance } from '@entities/CharacterData';
 import { ConversationState } from '@systems/npc/ConversationContext';
 import { HealthState } from '@entities/Health';
+import { createDefaultStats } from '@entities/CharacterStats';
 
 export type NPCMemory = Record<string, ConversationState>;
 
@@ -177,6 +178,9 @@ export class SaveService {
     }
     if (save.character?.appearance) {
       save.character.appearance = migrateAppearance(save.character.appearance);
+    }
+    if (save.character && !save.character.stats) {
+      save.character.stats = createDefaultStats();
     }
     return save;
   }

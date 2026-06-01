@@ -44,6 +44,18 @@ describe('OptionsScene', () => {
     expect(scene.getActiveTab()).toBe('game');
   });
 
+  it('default skill-gain multiplier is 1x', () => {
+    expect(DEFAULT_SETTINGS.skillGainMultiplier).toBe(1);
+    expect(scene.getSetting('skillGainMultiplier')).toBe(1);
+  });
+
+  it('cycleSkillGainMultiplier steps 1 → 3 → 10 → 1 and persists', () => {
+    expect(scene.cycleSkillGainMultiplier()).toBe(3);
+    expect(scene.cycleSkillGainMultiplier()).toBe(10);
+    expect(scene.cycleSkillGainMultiplier()).toBe(1);
+    expect(SettingsService.get('skillGainMultiplier')).toBe(1);
+  });
+
   it('selectTab changes active tab', () => {
     scene.selectTab('audio');
     expect(scene.getActiveTab()).toBe('audio');

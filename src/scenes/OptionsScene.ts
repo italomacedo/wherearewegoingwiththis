@@ -52,6 +52,16 @@ export class OptionsScene extends BaseScene {
     return this.settings[key];
   }
 
+  /** Cycle the skill-gain multiplier 1 → 3 → 10 → 1 and persist it. */
+  cycleSkillGainMultiplier(): 1 | 3 | 10 {
+    const order: Array<1 | 3 | 10> = [1, 3, 10];
+    const cur = this.getSetting('skillGainMultiplier');
+    const next = order[(order.indexOf(cur) + 1) % order.length]!;
+    this.setSetting('skillGainMultiplier', next);
+    SettingsService.set('skillGainMultiplier', next);
+    return next;
+  }
+
   validateAndSaveClaudePath(path: string): { valid: boolean; reason?: string } {
     const result = SettingsService.validateClaudePath(path);
     if (result.valid) {
@@ -155,6 +165,38 @@ export class OptionsScene extends BaseScene {
       this.validateAndSaveClaudePath(pathInput.text);
     });
     pathRow.addControl(pathInput);
+
+    // Skill-gain multiplier cycler (Game tab) — anti-grind pacing.
+    const gainRow = new Rectangle('gain-row');
+    gainRow.height = '40px';
+    gainRow.thickness = 0;
+    content.addControl(gainRow);
+
+    const gainLabel = new TextBlock('gain-label');
+    gainLabel.text = 'Skill Gain Rate:';
+    gainLabel.color = '#AABBCC';
+    gainLabel.fontSize = 14;
+    gainLabel.fontFamily = 'monospace';
+    gainLabel.horizontalAlignment = 0;
+    gainLabel.textHorizontalAlignment = 0;
+    gainLabel.width = '180px';
+    gainRow.addControl(gainLabel);
+
+    const gainBtn = Button.CreateSimpleButton('gain-btn', `${this.settings.skillGainMultiplier}x`);
+    gainBtn.width = '90px';
+    gainBtn.height = '32px';
+    gainBtn.left = '190px';
+    gainBtn.horizontalAlignment = 0;
+    gainBtn.color = '#00FFCC';
+    gainBtn.background = 'rgba(0,30,40,0.8)';
+    gainBtn.fontSize = 13;
+    gainBtn.fontFamily = 'monospace';
+    gainBtn.thickness = 1;
+    gainBtn.onPointerUpObservable.add(() => {
+      const next = this.cycleSkillGainMultiplier();
+      if (gainBtn.textBlock) gainBtn.textBlock.text = `${next}x`;
+    });
+    gainRow.addControl(gainBtn);
 
     // Back button
     const backBtn = Button.CreateSimpleButton('back', '← BACK');

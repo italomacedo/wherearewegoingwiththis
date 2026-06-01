@@ -5,6 +5,8 @@ export interface GameSettings {
   subtitles: boolean;
   claudeCliPath: string;
   autosaveInterval: 0 | 5 | 10 | 30;
+  /** Multiplier on the +0.1% per-use skill/attribute growth (anti-grind pacing). */
+  skillGainMultiplier: 1 | 3 | 10;
 
   // Display
   resolution: '1280x720' | '1920x1080' | '2560x1440' | '3840x2160';
@@ -31,6 +33,7 @@ export const DEFAULT_SETTINGS: Readonly<GameSettings> = {
   subtitles: true,
   claudeCliPath: 'claude',
   autosaveInterval: 10,
+  skillGainMultiplier: 1,
 
   resolution: '1920x1080',
   windowMode: 'windowed',

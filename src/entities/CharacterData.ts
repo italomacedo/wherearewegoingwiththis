@@ -33,6 +33,7 @@ export type SlotCategory =
   | 'face_feature' | 'hair_group' | 'makeup' | 'clothing' | 'footwear';
 
 import { DEFAULT_OUTFIT } from '@assets/AvatarMeshCatalog';
+import { CharacterStats } from '@entities/CharacterStats';
 
 export type ColorKey =
   | 'skin' | 'hair' | 'eyebrow' | 'eye' | 'beard' | 'makeup'
@@ -209,6 +210,9 @@ export function parseEthnicity(bodyBase: string): Ethnicity {
 export interface CharacterData {
   name: string;
   appearance: CharacterAppearance;
+  /** RPG sheet (attributes/skills/perks). Optional for legacy saves; SaveService
+   *  backfills a default sheet on load. */
+  stats?: CharacterStats;
 }
 
 export const DEFAULT_COLORS: Record<ColorKey, string> = {

@@ -43,6 +43,30 @@ describe('SaveService', () => {
     expect(loaded.vehicle.destroyed).toBe(false);
   });
 
+  it('load backfills a default RPG stats sheet on a legacy save', () => {
+    const save = SaveService.createNewSave(testCharacter);
+    delete (save.character as { stats?: unknown }).stats;
+    SaveService.save(save);
+    const loaded = SaveService.load(save.saveId)!;
+    expect(loaded.character.stats).toBeDefined();
+    expect(loaded.character.stats!.attributes.forca).toBe(20);
+    expect(loaded.character.stats!.skills.medicina).toBe(10);
+  });
+
+  it('round-trips an RPG stats sheet on the character', () => {
+    const save = SaveService.createNewSave(testCharacter);
+    save.character.stats = {
+      attributes: { forca: 30, destreza: 20, inteligencia: 20, carisma: 20 },
+      skills: { armas_de_fogo: 40 },
+      perks: ['forca_t1_punho_calejado'],
+    };
+    SaveService.save(save);
+    const loaded = SaveService.load(save.saveId)!;
+    expect(loaded.character.stats!.attributes.forca).toBe(30);
+    expect(loaded.character.stats!.skills.armas_de_fogo).toBe(40);
+    expect(loaded.character.stats!.perks).toContain('forca_t1_punho_calejado');
+  });
+
   it('createNewSave with custom name uses it', () => {
     const save = SaveService.createNewSave(testCharacter, 'My Save');
     expect(save.saveName).toBe('My Save');

@@ -110,6 +110,44 @@ describe('CharacterCreatorScene (Quaternius outfits)', () => {
     await Promise.all([scene.setSkinTone('#111111'), scene.setSkinTone('#222222')]);
     expect(scene.getCharacterData().appearance.colors.skin).toBe('#222222');
   });
+
+  // ─── RPG sheet (Phase 3) ────────────────────────────────────────────────────
+
+  it('starts with a valid default RPG sheet (primary Força = 30%)', () => {
+    const stats = scene.getStats();
+    expect(scene.getPrimaryAttribute()).toBe('forca');
+    expect(stats.attributes.forca).toBe(30);
+    expect(stats.attributes.destreza).toBe(20);
+    expect(Object.values(stats.skills).every((v) => v === 10)).toBe(true);
+  });
+
+  it('cyclePrimaryAttribute moves the 30% around the four attributes', () => {
+    expect(scene.cyclePrimaryAttribute()).toBe('destreza');
+    expect(scene.getStats().attributes.destreza).toBe(30);
+    expect(scene.getStats().attributes.forca).toBe(20);
+  });
+
+  it('setStartingSkills validates and applies 2x40 + 3x20', () => {
+    expect(scene.setStartingSkills(['armas_de_fogo'], ['x'])).toBe(false); // invalid
+    expect(scene.setStartingSkills(['armas_de_fogo', 'medicina'], ['furtividade', 'persuasao', 'comercio'])).toBe(true);
+    const s = scene.getStats();
+    expect(s.skills.armas_de_fogo).toBe(40);
+    expect(s.skills.furtividade).toBe(20);
+  });
+
+  it('choosePerk takes an unlocked tier-1 perk', () => {
+    expect(scene.choosePerk('forca_t1_punho_calejado')).toBe(true);
+    expect(scene.getStats().perks).toContain('forca_t1_punho_calejado');
+    expect(scene.choosePerk('does_not_exist')).toBe(false);
+  });
+
+  it('onBegin persists the RPG sheet onto the saved character', async () => {
+    await scene.onEnter();
+    scene.cyclePrimaryAttribute(); // forca → destreza
+    await scene.onBegin('Kai');
+    const session = ServiceLocator.get<GameSession>('gameSession');
+    expect(session.character.stats!.attributes.destreza).toBe(30);
+  });
 });
 
 describe('buildCreatorSchema (pure)', () => {
