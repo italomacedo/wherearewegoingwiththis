@@ -101,7 +101,8 @@ export class NPCManager {
     let best: NPCAgent | null = null;
     let bestDist = Infinity;
     this.agents.forEach((agent) => {
-      if (agent.canConverse(playerPos) && !agent.isBusy()) {
+      // A defeated NPC is a searchable corpse — reachable even though it's "busy"/down.
+      if (agent.canConverse(playerPos) && (!agent.isBusy() || agent.isDefeated())) {
         const d = agent.distanceTo(playerPos);
         if (d < bestDist) {
           bestDist = d;

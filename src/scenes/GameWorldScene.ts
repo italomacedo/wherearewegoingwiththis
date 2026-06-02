@@ -76,7 +76,7 @@ export class GameWorldScene extends BaseScene {
   private npcManager: NPCManager | null = null;
   private injectedService: ClaudeNPCService | null = null;
   private dialog: DialogSystem | null = null;
-  private chatMode: 'npc' | 'global' = 'npc';
+  private chatMode: 'npc' | 'global' | 'corpse' = 'npc';
   private pauseMenu: PauseMenu | null = null;
   private combat: CombatOverlay | null = null;
   private gameOverMenu: GameOverMenu | null = null;
@@ -991,6 +991,7 @@ export class GameWorldScene extends BaseScene {
     groups.forEach((g) => g.stop());
     walk?.start(true);
     this.babylonScene.beginDirectAnimation(node, [posAnim, rotAnim], 0, frame, false, 1, () => {
+      node.rotation.y = prevAngle; // pin the final heading so idle doesn't snap it back
       walk?.stop();
       idle?.start(true);
     });
@@ -1005,13 +1006,21 @@ export class GameWorldScene extends BaseScene {
       this.playerHealthState = { current: me.hp.current, max: me.hp.max };
       this.player?.setHealthState(this.playerHealthState);
     }
-    // Persist each combatant's fate so nobody "resurrects": the dead are marked
-    // defeated (stay down, excluded from recruitment/autonomy/triggers); surviving
-    // enemies relax to wary.
+    // Sync everyone's logical position to where combat left them (so the [E] prompt,
+    // proximity and camera follow a fighter that repositioned), and persist each
+    // combatant's fate so nobody "resurrects": the dead are marked defeated (stay down,
+    // excluded from recruitment/autonomy/triggers); surviving enemies relax to wary.
     if (state) {
       for (const c of state.combatants) {
-        if (c.isPlayer) continue;
+        if (c.isPlayer) {
+          this.player?.teleport(new Vector3(c.pos.x, this.player.getPosition().y, c.pos.z));
+          continue;
+        }
         const agent = this.npcManager?.getAgent(c.id);
+        const holder = this.npcHolderById.get(c.id);
+        const y = holder?.position.y ?? 0;
+        holder?.position.set(c.pos.x, y, c.pos.z);
+        agent?.setPosition(new Vector3(c.pos.x, y, c.pos.z));
         if (!agent) continue;
         if (!c.alive) {
           agent.markDefeated();
@@ -1172,6 +1181,17 @@ export class GameWorldScene extends BaseScene {
       return;
     }
     const agent = this.npcManager.getConversableAgent(this.player.getPosition());
+    if (agent && agent.isDefeated()) {
+      // A corpse can be searched/frisked but never converses (no live persona). Real
+      // frisk results + loot land with the inventory phase.
+      this.chatMode = 'corpse';
+      const name = agent.isNameKnown() ? agent.definition.name : null;
+      const line = name ? t('interact.corpse', { name }) : t('interact.corpseUnknown');
+      this.dialog.open(agent.getDisplayName(), [{ role: 'narration', text: line }]);
+      const holder = this.npcHolderById.get(agent.definition.id);
+      if (holder) this.cameraSystem?.enterConversationMode(holder);
+      return;
+    }
     if (agent) {
       // Seed the transcript with the prior conversation so history is visible.
       const seed: DialogLine[] = agent.conversation.getFullHistory().flatMap((ex) => [
@@ -1205,6 +1225,7 @@ export class GameWorldScene extends BaseScene {
   private wireDialog(): void {
     if (!this.dialog) return;
     this.dialog.onSubmit((message) => {
+      if (this.chatMode === 'corpse') { this.dialog?.addSystemLine(t('dialog.corpseSilent')); return; }
       if (this.chatMode === 'global') void this.sendGlobalMessage(message);
       else void this.sendToActiveNPC(message);
     });
@@ -1537,6 +1558,9 @@ export class GameWorldScene extends BaseScene {
     if (this.npcManager && this.player) {
       const agent = this.npcManager.getConversableAgent(this.player.getPosition());
       // Don't leak the name in the prompt before the NPC introduces itself.
+      if (agent && agent.isDefeated()) {
+        return agent.isNameKnown() ? t('hud.searchTo', { name: agent.definition.name }) : t('hud.search');
+      }
       if (agent) return agent.isNameKnown() ? t('hud.talkTo', { name: agent.definition.name }) : t('hud.talk');
     }
     return null;

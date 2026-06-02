@@ -105,8 +105,19 @@ export const STRINGS: Record<string, Entry> = {
     'WASD move · MMB-drag camera · E talk · F vehicle · ESC pause',
     'WASD mover · arrastar c/ botão do meio gira a câmera · E falar · F veículo · ESC pausar'
   ),
-  'hud.talk': e('[E] Talk', '[E] Falar'),
-  'hud.talkTo': e('[E] Talk to {name}', '[E] Falar com {name}'),
+  'hud.talk': e('[E] Interact', '[E] Interagir'),
+  'hud.talkTo': e('[E] Interact with {name}', '[E] Interagir com {name}'),
+  'hud.search': e('[E] Search the body', '[E] Revistar o corpo'),
+  'hud.searchTo': e('[E] Search {name}', '[E] Revistar {name}'),
+  'interact.corpse': e(
+    "You search {name}'s body — nothing of use yet.",
+    'Você revista o corpo de {name} — nada de útil por enquanto.',
+  ),
+  'interact.corpseUnknown': e(
+    'You search the body — nothing of use yet.',
+    'Você revista o corpo — nada de útil por enquanto.',
+  ),
+  'dialog.corpseSilent': e('The body is silent.', 'O corpo está em silêncio.'),
   'hud.enterBike': e('[F] Enter bike', '[F] Entrar na nave'),
   'hud.exitBike': e('[F] Exit bike', '[F] Sair da nave'),
   'hud.naveStatus': e('NAVE {pct}%', 'NAVE {pct}%'),

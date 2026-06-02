@@ -117,6 +117,22 @@ export class PlayerController {
   }
 
   /**
+   * Teleport the hero to a ground position, moving the physics capsule too so it
+   * doesn't snap back on the next frame (used to sync after a combat reposition).
+   */
+  teleport(pos: Vector3): void {
+    this.root.position.copyFrom(pos);
+    /* istanbul ignore next — physics capsule only exists in browser/Electron */
+    if (this.characterController) {
+      // No public setPosition on PhysicsCharacterController in this Babylon — recreate
+      // the capsule at the new spot so it doesn't snap the hero back next frame.
+      (this.characterController as unknown as { dispose?: () => void }).dispose?.();
+      this.characterController = null;
+      this.initPhysicsController(pos);
+    }
+  }
+
+  /**
    * Pure movement math: rotate the input axis by the camera yaw so "forward"
    * always points away from the camera, then scale by speed and dt.
    */
