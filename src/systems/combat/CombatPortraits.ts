@@ -89,7 +89,12 @@ export class CombatPortraits {
     gui.addControl(marker);
     this.marker = marker;
 
+    // Keep the main camera as the singular activeCamera + pointer camera so the
+    // fullscreen combat GUI keeps receiving clicks (multi-activeCameras otherwise
+    // strands GUI pointer picking).
     this.scene.activeCameras = active;
+    this.scene.activeCamera = this.mainCamera;
+    this.scene.cameraToUseForPointers = this.mainCamera;
   }
 
   /** Highlight the active combatant's portrait (turn marker + label colour). */
@@ -107,8 +112,9 @@ export class CombatPortraits {
   }
 
   dispose(): void {
+    this.scene.cameraToUseForPointers = null;
     if (this.mainCamera) {
-      this.scene.activeCameras = [this.mainCamera];
+      this.scene.activeCameras = null;
       this.scene.activeCamera = this.mainCamera;
       this.mainCamera.viewport = new Viewport(0, 0, 1, 1);
     }

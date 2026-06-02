@@ -43,8 +43,8 @@ export const DEFAULT_COMBAT_TUNING: Readonly<CombatTuning> = {
   moveApPerMeter: 1,
 };
 
-/** Distance (m) at or under which a melee strike is allowed. */
-export const MELEE_RANGE = 1.5;
+/** Distance (m) at or under which a melee strike is allowed (covers the 2 m start gap). */
+export const MELEE_RANGE = 2;
 
 /** Cover defence bonuses (defender +N), matching SkillCheck's cover convention. */
 export const COVER_NONE = 0;
