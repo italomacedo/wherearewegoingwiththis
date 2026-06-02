@@ -98,6 +98,9 @@ export class GameWorldScene extends BaseScene {
   /** Accumulated seconds toward the next paced AI/spectator turn. */
   private combatTurnAccum = 0;
   private static readonly COMBAT_TURN_DELAY = 0.7; // seconds between AI turns (live pacing)
+  /** True for a player-absent fight (cinematic centroid camera); else free RTS camera. */
+  private combatSpectator = false;
+  private static readonly COMBAT_PAN_SPEED = 14; // metres/second for free-camera panning
   private hud: WorldHud | null = null;
   private npcMeshes: AbstractMesh[] = [];
   private npcVisuals: AssembledCharacter[] = [];
@@ -379,6 +382,7 @@ export class GameWorldScene extends BaseScene {
 
     // Turn-based combat owns the screen: freeze the world, only the camera lives.
     if (this.combat?.isOpen()) {
+      this.handleCombatCameraKeys(dt);
       this.tickCombat(dt);
       this.cameraSystem?.update();
       this.inputSystem?.endFrame();
@@ -630,7 +634,32 @@ export class GameWorldScene extends BaseScene {
     });
     this.combat.setPortraitSources(sources);
     this.combat.start(controller);
-    this.frameCombatCamera();
+    // Camera: the player gets a FREE tactical camera (pan/orbit/zoom, so they can pull
+    // back to flee); a player-absent fight keeps the cinematic centroid framing.
+    this.combatSpectator = !playerInvolved;
+    if (this.combatSpectator) {
+      this.frameCombatCamera();
+    } else if (this.cameraSystem && this.combatEnc) {
+      const live = this.combatEnc.getState().combatants.filter((x) => x.alive && !x.removed);
+      const ctr = centroidOf(live.map((x) => x.pos));
+      this.cameraSystem.enterFreeMode(new Vector3(ctr.x, 0, ctr.z), GameWorldScene.COMBAT_CAMERA_RADIUS + 6);
+    }
+  }
+
+  /** Free-camera controls during combat: arrows/WASD pan, Z/C orbit (wheel zooms via CameraSystem). */
+  /* istanbul ignore next — browser-only camera input */
+  private handleCombatCameraKeys(dt: number): void {
+    if (!this.inputSystem || !this.cameraSystem || this.combatSpectator) return;
+    if (this.inputSystem.isActionActive('camera.rotateLeft')) this.cameraSystem.orbit(KEY_ORBIT_SPEED * dt);
+    if (this.inputSystem.isActionActive('camera.rotateRight')) this.cameraSystem.orbit(-KEY_ORBIT_SPEED * dt);
+    const step = GameWorldScene.COMBAT_PAN_SPEED * dt;
+    let forward = 0;
+    let right = 0;
+    if (this.inputSystem.isActionActive('move.forward')) forward += step;
+    if (this.inputSystem.isActionActive('move.backward')) forward -= step;
+    if (this.inputSystem.isActionActive('move.right')) right += step;
+    if (this.inputSystem.isActionActive('move.left')) right -= step;
+    if (forward !== 0 || right !== 0) this.cameraSystem.panFree(forward, right);
   }
 
   /** Pace AI / spectator turns one per COMBAT_TURN_DELAY; the player's own turn waits for input. */
@@ -644,7 +673,8 @@ export class GameWorldScene extends BaseScene {
     if (this.combatTurnAccum < GameWorldScene.COMBAT_TURN_DELAY) return;
     this.combatTurnAccum = 0;
     this.combat?.renderEntries(c.stepNextAiTurn());
-    this.frameCombatCamera();
+    // Only the spectator (cinematic) camera re-centres; the player's free camera stays put.
+    if (this.combatSpectator) this.frameCombatCamera();
   }
 
   /** Frame the combat camera on the centroid of the still-standing combatants. */
@@ -916,8 +946,10 @@ export class GameWorldScene extends BaseScene {
     this.combatEnc = null;
     this.combatPlayerSide = null;
     this.combatTurnAccum = 0;
-    // Restore the on-foot camera framing.
+    // Restore the on-foot camera framing (whichever combat mode was active).
+    this.cameraSystem?.exitFreeMode();
     this.cameraSystem?.exitConversationMode();
+    this.combatSpectator = false;
     this.combatFocus?.dispose();
     this.combatFocus = null;
     // On a loss the player HP is now 0 → checkGameOver ends the run next frame.
