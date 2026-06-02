@@ -94,6 +94,8 @@ export class GameWorldScene extends BaseScene {
     | null = null;
   private moveTrail: LinesMesh | null = null;
   private combatPointerObs: Observer<PointerInfo> | null = null;
+  /** Armed by a fresh pointer-down after entering a targeting mode (anti button-click race). */
+  private combatTargetArmed = false;
   /** Active N-way encounter + the player's side (for friendly-fire defection). */
   private combatEnc: CombatEncounter | null = null;
   private combatPlayerSide: string | null = null;
@@ -625,8 +627,8 @@ export class GameWorldScene extends BaseScene {
       narrate: (beat) => this.npcManager?.narrateCombat(beat, language) ?? Promise.resolve(beat),
       onEnd: (outcome) => this.endCombat(outcome),
       onBeat: (entry) => this.onCombatBeat(entry),
-      onRequestTarget: (attackKind) => { this.combatTargeting = { mode: 'attack', attackKind }; },
-      onRequestMove: () => { this.combatTargeting = { mode: 'move' }; },
+      onRequestTarget: (attackKind) => { this.combatTargeting = { mode: 'attack', attackKind }; this.combatTargetArmed = false; },
+      onRequestMove: () => { this.combatTargeting = { mode: 'move' }; this.combatTargetArmed = false; },
     });
     this.combatPointerObs = this.babylonScene.onPointerObservable.add((info) => this.handleCombatPointer(info));
     this.combat.setPortraitSources(sources);
@@ -765,13 +767,20 @@ export class GameWorldScene extends BaseScene {
     const me = c.getState().combatants.find((x) => x.isPlayer);
     if (!me) return;
 
+    // Arm on a fresh press made WHILE already in targeting mode. The click that
+    // selected the Move/Attack button fires its onPointerUp (→ enters the mode) and a
+    // scene POINTERTAP on the SAME event; without this gate that tap would instantly
+    // "confirm" the action. The selecting click's POINTERDOWN preceded the mode, so it
+    // never arms; only the next click in the world does.
+    if (info.type === PointerEventTypes.POINTERDOWN) { this.combatTargetArmed = true; return; }
+
     if (targeting.mode === 'move') {
       const to = this.groundPointFromPointer();
       const path = to && this.combatPathfind ? this.combatPathfind(me.pos, to) : null;
       const tuning = this.combatTuning;
       const reachable = !!path && !!tuning && path.meters > 0 && moveApCost(path.meters, tuning) <= me.ap;
       if (info.type === PointerEventTypes.POINTERMOVE) { this.drawMoveTrail(path, reachable); return; }
-      if (info.type === PointerEventTypes.POINTERTAP && reachable && to) {
+      if (info.type === PointerEventTypes.POINTERTAP && this.combatTargetArmed && reachable && to) {
         this.clearCombatTargeting();
         this.combat?.submitPlayerAction({ type: 'move', to });
       }
@@ -779,7 +788,7 @@ export class GameWorldScene extends BaseScene {
     }
 
     // Attack mode: resolve the clicked avatar → strike if it is within melee range.
-    if (info.type !== PointerEventTypes.POINTERTAP) return;
+    if (info.type !== PointerEventTypes.POINTERTAP || !this.combatTargetArmed) return;
     const picked = info.pickInfo?.pickedMesh ?? null;
     const targetId = picked ? this.combatantIdOfPickedMesh(picked) : null;
     if (!targetId || targetId === me.id) return; // clicked nothing / self
@@ -833,6 +842,7 @@ export class GameWorldScene extends BaseScene {
   /* istanbul ignore next — browser-only */
   private clearCombatTargeting(): void {
     this.combatTargeting = null;
+    this.combatTargetArmed = false;
     this.moveTrail?.dispose();
     this.moveTrail = null;
   }
