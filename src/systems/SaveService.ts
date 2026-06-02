@@ -3,6 +3,7 @@ import { ConversationState } from '@systems/npc/ConversationContext';
 import { HealthState } from '@entities/Health';
 import { createDefaultStats } from '@entities/CharacterStats';
 import { NPCDisposition } from '@entities/NPCAgent';
+import { InventoryState, defaultInventoryState } from '@entities/Inventory';
 
 /**
  * Per-NPC persisted memory: conversation state, the dynamic disposition toward the
@@ -40,6 +41,7 @@ export interface SaveGame {
   };
   playerHealth: HealthState;
   vehicle: VehicleSaveState;
+  inventory: InventoryState;
   flags: Record<string, boolean | number | string>;
   npcMemory: NPCMemory;
 }
@@ -77,6 +79,7 @@ export class SaveService {
       },
       playerHealth: { ...DEFAULT_PLAYER_HEALTH },
       vehicle: { health: { ...DEFAULT_VEHICLE_STATE.health }, destroyed: false },
+      inventory: defaultInventoryState(),
       flags: {},
       npcMemory: {},
     };
@@ -86,6 +89,12 @@ export class SaveService {
     const save = SaveService.load(saveId);
     if (!save) return;
     SaveService.save({ ...save, npcMemory });
+  }
+
+  static updateInventory(saveId: string, inventory: InventoryState): void {
+    const save = SaveService.load(saveId);
+    if (!save) return;
+    SaveService.save({ ...save, inventory });
   }
 
   static save(saveGame: SaveGame): void {
@@ -192,6 +201,7 @@ export class SaveService {
     if (save.character && !save.character.stats) {
       save.character.stats = createDefaultStats();
     }
+    if (!save.inventory) save.inventory = defaultInventoryState();
     return save;
   }
 

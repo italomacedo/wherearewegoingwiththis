@@ -23,6 +23,11 @@ export interface InventoryState {
 
 export const DEFAULT_CAPACITY_WEIGHT = 30;
 
+/** A fresh, empty inventory state — the new-game / legacy-save default. */
+export function defaultInventoryState(): InventoryState {
+  return { items: [], equippedWeaponId: null, capacityWeight: DEFAULT_CAPACITY_WEIGHT };
+}
+
 export class Inventory {
   private qtyById = new Map<string, number>();
   private equipped: string | null = null;

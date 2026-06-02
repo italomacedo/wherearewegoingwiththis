@@ -43,6 +43,38 @@ describe('SaveService', () => {
     expect(loaded.vehicle.destroyed).toBe(false);
   });
 
+  it('createNewSave includes an empty inventory', () => {
+    const save = SaveService.createNewSave(testCharacter);
+    expect(save.inventory).toEqual({ items: [], equippedWeaponId: null, capacityWeight: 30 });
+  });
+
+  it('load migrates a legacy save missing the inventory field', () => {
+    const save = SaveService.createNewSave(testCharacter);
+    delete (save as Partial<SaveGame>).inventory;
+    SaveService.save(save);
+    const loaded = SaveService.load(save.saveId)!;
+    expect(loaded.inventory).toEqual({ items: [], equippedWeaponId: null, capacityWeight: 30 });
+  });
+
+  it('updateInventory persists the inventory and round-trips', () => {
+    const save = SaveService.createNewSave(testCharacter);
+    SaveService.save(save);
+    SaveService.updateInventory(save.saveId, {
+      items: [{ id: 'knife', qty: 1 }, { id: 'medkit', qty: 2 }],
+      equippedWeaponId: 'knife',
+      capacityWeight: 30,
+    });
+    const loaded = SaveService.load(save.saveId)!;
+    expect(loaded.inventory.items).toEqual([{ id: 'knife', qty: 1 }, { id: 'medkit', qty: 2 }]);
+    expect(loaded.inventory.equippedWeaponId).toBe('knife');
+  });
+
+  it('updateInventory is a no-op for an unknown save id', () => {
+    expect(() => SaveService.updateInventory('does-not-exist', {
+      items: [], equippedWeaponId: null, capacityWeight: 30,
+    })).not.toThrow();
+  });
+
   it('load backfills a default RPG stats sheet on a legacy save', () => {
     const save = SaveService.createNewSave(testCharacter);
     delete (save.character as { stats?: unknown }).stats;
