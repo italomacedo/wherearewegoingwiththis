@@ -2,8 +2,17 @@ import { CharacterData, DEFAULT_APPEARANCE, cloneAppearance, migrateAppearance }
 import { ConversationState } from '@systems/npc/ConversationContext';
 import { HealthState } from '@entities/Health';
 import { createDefaultStats } from '@entities/CharacterStats';
+import { NPCDisposition } from '@entities/NPCAgent';
 
-export type NPCMemory = Record<string, ConversationState>;
+/**
+ * Per-NPC persisted memory: conversation state, the dynamic disposition toward the
+ * player, and the NPC→NPC relationship ledger (8B). The latter two are optional so
+ * legacy saves load unchanged (they default to the definition's values).
+ */
+export type NPCMemory = Record<string, ConversationState & {
+  disposition?: NPCDisposition;
+  relationships?: Record<string, NPCDisposition>;
+}>;
 
 export interface VehicleSaveState {
   health: HealthState;

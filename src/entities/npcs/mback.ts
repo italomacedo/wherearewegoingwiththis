@@ -52,6 +52,8 @@ export const MBACK_DEFINITION: NPCDefinition = {
     'Regards Zara and her activist kind as naive babacas — useful only if they can be bought or broken. ' +
     'He would happily co-opt her talent, or have the Vyse-Tek crew handle her if she becomes a problem.',
   initialDisposition: 'neutral',
+  // Wary of the activist hacker — would side against her (8B).
+  npcRelationships: { npc_zara_vendor_01: 'wary' },
 };
 
 export function createMback(): NPCDefinition {

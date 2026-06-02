@@ -205,6 +205,16 @@ describe('NPCManager', () => {
     expect(NPCManager.restoreDisposition(undefined, 'npc_a', 'friendly')).toBe('friendly');
   });
 
+  it('serializes + restores the NPC→NPC relationship ledger (8B)', () => {
+    const agent = manager.spawn({ ...def, npcRelationships: { foe: 'wary' } });
+    agent.worsenRelationship('foe'); // wary → hostile
+    const memory = manager.serializeMemory();
+    expect(memory['npc_a'].relationships).toEqual({ foe: 'hostile' });
+    expect(NPCManager.restoreRelationships(memory, 'npc_a')).toEqual({ foe: 'hostile' });
+    expect(NPCManager.restoreRelationships(memory, 'npc_z')).toBeUndefined();
+    expect(NPCManager.restoreRelationships(undefined, 'npc_a')).toBeUndefined();
+  });
+
   it('dispose clears agents and cooldowns', () => {
     manager.spawn(def);
     manager.dispose();

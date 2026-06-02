@@ -444,6 +444,9 @@ export class GameWorldScene extends BaseScene {
       const conversation = NPCManager.restoreConversation(this.npcMemory, def.id);
       const agent = this.npcManager.spawn(def, conversation);
       agent.setDisposition(NPCManager.restoreDisposition(this.npcMemory, def.id, def.initialDisposition ?? 'neutral'));
+      // Restore the NPC→NPC ledger only when persisted; otherwise keep the seeded one.
+      const savedLedger = NPCManager.restoreRelationships(this.npcMemory, def.id);
+      if (savedLedger) agent.restoreRelationships(savedLedger);
       const anchor = await this.buildNPCVisual(def);
       this.npcAnchors.push(anchor);
     }

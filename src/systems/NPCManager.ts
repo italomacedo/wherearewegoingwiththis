@@ -10,8 +10,14 @@ import { ClaudeCallQueue } from '@systems/ClaudeCallQueue';
 
 export const COOLDOWN_SECONDS = 3;
 
-/** A persisted NPC's memory: its conversation plus its dynamic disposition. */
-export type NPCMemoryEntry = ConversationState & { disposition?: NPCDisposition };
+/**
+ * A persisted NPC's memory: its conversation, its dynamic disposition toward the
+ * player, and its relationship ledger toward other NPCs (8B).
+ */
+export type NPCMemoryEntry = ConversationState & {
+  disposition?: NPCDisposition;
+  relationships?: Record<string, NPCDisposition>;
+};
 export type NPCMemoryMap = Record<string, NPCMemoryEntry>;
 
 /** A queued autonomous job (currently only deliberation runs through the queue). */
@@ -262,7 +268,11 @@ export class NPCManager {
   serializeMemory(): NPCMemoryMap {
     const map: NPCMemoryMap = {};
     this.agents.forEach((agent, id) => {
-      map[id] = { ...agent.conversation.toState(), disposition: agent.getDisposition() };
+      map[id] = {
+        ...agent.conversation.toState(),
+        disposition: agent.getDisposition(),
+        relationships: agent.relationshipsRecord(),
+      };
     });
     return map;
   }
@@ -280,6 +290,14 @@ export class NPCManager {
     fallback: NPCDisposition,
   ): NPCDisposition {
     return memory?.[npcId]?.disposition ?? fallback;
+  }
+
+  /** The persisted NPC→NPC relationship ledger for an NPC (undefined = none saved). */
+  static restoreRelationships(
+    memory: NPCMemoryMap | undefined,
+    npcId: string,
+  ): Record<string, NPCDisposition> | undefined {
+    return memory?.[npcId]?.relationships;
   }
 
   dispose(): void {
