@@ -345,6 +345,8 @@ export class GameWorldScene extends BaseScene {
       // Looting a corpse framed the camera on it (conversation mode); restore the
       // normal follow camera when the overlay closes.
       onClose: () => this.cameraSystem?.exitConversationMode(),
+      // "Adjust" button on an equipped row → open the calibration tool for it.
+      onAdjust: (itemId, slot) => this.openAdjustFor(itemId, slot),
     });
 
     // Adjust tool (Phase 10.4b): live-calibrate a held prop's attach transform.
@@ -1799,12 +1801,18 @@ export class GameWorldScene extends BaseScene {
     const equip = this.playerInventory.toState().equipped ?? {};
     const slot: EquipSlot = equip.main_hand ? 'main_hand' : 'back';
     const itemId = equip[slot];
-    if (!itemId) return; // nothing equipped to adjust
+    if (itemId) this.openAdjustFor(itemId, slot);
+  }
+
+  /** Open the Adjust tool for an equipped prop (from the key or the inventory button). */
+  /* istanbul ignore next — browser-only camera/overlay wiring */
+  private openAdjustFor(itemId: string, slot: EquipSlot): void {
+    if (!this.adjustOverlay) return;
     const base = resolveAttachWith(itemId, slot, this.heldAttach);
     base.bone = boneFor(itemId, slot, this.heldAttach);
     const bones = (this.player?.getSkeleton()?.bones ?? []).map((b) => b.name);
     if (this.player) this.cameraSystem?.enterConversationMode(this.player.getRoot(), 4);
-    overlay.open(itemId, slot, base, bones);
+    this.adjustOverlay.open(itemId, slot, base, bones);
   }
 
   private wirePauseMenu(): void {

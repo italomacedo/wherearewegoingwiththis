@@ -125,6 +125,7 @@ export const STRINGS: Record<string, Entry> = {
   'inventory.drop': e('Drop', 'Largar'),
   'inventory.take': e('Take', 'Pegar'),
   'inventory.takeAll': e('Take all', 'Pegar tudo'),
+  'inventory.adjust': e('Adjust', 'Ajustar'),
   // Item names
   'item.fists': e('fists', 'punhos'),
   'item.knife': e('Knife', 'Faca'),

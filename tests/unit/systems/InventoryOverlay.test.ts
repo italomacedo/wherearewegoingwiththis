@@ -41,6 +41,35 @@ describe('InventoryOverlay (pure state + actions)', () => {
     expect(medkit.qty).toBe(2);
   });
 
+  it('marks the equipped slot + model flag and adjust() opens the tool then closes', () => {
+    const inv = new Inventory();
+    inv.add('knife', 1);
+    inv.add('backpack', 1);
+    inv.equipToSlot('main_hand', 'knife');
+    inv.equipToSlot('back', 'backpack');
+    const calls: Array<{ id: string; slot: string }> = [];
+    overlay.setHandlers({ onAdjust: (id, slot) => calls.push({ id, slot }) });
+    overlay.openManage(inv);
+    const rows = overlay.playerRows();
+    expect(rows.find((r) => r.id === 'knife')!.equippedSlot).toBe('main_hand');
+    expect(rows.find((r) => r.id === 'backpack')!.equippedSlot).toBe('back');
+    expect(rows.find((r) => r.id === 'knife')!.hasModel).toBe(true);
+    overlay.adjust('knife');
+    expect(calls).toEqual([{ id: 'knife', slot: 'main_hand' }]);
+    expect(overlay.isOpen()).toBe(false); // adjusting closes the inventory
+  });
+
+  it('adjust() is a no-op for an unequipped item or without a handler', () => {
+    const inv = new Inventory();
+    inv.add('knife', 1); // owned but not equipped
+    let called = false;
+    overlay.setHandlers({ onAdjust: () => { called = true; } });
+    overlay.openManage(inv);
+    overlay.adjust('knife');
+    expect(called).toBe(false);
+    expect(overlay.isOpen()).toBe(true);
+  });
+
   it('equip / unequip change the equipped weapon and notify onChange', () => {
     const inv = new Inventory();
     inv.add('knife', 1);
