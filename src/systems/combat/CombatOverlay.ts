@@ -230,7 +230,7 @@ export class CombatOverlay {
     caption.height = '60px';
     caption.top = '-26%';
     caption.isVisible = false;
-    gui.addControl(caption);
+    scrim.addControl(caption); // child of the scrim → hidden with the overlay
     this.caption = caption;
 
     // Combat log — a column down the RIGHT edge so it never covers the fighters.
@@ -244,7 +244,7 @@ export class CombatOverlay {
     logScroll.color = 'rgba(0,80,90,0.5)';
     logScroll.barColor = '#0AA';
     logScroll.background = 'rgba(2,10,14,0.45)';
-    gui.addControl(logScroll);
+    scrim.addControl(logScroll); // child of the scrim → only shows during combat
     const log = new StackPanel('combat-log');
     log.width = '280px';
     log.isVertical = true;
@@ -259,7 +259,7 @@ export class CombatOverlay {
     bottom.spacing = 8;
     bottom.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
     bottom.top = '-18px';
-    gui.addControl(bottom);
+    scrim.addControl(bottom); // child of the scrim → only shows during combat
 
     const status = new TextBlock('combat-status', '');
     status.color = '#CFE';
