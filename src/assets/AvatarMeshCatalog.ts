@@ -69,6 +69,27 @@ export const LOCO_CLIPS: Record<'idle' | 'walk' | 'run' | 'interact', string> = 
 export type LocoClipState = keyof typeof LOCO_CLIPS;
 
 /**
+ * Combat state → exact embedded clip name (same Quaternius rig as the loco clips,
+ * so zero retargeting). These are kept (renamed to the lowercase key) by
+ * `assembleGltf` alongside the loco clips and played one-shot during combat.
+ */
+export const COMBAT_CLIPS: Record<'punch' | 'kick' | 'shoot' | 'aim' | 'hit' | 'death', string> = {
+  punch: 'Punch_Right',
+  kick: 'Kick_Right',
+  shoot: 'Gun_Shoot',
+  aim: 'Idle_Gun_Pointing',
+  hit: 'HitRecieve',
+  death: 'Death',
+};
+
+export type CombatClipState = keyof typeof COMBAT_CLIPS;
+
+/** The clip an attacker plays for a given attack kind (melee → punch, ranged → shoot). */
+export function combatClipFor(attackKind: 'melee' | 'ranged'): CombatClipState {
+  return attackKind === 'melee' ? 'punch' : 'shoot';
+}
+
+/**
  * Approximate ground speed (units/sec) each Quaternius Walk/Run clip was authored
  * to — i.e. how fast the feet cycle in the clip. The hero translates at
  * walkSpeed=4 / runSpeed=8, so when those don't match the clip's authored cadence

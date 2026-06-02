@@ -1,5 +1,5 @@
 import {
-  Scene, Vector3, TransformNode, AbstractMesh, MeshBuilder,
+  Scene, Vector3, TransformNode, AbstractMesh, MeshBuilder, AnimationGroup,
   PhysicsCharacterController, CharacterSupportedState,
 } from '@babylonjs/core';
 import { InputSystem, MovementAxis } from '@systems/InputSystem';
@@ -260,6 +260,11 @@ export class PlayerController {
 
   getRoot(): TransformNode {
     return this.root;
+  }
+
+  /** The hero's avatar AnimationGroups (idle/walk/run/interact + combat clips). */
+  getAnimationGroups(): AnimationGroup[] {
+    return this.assembled?.getAnimationGroups?.() ?? [];
   }
 
   getPartCount(): number {

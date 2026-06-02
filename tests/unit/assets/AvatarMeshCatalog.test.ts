@@ -1,5 +1,5 @@
 import {
-  OUTFITS, DEFAULT_OUTFIT, LOCO_CLIPS,
+  OUTFITS, DEFAULT_OUTFIT, LOCO_CLIPS, COMBAT_CLIPS, combatClipFor,
   LOCO_CLIP_GROUND_SPEED, LOCO_SPEED_RATIO_MIN, LOCO_SPEED_RATIO_MAX, computeLocoSpeedRatio,
   outfitsForGender, outfitByKey, genderOfOutfit, tintRoleForMaterial,
 } from '../../../src/assets/AvatarMeshCatalog';
@@ -41,6 +41,15 @@ describe('AvatarMeshCatalog — Quaternius Ultimate Modular outfits (pure)', () 
 
   it('LOCO_CLIPS maps states to the exact embedded clip names', () => {
     expect(LOCO_CLIPS).toEqual({ idle: 'Idle', walk: 'Walk', run: 'Run', interact: 'Interact' });
+  });
+
+  it('COMBAT_CLIPS maps to embedded Quaternius clip names; combatClipFor picks by kind', () => {
+    expect(COMBAT_CLIPS).toEqual({
+      punch: 'Punch_Right', kick: 'Kick_Right', shoot: 'Gun_Shoot',
+      aim: 'Idle_Gun_Pointing', hit: 'HitRecieve', death: 'Death',
+    });
+    expect(combatClipFor('melee')).toBe('punch');
+    expect(combatClipFor('ranged')).toBe('shoot');
   });
 
   describe('computeLocoSpeedRatio — match clip cadence to ground speed', () => {

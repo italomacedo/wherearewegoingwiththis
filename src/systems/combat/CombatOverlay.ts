@@ -11,6 +11,8 @@ export interface CombatOverlayHandlers {
   onEnd?: (outcome: CombatOutcome) => void;
   /** Optional Claude dramatization of a factual beat; falls back to the beat. */
   narrate?: (beat: string) => Promise<string>;
+  /** Fired for every applied combat event (the scene plays the matching animation). */
+  onBeat?: (entry: CombatLogEntry) => void;
 }
 
 /**
@@ -125,6 +127,7 @@ export class CombatOverlay {
 
   /* istanbul ignore next — browser GUI only */
   private appendBeat(entry: CombatLogEntry): void {
+    this.handlers.onBeat?.(entry); // scene plays the matching avatar animation
     const line = this.addLogLine(entry.beat, entry.isPlayerActor);
     // Dramatize via Claude ONLY on a critical hit (landed blow with P>90%) — bounded
     // cost + cinematic punch. Fall back to the factual beat silently.

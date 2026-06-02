@@ -43,7 +43,8 @@ import { resolveCheck } from '@systems/SkillCheck';
 import { t, getLocale, languageName } from '@systems/I18n';
 import { SettingsService } from '@systems/SettingsService';
 import { CombatOverlay } from '@systems/combat/CombatOverlay';
-import { CombatController } from '@systems/combat/CombatController';
+import { CombatController, CombatLogEntry } from '@systems/combat/CombatController';
+import { combatClipFor } from '@assets/AvatarMeshCatalog';
 import { CombatEncounter, CombatantInit } from '@systems/combat/CombatEncounter';
 import { combatTuningFromSettings } from '@systems/combat/CombatMath';
 
@@ -77,6 +78,8 @@ export class GameWorldScene extends BaseScene {
   private npcHolders: TransformNode[] = [];
   private npcHolderById = new Map<string, TransformNode>();
   private npcAnimById = new Map<string, { walk: AnimationGroup | null; idle: AnimationGroup | null }>();
+  /** Full AnimationGroup set per NPC (idle/walk/run/interact + combat clips) for combat playback. */
+  private npcGroupsById = new Map<string, AnimationGroup[]>();
   private npcAnchors: AbstractMesh[] = [];
   // ─── Autonomy (Fase 5) ──────────────────────────────────────────────────────
   private autonomyQueue: ClaudeCallQueue<AutonomyJob> | null = null;
@@ -426,6 +429,7 @@ export class GameWorldScene extends BaseScene {
     this.npcHolders.push(holder);
     this.npcHolderById.set(npc.id, holder);
     this.npcAnimById.set(npc.id, { walk, idle });
+    this.npcGroupsById.set(npc.id, groups);
     return assembled.rootMesh;
   }
 
@@ -516,8 +520,37 @@ export class GameWorldScene extends BaseScene {
     this.combat.setHandlers({
       narrate: (beat) => this.npcManager?.narrateCombat(beat, language) ?? Promise.resolve(beat),
       onEnd: (outcome) => this.endCombat(enemyId, outcome),
+      onBeat: (entry) => this.animateCombatBeat(entry),
     });
     this.combat.start(controller);
+  }
+
+  /** Play attack/hit/death animations on the world meshes for a resolved combat beat. */
+  /* istanbul ignore next — browser-only animation playback */
+  private animateCombatBeat(entry: CombatLogEntry): void {
+    if (entry.attackKind && (entry.kind === 'hit' || entry.kind === 'miss' || entry.kind === 'death')) {
+      this.playCombatClip(entry.actorId, combatClipFor(entry.attackKind), false);
+    }
+    if (entry.targetId && (entry.kind === 'hit' || entry.kind === 'death')) {
+      const dead = entry.kind === 'death';
+      this.playCombatClip(entry.targetId, dead ? 'death' : 'hit', dead);
+    }
+  }
+
+  /** One-shot a named avatar clip on a combatant's mesh, returning to idle (unless `hold`). */
+  /* istanbul ignore next — browser-only animation playback */
+  private playCombatClip(actorId: string, key: string, hold: boolean): void {
+    const groups = actorId === 'player'
+      ? (this.player?.getAnimationGroups() ?? [])
+      : (this.npcGroupsById.get(actorId) ?? []);
+    const clip = groups.find((g) => g.name.toLowerCase() === key);
+    if (!clip) return;
+    const idle = groups.find((g) => g.name.toLowerCase() === 'idle') ?? null;
+    groups.forEach((g) => g.stop());
+    clip.start(false);
+    if (!hold) {
+      clip.onAnimationEndObservable.addOnce(() => { idle?.start(true); });
+    }
   }
 
   /** Apply a resolved combat outcome to the world (player HP, defeat, disposition). */

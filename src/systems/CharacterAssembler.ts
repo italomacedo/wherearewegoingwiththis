@@ -8,7 +8,7 @@ import {
   DEFAULT_COLORS, MORPH_REGISTRY, resolveLayers, getSkinTone, clampMorph,
 } from '@entities/CharacterData';
 import { CharacterAssets, resolveAssetPath, resolveBasePath, mapMorphName } from '@assets/AssetManifest';
-import { outfitByKey, DEFAULT_OUTFIT, LOCO_CLIPS, tintRoleForMaterial, genderOfOutfit } from '@assets/AvatarMeshCatalog';
+import { outfitByKey, DEFAULT_OUTFIT, LOCO_CLIPS, COMBAT_CLIPS, tintRoleForMaterial, genderOfOutfit } from '@assets/AvatarMeshCatalog';
 
 export interface AssembledCharacter {
   rootMesh: AbstractMesh;
@@ -201,12 +201,12 @@ export class CharacterAssembler {
       // Quaternius faces +Z (= our world forward at rotation.y=0) → no flip.
       this.tintAvatarMaterials(container.meshes, colors);
 
-      // Keep only the 4 locomotion clips, renamed to their state key so
-      // PlayerController's name-matching plays exactly one; dispose the rest
-      // (the pack ships 24 embedded clips — combat/guns/etc. — unused for now).
+      // Keep the locomotion + combat clips, renamed to their state key so
+      // name-matching plays exactly one; dispose the rest (the pack ships 24
+      // embedded clips on one rig — we keep idle/walk/run/interact + the combat set).
       const byName = new Map(container.animationGroups.map((g) => [g.name, g]));
       const kept: AnimationGroup[] = [];
-      for (const [state, clip] of Object.entries(LOCO_CLIPS)) {
+      for (const [state, clip] of [...Object.entries(LOCO_CLIPS), ...Object.entries(COMBAT_CLIPS)]) {
         const g = byName.get(clip);
         if (!g) { console.warn(`[Avatar] clip "${clip}" (${state}) missing in ${outfit.key}`); continue; }
         g.name = state;
