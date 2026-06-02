@@ -119,12 +119,16 @@ after a recruiter fix, and drove this polish (all browser-only / `istanbul ignor
 - **NPC collider follows a combat reposition — FIXED.** A static Havok box doesn't track its
   mesh, so an NPC that walked into a fight left its collider behind (you'd bump an invisible box
   at its old spot, and pass through where it now stands). Per-NPC colliders are now keyed
-  (`npcColliderById`) and **rebuilt at the new position** (dispose + recreate, like the hero
-  teleport) in the `endCombat` position sync (`rebuildNpcCollider`). The same rebuild fires when
-  an NPC walks to a **gossip** spot (on arrival in `stepNpcMovers`) — the agent's logical position
-  was already synced each step (so `[E]`/proximity/camera followed), the collider now follows too.
-  Note: the collider snaps to the **destination** (not continuously during the short walk); a
-  continuously-tracking static body (`disablePreStep=false`) is a possible future refinement.
+  per NPC. **Refactored (owner request):** the separate static box was replaced by a **physics
+  capsule parented to the NPC holder** — the character's own collision mold (same shape the hero
+  uses), an `ANIMATED` body with `disablePreStep=false` that tracks the holder **automatically**,
+  so the collider follows the NPC anywhere it walks (combat or gossip) with **no rebuild plumbing**.
+  NPC locomotion was also **centralized**: one set of primitives — `moveNpcTo` (holder + logical
+  agent position, so `[E]`/proximity/camera follow), `faceNpc`/`faceNpcToward`, and a single
+  `startNpcWalk`/`stepNpcWalks`/`finishNpcWalk` polyline walker — is now the ONE path used by both
+  gossip approaches and combat moves (player included; `combatNode`-based), replacing the old
+  separate `stepNpcMovers` (gossip) and `walkAlongPath` tween (combat). `stepNpcWalks` is driven
+  from the live loop and the combat branch.
 
 **Open (deferred) playtest bugs:**
 - **(B)** the attack hover ring is slightly offset from the NPC's real position (ground point

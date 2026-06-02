@@ -1,6 +1,6 @@
 import {
   Engine, Color4, Color3, Vector3, Matrix, AbstractMesh, TransformNode, MeshBuilder,
-  PhysicsAggregate, PhysicsShapeType, AnimationGroup, Animation, LinesMesh,
+  PhysicsAggregate, PhysicsShapeType, PhysicsMotionType, AnimationGroup, Animation, LinesMesh,
 } from '@babylonjs/core';
 import { BaseScene } from './BaseScene';
 import { ServiceLocator } from '@core/ServiceLocator';
@@ -118,15 +118,18 @@ export class GameWorldScene extends BaseScene {
   private npcVisuals: AssembledCharacter[] = [];
   private npcHolders: TransformNode[] = [];
   private npcHolderById = new Map<string, TransformNode>();
-  private npcAnimById = new Map<string, { walk: AnimationGroup | null; idle: AnimationGroup | null }>();
   /** Full AnimationGroup set per NPC (idle/walk/run/interact + combat clips) for combat playback. */
   private npcGroupsById = new Map<string, AnimationGroup[]>();
   private npcAnchors: AbstractMesh[] = [];
   // ─── Autonomy (Fase 5) ──────────────────────────────────────────────────────
   private autonomyQueue: ClaudeCallQueue<AutonomyJob> | null = null;
   private autonomyAccumMs = 0;
-  /** Active approach routes per NPC id: polyline + cursor + who they walk toward. */
-  private npcRoutes = new Map<string, { path: Vector3[]; i: number; partnerId: string }>();
+  /**
+   * Active walks per NPC id — the SINGLE source of NPC locomotion (gossip + combat
+   * both feed this). `points` is a world-space polyline; `onArrive` fires once at the
+   * end. `combat` walks suspend the combat facing pin while moving.
+   */
+  private npcWalks = new Map<string, { points: Vector3[]; i: number; speed: number; combat: boolean; onArrive?: () => void }>();
   /** NPC ids currently mid-gossip (so a route completion fires the exchange once). */
   private gossiping = new Set<string>();
   /** Overheard NPC↔NPC gossip lines, shown in the global (T) chat history. */
@@ -137,9 +140,13 @@ export class GameWorldScene extends BaseScene {
   private static readonly ENGAGE_DIST = 1.8;       // arrival threshold for gossip
   private entityColliders: AbstractMesh[] = [];
   private entityAggregates: PhysicsAggregate[] = [];
-  /** Per-NPC static collider, keyed so it can follow a combat reposition (Bug: Zara's
-   *  box stayed put when she walked into a fight). */
-  private npcColliderById = new Map<string, { box: AbstractMesh; agg: PhysicsAggregate }>();
+  /**
+   * Per-NPC physics CAPSULE parented to the holder — the NPC's own collision "mold"
+   * (same shape the hero uses). An ANIMATED body with `disablePreStep=false` tracks the
+   * holder automatically, so the collider follows wherever the NPC walks — no separate
+   * static box to reposition.
+   */
+  private npcCapsuleById = new Map<string, { mesh: AbstractMesh; agg: PhysicsAggregate }>();
   private detachInput: (() => void) | null = null;
   private startZoneId = 'mercado_sombras';
   private appearance: CharacterAppearance = DEFAULT_APPEARANCE;
@@ -296,7 +303,7 @@ export class GameWorldScene extends BaseScene {
       onMainMenu: () => { void ServiceLocator.get<SceneManager>('sceneManager').loadScene('main-menu'); },
     });
 
-    // Static colliders for the nave + Zara so the hero can't walk through them.
+    // Colliders: a static box for the nave + a self-following capsule per NPC.
     if (this.babylonScene.isPhysicsEnabled()) {
       /* istanbul ignore next — physics colliders are browser/Electron only */
       this.buildEntityColliders();
@@ -305,47 +312,145 @@ export class GameWorldScene extends BaseScene {
 
   /* istanbul ignore next — physics colliders are browser/Electron only */
   private buildEntityColliders(): void {
-    // The vehicle never repositions → flat arrays. NPCs are keyed so their box can
-    // follow a combat reposition (rebuildNpcCollider).
+    // The nave is a static prop → one fixed box. NPCs get a capsule that follows them.
     const veh = this.vehicle?.getRoot() as unknown as AbstractMesh | undefined;
     if (veh) {
-      const c = this.makeStaticCollider(veh, 'col-entity-nave');
-      if (c) { this.entityColliders.push(c.box); this.entityAggregates.push(c.agg); }
+      const { min, max } = veh.getHierarchyBoundingVectors(true);
+      const size = max.subtract(min);
+      if (size.x >= 0.05 && size.y >= 0.05 && size.z >= 0.05) {
+        const box = MeshBuilder.CreateBox('col-entity-nave', { width: size.x, height: size.y, depth: size.z }, this.babylonScene);
+        box.position.copyFrom(min.add(max).scale(0.5));
+        box.isVisible = false;
+        this.entityColliders.push(box);
+        this.entityAggregates.push(new PhysicsAggregate(box, PhysicsShapeType.BOX, { mass: 0 }, this.babylonScene));
+      }
     }
-    this.npcHolderById.forEach((holder, id) => {
-      const c = this.makeStaticCollider(holder, `col-npc-${id}`);
-      if (c) this.npcColliderById.set(id, c);
-    });
-  }
-
-  /** Build an invisible static box collider sized to a node's world bounds. */
-  /* istanbul ignore next — physics colliders are browser/Electron only */
-  private makeStaticCollider(node: AbstractMesh | TransformNode, name: string): { box: AbstractMesh; agg: PhysicsAggregate } | null {
-    const { min, max } = node.getHierarchyBoundingVectors(true);
-    const size = max.subtract(min);
-    if (size.x < 0.05 || size.y < 0.05 || size.z < 0.05) return null;
-    const box = MeshBuilder.CreateBox(name, { width: size.x, height: size.y, depth: size.z }, this.babylonScene);
-    box.position.copyFrom(min.add(max).scale(0.5));
-    box.isVisible = false;
-    const agg = new PhysicsAggregate(box, PhysicsShapeType.BOX, { mass: 0 }, this.babylonScene);
-    return { box, agg };
+    this.npcHolderById.forEach((holder, id) => this.buildNpcCapsule(id, holder));
   }
 
   /**
-   * Rebuild an NPC's static collider at its current position (a static Havok body
-   * doesn't follow the mesh, so dispose + recreate — same pattern as the hero's
-   * teleport). Called after a combat reposition so the box follows the avatar.
+   * Give an NPC a physics capsule parented to its holder — the character's own
+   * collision mold (same shape as the hero). An ANIMATED body with
+   * `disablePreStep=false` reads the holder's world transform each step, so the
+   * collider follows the NPC wherever it walks with no manual repositioning.
    */
   /* istanbul ignore next — physics colliders are browser/Electron only */
-  private rebuildNpcCollider(id: string): void {
-    if (!this.babylonScene.isPhysicsEnabled()) return;
-    const holder = this.npcHolderById.get(id);
-    if (!holder) return;
-    const old = this.npcColliderById.get(id);
-    if (old) { old.agg.dispose(); old.box.dispose(); this.npcColliderById.delete(id); }
-    holder.computeWorldMatrix(true); // bounds must reflect the just-moved position
-    const c = this.makeStaticCollider(holder, `col-npc-${id}`);
-    if (c) this.npcColliderById.set(id, c);
+  private buildNpcCapsule(id: string, holder: TransformNode): void {
+    holder.computeWorldMatrix(true);
+    const { min, max } = holder.getHierarchyBoundingVectors(true);
+    const size = max.subtract(min);
+    const height = Math.max(0.8, size.y);
+    const radius = Math.max(0.2, Math.min(size.x, size.z) * 0.5);
+    const mesh = MeshBuilder.CreateCapsule(`cap-npc-${id}`, { height, radius }, this.babylonScene);
+    mesh.isVisible = false;
+    mesh.parent = holder;
+    mesh.position.set(0, height / 2, 0); // feet at the holder origin
+    const agg = new PhysicsAggregate(mesh, PhysicsShapeType.CAPSULE, { mass: 0 }, this.babylonScene);
+    agg.body.setMotionType(PhysicsMotionType.ANIMATED); // code-moved mover the hero collides with
+    agg.body.disablePreStep = false;                    // track the holder transform each step
+    this.npcCapsuleById.set(id, { mesh, agg });
+  }
+
+  // ─── Centralized NPC locomotion (single source of truth) ───────────────────
+  // Every NPC reposition/turn goes through these, so the visual holder, the logical
+  // agent position (drives [E]/proximity/camera) and the capsule collider always agree.
+
+  /**
+   * Move a combatant — NPC or the player — keeping its logical position in sync so the
+   * [E] prompt, proximity and camera follow it. The NPC capsule (parented to the holder)
+   * and the player's physics capsule track their node automatically.
+   */
+  /* istanbul ignore next — browser-only mesh movement */
+  private moveNpcTo(id: string, pos: Vector3): void {
+    const node = this.combatNode(id);
+    if (!node) return;
+    node.position.copyFrom(pos);
+    if (id !== 'player') this.npcManager?.getAgent(id)?.setPosition(node.position);
+  }
+
+  /** Turn a combatant to a yaw (avatars face +Z at rotation.y = 0). */
+  /* istanbul ignore next — browser-only mesh rotation */
+  private faceNpc(id: string, yaw: number): void {
+    const node = this.combatNode(id);
+    if (node) node.rotation.y = yaw;
+  }
+
+  /** Turn a combatant to face a world point. */
+  /* istanbul ignore next — browser-only mesh rotation */
+  private faceNpcToward(id: string, target: Vector3): void {
+    const node = this.combatNode(id);
+    if (!node) return;
+    const dx = target.x - node.position.x;
+    const dz = target.z - node.position.z;
+    if (Math.abs(dx) < 1e-4 && Math.abs(dz) < 1e-4) return;
+    this.faceNpc(id, Math.atan2(dx, dz));
+  }
+
+  /** The walk/idle clips for a combatant (player avatar or NPC). */
+  /* istanbul ignore next — browser-only animation lookup */
+  private walkIdleClipsOf(id: string): { walk: AnimationGroup | null; idle: AnimationGroup | null } {
+    const groups = id === 'player'
+      ? (this.player?.getAnimationGroups() ?? [])
+      : (this.npcGroupsById.get(id) ?? []);
+    return {
+      walk: groups.find((g) => g.name.toLowerCase().includes('walk')) ?? null,
+      idle: groups.find((g) => g.name.toLowerCase().includes('idle')) ?? null,
+    };
+  }
+
+  /**
+   * Start a combatant walking a world-space polyline — the ONE locomotion entry used by
+   * both gossip and combat moves. Plays the walk clip; `stepNpcWalks` advances it each
+   * frame; `onArrive` fires once at the end. A `combat` walk suspends the facing pin
+   * while moving and pins the final heading on arrival.
+   */
+  /* istanbul ignore next — browser-only mesh movement */
+  private startNpcWalk(id: string, points: Vector3[], speed: number, opts: { combat?: boolean; onArrive?: () => void } = {}): void {
+    if (points.length < 2) { opts.onArrive?.(); return; }
+    this.npcWalks.set(id, { points, i: 1, speed, combat: !!opts.combat, onArrive: opts.onArrive });
+    if (opts.combat) this.combatWalking.add(id);
+    const { walk, idle } = this.walkIdleClipsOf(id);
+    idle?.stop();
+    walk?.start(true);
+  }
+
+  /** Advance every active walk one frame. Called from the live loop AND the combat branch. */
+  /* istanbul ignore next — browser-only mesh movement */
+  private stepNpcWalks(dt: number): void {
+    if (this.npcWalks.size === 0) return;
+    this.npcWalks.forEach((w, id) => {
+      const node = this.combatNode(id);
+      const target = node ? w.points[w.i] : undefined;
+      if (!node || !target) { this.finishNpcWalk(id); return; }
+      const to = target.subtract(node.position); to.y = 0;
+      const dist = to.length();
+      const step = w.speed * dt;
+      if (dist <= step) {
+        this.moveNpcTo(id, new Vector3(target.x, node.position.y, target.z));
+        w.i += 1;
+        if (w.i >= w.points.length) { this.finishNpcWalk(id); }
+      } else {
+        const dir = to.scale(1 / dist);
+        this.moveNpcTo(id, node.position.add(dir.scale(step)));
+        this.faceNpc(id, Math.atan2(dir.x, dir.z));
+      }
+    });
+  }
+
+  /** End a walk: stop the clip, idle, remember the combat facing, fire onArrive. */
+  /* istanbul ignore next — browser-only mesh movement */
+  private finishNpcWalk(id: string): void {
+    const w = this.npcWalks.get(id);
+    this.npcWalks.delete(id);
+    const { walk, idle } = this.walkIdleClipsOf(id);
+    walk?.stop();
+    idle?.start(true);
+    if (w?.combat) {
+      this.combatWalking.delete(id);
+      const node = this.combatNode(id);
+      if (node) this.combatFacing.set(id, node.rotation.y); // pin the final heading
+    }
+    w?.onArrive?.();
   }
 
   async onExit(): Promise<void> {
@@ -368,8 +473,9 @@ export class GameWorldScene extends BaseScene {
     this.entityAggregates = [];
     this.entityColliders.forEach((c) => c.dispose());
     this.entityColliders = [];
-    this.npcColliderById.forEach(({ box, agg }) => { agg.dispose(); box.dispose(); });
-    this.npcColliderById.clear();
+    this.npcCapsuleById.forEach(({ mesh, agg }) => { agg.dispose(); mesh.dispose(); });
+    this.npcCapsuleById.clear();
+    this.npcWalks.clear();
     this.npcMeshes.forEach((m) => m.dispose());
     this.npcMeshes = [];
     this.npcVisuals.forEach((v) => v.dispose());
@@ -377,12 +483,11 @@ export class GameWorldScene extends BaseScene {
     this.npcHolders.forEach((h) => h.dispose());
     this.npcHolders = [];
     this.npcHolderById.clear();
-    this.npcAnimById.clear();
     this.npcAnchors = [];
     this.autonomyQueue?.clear();
     this.autonomyQueue = null;
     this.autonomyAccumMs = 0;
-    this.npcRoutes.clear();
+    this.npcWalks.clear();
     this.gossiping.clear();
     this.player = null;
     this.vehicle = null;
@@ -426,6 +531,7 @@ export class GameWorldScene extends BaseScene {
     if (this.combat?.isOpen()) {
       this.handleCombatCameraKeys(dt);
       this.tickCombat(dt);
+      this.stepNpcWalks(dt); // advance any in-progress combat move
       this.pinCombatFacings();
       this.cameraSystem?.update();
       this.inputSystem?.endFrame();
@@ -527,13 +633,10 @@ export class GameWorldScene extends BaseScene {
       if (!m.parent) m.parent = holder;
     });
     const groups = assembled.getAnimationGroups?.() ?? [];
-    const idle = groups.find((g) => g.name.toLowerCase().includes('idle')) ?? null;
-    const walk = groups.find((g) => g.name.toLowerCase().includes('walk')) ?? null;
-    idle?.start(true);
+    groups.find((g) => g.name.toLowerCase().includes('idle'))?.start(true);
     this.npcVisuals.push(assembled);
     this.npcHolders.push(holder);
     this.npcHolderById.set(npc.id, holder);
-    this.npcAnimById.set(npc.id, { walk, idle });
     this.npcGroupsById.set(npc.id, groups);
     return assembled.rootMesh;
   }
@@ -554,7 +657,7 @@ export class GameWorldScene extends BaseScene {
     if (!this.npcManager || !this.player) return;
     this.npcManager.update(this.player.getPosition(), this.derivePlayerAction(), dt);
     this.driveAutonomy(dt);
-    this.stepNpcMovers(dt);
+    this.stepNpcWalks(dt); // gossip approaches (combat walks are stepped in the combat branch)
   }
 
   /**
@@ -773,9 +876,13 @@ export class GameWorldScene extends BaseScene {
   /** Play attack/hit/dodge/death animations on the world meshes for a resolved combat beat. */
   /* istanbul ignore next — browser-only animation playback */
   private animateCombatBeat(entry: CombatLogEntry): void {
-    // Movement: walk the avatar along the routed polyline to its new position.
+    // Movement: walk the avatar along the routed polyline to its new position
+    // (the ONE locomotion path, shared with gossip).
     if (entry.kind === 'move' && entry.path && entry.path.length > 1) {
-      this.walkAlongPath(entry.actorId, entry.path);
+      const node = this.combatNode(entry.actorId);
+      const y = node?.position.y ?? 0;
+      const points = entry.path.map((p) => new Vector3(p.x, y, p.z));
+      this.startNpcWalk(entry.actorId, points, GameWorldScene.NPC_WALK_SPEED, { combat: true });
       return;
     }
     // NOTE: cover/hunker have NO pose and a miss has NO dodge for now — the Quaternius
@@ -1022,55 +1129,6 @@ export class GameWorldScene extends BaseScene {
     this.clearTargetingVisuals();
   }
 
-  /** Walk an avatar along the routed polyline (walk clip + facing), then idle. */
-  /* istanbul ignore next — browser-only animation playback */
-  private walkAlongPath(actorId: string, path: Point2[]): void {
-    const node = this.combatNode(actorId);
-    if (!node || path.length < 2) return;
-    const groups = actorId === 'player'
-      ? (this.player?.getAnimationGroups() ?? [])
-      : (this.npcGroupsById.get(actorId) ?? []);
-    const y = node.position.y;
-    const fps = 60;
-    const speed = 3.5; // metres/second, matches the walk cadence
-    const posKeys: { frame: number; value: Vector3 }[] = [{ frame: 0, value: new Vector3(path[0]!.x, y, path[0]!.z) }];
-    // Per-segment facing so the avatar turns toward where it's walking (no moonwalk on a
-    // routed/bent path). Angles are unwrapped to the nearest previous so the yaw turns the
-    // short way instead of spinning across ±π. Avatars face +Z at rotation.y = 0.
-    const rotKeys: { frame: number; value: number }[] = [];
-    let frame = 0;
-    let prevAngle = node.rotation.y;
-    for (let i = 1; i < path.length; i++) {
-      let ang = Math.atan2(path[i]!.x - path[i - 1]!.x, path[i]!.z - path[i - 1]!.z);
-      while (ang - prevAngle > Math.PI) ang -= 2 * Math.PI;
-      while (prevAngle - ang > Math.PI) ang += 2 * Math.PI;
-      rotKeys.push({ frame, value: ang }); // face this segment from where the previous one ended
-      const seg = distance2(path[i - 1]!, path[i]!);
-      frame += Math.max(1, (seg / speed) * fps);
-      posKeys.push({ frame, value: new Vector3(path[i]!.x, y, path[i]!.z) });
-      prevAngle = ang;
-    }
-    rotKeys.push({ frame, value: prevAngle }); // hold the final facing
-    node.rotation.y = rotKeys[0]!.value; // snap to the first heading immediately
-    this.combatWalking.add(actorId); // suspend the per-frame facing pin while walking
-
-    const posAnim = new Animation('combat-walk', 'position', fps, Animation.ANIMATIONTYPE_VECTOR3, Animation.ANIMATIONLOOPMODE_CONSTANT);
-    posAnim.setKeys(posKeys);
-    const rotAnim = new Animation('combat-walk-rot', 'rotation.y', fps, Animation.ANIMATIONTYPE_FLOAT, Animation.ANIMATIONLOOPMODE_CONSTANT);
-    rotAnim.setKeys(rotKeys);
-    const walk = groups.find((g) => g.name.toLowerCase() === 'walk') ?? null;
-    const idle = groups.find((g) => g.name.toLowerCase() === 'idle') ?? null;
-    groups.forEach((g) => g.stop());
-    walk?.start(true);
-    this.babylonScene.beginDirectAnimation(node, [posAnim, rotAnim], 0, frame, false, 1, () => {
-      node.rotation.y = prevAngle; // pin the final heading so idle doesn't snap it back
-      this.combatFacing.set(actorId, prevAngle); // remember it for the per-frame re-assert
-      this.combatWalking.delete(actorId);
-      walk?.stop();
-      idle?.start(true);
-    });
-  }
-
   /** Apply a resolved combat outcome to the world (player HP, defeat, disposition). */
   /* istanbul ignore next — browser-only combat wiring */
   private endCombat(outcome: CombatOutcome): void {
@@ -1093,9 +1151,7 @@ export class GameWorldScene extends BaseScene {
         const agent = this.npcManager?.getAgent(c.id);
         const holder = this.npcHolderById.get(c.id);
         const y = holder?.position.y ?? 0;
-        holder?.position.set(c.pos.x, y, c.pos.z);
-        agent?.setPosition(new Vector3(c.pos.x, y, c.pos.z));
-        this.rebuildNpcCollider(c.id); // the static box must follow the avatar
+        this.moveNpcTo(c.id, new Vector3(c.pos.x, y, c.pos.z)); // holder+agent; capsule follows
         if (!agent) continue;
         if (!c.alive) {
           agent.markDefeated();
@@ -1157,61 +1213,48 @@ export class GameWorldScene extends BaseScene {
     return out;
   }
 
-  /** Plan an A* route for `moverId` to walk toward `partnerId`. */
+  /** Plan an A* route for `moverId` to walk toward `partnerId`, then gossip on arrival. */
   /* istanbul ignore next — browser-only mesh routing */
   private beginApproach(moverId: string, partnerId: string): void {
     if (moverId === partnerId) return; // never approach/gossip with oneself
     const mover = this.npcHolderById.get(moverId);
     const partner = this.npcHolderById.get(partnerId);
-    if (!mover || !partner || this.npcRoutes.has(moverId) || this.gossiping.has(moverId)) return;
+    if (!mover || !partner || this.npcWalks.has(moverId) || this.gossiping.has(moverId)) return;
     const from: [number, number, number] = [mover.position.x, 0, mover.position.z];
     const to: [number, number, number] = [partner.position.x, 0, partner.position.z];
     const poly = computeRoute(WAYPOINT_GRAPH, from, to);
     if (!poly) return;
-    this.npcRoutes.set(moverId, { path: poly.map((p) => new Vector3(p[0], 0, p[2])), i: 1, partnerId });
-    // Play the walk clip while travelling (avatar has Idle/Walk groups).
-    const anim = this.npcAnimById.get(moverId);
-    anim?.idle?.stop();
-    anim?.walk?.start(true);
+    const y = mover.position.y;
+    // Stop an engagement distance short of the partner so they don't overlap.
+    const points = this.trimPathTail(poly.map((p) => new Vector3(p[0], y, p[2])), GameWorldScene.ENGAGE_DIST);
+    // The ONE locomotion path (shared with combat); on arrival, face + gossip.
+    this.startNpcWalk(moverId, points, GameWorldScene.NPC_WALK_SPEED, {
+      onArrive: () => {
+        this.faceNpcToward(moverId, partner.position);
+        this.triggerGossip(moverId, partnerId);
+      },
+    });
   }
 
-  /** Advance any NPCs walking a route; on arrival, run a one-shot gossip exchange. */
-  /* istanbul ignore next — browser-only mesh stepping */
-  private stepNpcMovers(dt: number): void {
-    if (this.npcRoutes.size === 0) return;
-    const step = GameWorldScene.NPC_WALK_SPEED * dt;
-    this.npcRoutes.forEach((route, moverId) => {
-      const holder = this.npcHolderById.get(moverId);
-      const partner = this.npcHolderById.get(route.partnerId);
-      if (!holder || !partner) { this.npcRoutes.delete(moverId); this.rebuildNpcCollider(moverId); return; }
-
-      if (Vector3.Distance(holder.position, partner.position) <= GameWorldScene.ENGAGE_DIST) {
-        this.npcRoutes.delete(moverId);
-        this.npcManager?.getAgent(moverId)?.setPosition(holder.position);
-        this.rebuildNpcCollider(moverId); // the static box must follow to the gossip spot
-        // Stop walking, turn to face the partner, back to idle, then gossip.
-        const anim = this.npcAnimById.get(moverId);
-        anim?.walk?.stop();
-        anim?.idle?.start(true);
-        holder.rotation.y = Math.atan2(partner.position.x - holder.position.x, partner.position.z - holder.position.z);
-        this.triggerGossip(moverId, route.partnerId);
-        return;
+  /** Shorten a polyline by `backoff` metres from its end (drops/clips the final segments). */
+  /* istanbul ignore next — browser-only path helper */
+  private trimPathTail(points: Vector3[], backoff: number): Vector3[] {
+    if (points.length < 2 || backoff <= 0) return points;
+    const pts = points.slice();
+    let remaining = backoff;
+    while (pts.length >= 2) {
+      const last = pts[pts.length - 1]!;
+      const prev = pts[pts.length - 2]!;
+      const dir = last.subtract(prev); dir.y = 0;
+      const seg = dir.length();
+      if (seg > remaining) {
+        pts[pts.length - 1] = seg > 1e-6 ? prev.add(dir.scale((seg - remaining) / seg)) : prev;
+        return pts;
       }
-      const target = route.path[route.i];
-      if (!target) { this.npcRoutes.delete(moverId); this.rebuildNpcCollider(moverId); return; }
-      const to = target.subtract(holder.position);
-      const dist = to.length();
-      if (dist <= step) {
-        holder.position.copyFrom(target);
-        route.i += 1;
-      } else {
-        holder.position.addInPlace(to.scale(step / dist));
-        holder.rotation.y = Math.atan2(to.x, to.z);
-      }
-      // Keep the agent's logical position in sync so the [E] Talk prompt,
-      // proximity and conversation framing follow the NPC as it walks.
-      this.npcManager?.getAgent(moverId)?.setPosition(holder.position);
-    });
+      remaining -= seg;
+      pts.pop();
+    }
+    return pts;
   }
 
   /** Fire a single live gossip exchange between two NPCs and surface it. */
