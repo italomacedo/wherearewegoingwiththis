@@ -47,7 +47,7 @@ import { SettingsService } from '@systems/SettingsService';
 import { CombatOverlay } from '@systems/combat/CombatOverlay';
 import { CombatController, CombatLogEntry, MELEE_ONLY_CAPS } from '@systems/combat/CombatController';
 import { combatClipFor } from '@assets/AvatarMeshCatalog';
-import { CombatEncounter, CombatantInit } from '@systems/combat/CombatEncounter';
+import { CombatEncounter, CombatantInit, CombatOutcome } from '@systems/combat/CombatEncounter';
 import {
   combatTuningFromSettings, CombatTuning, Point2, Pathfinder,
   distance2, moveApCost, MELEE_RANGE,
