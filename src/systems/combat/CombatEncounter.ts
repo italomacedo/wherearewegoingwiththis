@@ -21,9 +21,10 @@ import { CharacterStats } from '@entities/CharacterStats';
 import { RollFn, defaultRoll } from '../SkillCheck';
 import {
   CombatTuning, DEFAULT_COMBAT_TUNING, AttackKind,
-  actionPointsFor, moveApCost, resolveAttack, rollDamage, initiativeOrder,
+  actionPointsFor, moveApCost, resolveAttack, rollWeaponDamage, initiativeOrder,
   MELEE_RANGE, FLEE_MIN_DISTANCE, COVER_NONE, COVER_PARTIAL, COVER_FULL,
   Point2, distance2, Pathfinder, straightLinePath, truncatePath, maxMoveMeters,
+  WeaponProfile, FIST_PROFILE,
 } from './CombatMath';
 
 export interface CombatantInit {
@@ -40,6 +41,11 @@ export interface CombatantInit {
    * player combatant and 'enemy' for everyone else (so a 1v1 needs no side).
    */
   side?: string;
+  /**
+   * The weapon the combatant fights with (Phase 9). Drives hit damage + melee reach.
+   * Defaults to the bare fist (legacy constants) when omitted.
+   */
+  weapon?: WeaponProfile;
 }
 
 export type CombatActionType = 'attack' | 'move' | 'cover' | 'hunker' | 'reload' | 'flee' | 'end_turn';
@@ -121,6 +127,7 @@ interface Slot {
   pos: Point2;
   side: string;
   removed: boolean;
+  weapon: WeaponProfile;
 }
 
 function clamp(v: number, lo: number, hi: number): number {
@@ -155,6 +162,7 @@ export class CombatEncounter {
       pos: c.pos ? { ...c.pos } : { x: i * spacing, z: 0 },
       side: c.side ?? (c.isPlayer ? 'player' : 'enemy'),
       removed: false,
+      weapon: c.weapon ?? FIST_PROFILE,
     }));
     this.order = initiativeOrder(combatants.map((c) => ({ id: c.id, dexterity: c.stats.attributes.destreza })));
     this.beginTurn(this.order[this.activeIdx]!);
@@ -372,7 +380,7 @@ export class CombatEncounter {
         }
         const kind: AttackKind = action.attackKind ?? 'ranged';
         const dist = distance2(actor.pos, target.pos);
-        if (kind === 'melee' && dist > MELEE_RANGE) {
+        if (kind === 'melee' && dist > actor.weapon.range) {
           return { kind: 'rejected', actorId, targetId, reason: 'too_far', ap: actor.ap };
         }
         if (this.tuning.primaryCost > actor.ap) {
@@ -389,7 +397,7 @@ export class CombatEncounter {
         if (!hit.success) {
           return { kind: 'miss', actorId, targetId, distance: dist, ap: actor.ap, probability, roll, attackKind: kind, friendlyFire };
         }
-        const damage = rollDamage(actor.init.stats, kind, this.rng);
+        const damage = rollWeaponDamage(actor.init.stats, actor.weapon, this.rng);
         target.health.applyDamage(damage);
         const dead = target.health.isDead();
         if (dead) this.resolve(); // side-based win/lose (N-way)

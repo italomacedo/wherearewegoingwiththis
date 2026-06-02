@@ -23,6 +23,8 @@ import { MercadoSombrasZone } from '@entities/zones/MercadoSombrasZone';
 import { WorldZone } from '@entities/WorldZone';
 import { GameClock, DayPeriod } from '@systems/GameClock';
 import { CharacterAppearance, DEFAULT_APPEARANCE } from '@entities/CharacterData';
+import { Inventory, defaultInventoryState } from '@entities/Inventory';
+import { weaponProfile } from '@entities/items/ItemCatalog';
 import { NPCManager, NPCMemoryMap, AutonomyContext, AutonomyJob } from '@systems/NPCManager';
 import { ClaudeCallQueue, queueConfigFromSettings } from '@systems/ClaudeCallQueue';
 import { IntentCandidate } from '@systems/npc/Intent';
@@ -153,6 +155,7 @@ export class GameWorldScene extends BaseScene {
   private npcMemory: NPCMemoryMap = {};
   private playerName = 'Operative';
   private playerStats: CharacterStats = createDefaultStats();
+  private playerInventory: Inventory = new Inventory();
   private gameTimeSeconds = 0;
   private saveId = '';
   private spawnOverride: Vector3 | null = null;
@@ -186,6 +189,7 @@ export class GameWorldScene extends BaseScene {
     this.appearance = session.character.appearance;
     this.playerName = session.character.name;
     this.playerStats = session.character.stats ?? createDefaultStats();
+    this.playerInventory = Inventory.fromState(session.inventory ?? defaultInventoryState());
     this.npcMemory = session.npcMemory ?? {};
     this.gameTimeSeconds = session.gameTimeSeconds;
     this.playerHealthState = session.playerHealth ?? { ...DEFAULT_PLAYER_HEALTH };
@@ -219,8 +223,9 @@ export class GameWorldScene extends BaseScene {
       : this.vehicleState;
 
     const character = { ...save.character, stats: this.playerStats };
+    const inventory = this.playerInventory.toState();
     SaveService.save({
-      ...save, character, world, gameTimeSeconds: this.gameTimeSeconds, npcMemory: memory, playerHealth, vehicle,
+      ...save, character, world, gameTimeSeconds: this.gameTimeSeconds, npcMemory: memory, playerHealth, vehicle, inventory,
     });
 
     const session = ServiceLocator.tryGet<GameSession>('gameSession');
@@ -231,6 +236,7 @@ export class GameWorldScene extends BaseScene {
       session.gameTimeSeconds = this.gameTimeSeconds;
       session.playerHealth = playerHealth;
       session.vehicle = vehicle;
+      session.inventory = inventory;
     }
   }
 
@@ -751,7 +757,7 @@ export class GameWorldScene extends BaseScene {
       const side = sides[id]!;
       if (id === 'player') {
         const p = this.player?.getRoot().position ?? Vector3.Zero();
-        combatants.push({ id, name: this.playerName, isPlayer: true, stats: this.playerStats, health: this.playerHealthState, pos: { x: p.x, z: p.z }, side });
+        combatants.push({ id, name: this.playerName, isPlayer: true, stats: this.playerStats, health: this.playerHealthState, pos: { x: p.x, z: p.z }, side, weapon: weaponProfile(this.playerInventory.equippedWeaponId) });
         names[id] = this.playerName;
         if (this.player) sources[id] = this.player.getRoot();
       } else {

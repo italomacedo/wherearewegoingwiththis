@@ -1,7 +1,8 @@
 import {
   ITEM_REGISTRY, WEAPON_REGISTRY,
-  itemDef, weaponDef, isWeapon, itemWeight, itemMaxStack,
+  itemDef, weaponDef, isWeapon, itemWeight, itemMaxStack, weaponProfile,
 } from '../../../../src/entities/items/ItemCatalog';
+import { FIST_PROFILE } from '../../../../src/systems/combat/CombatMath';
 
 describe('ItemCatalog', () => {
   it('every weapon id has a matching item entry', () => {
@@ -44,5 +45,13 @@ describe('ItemCatalog', () => {
   it('medkit is a consumable that heals', () => {
     expect(ITEM_REGISTRY.medkit.heal).toBe(40);
     expect(ITEM_REGISTRY.medkit.category).toBe('consumable');
+  });
+
+  it('weaponProfile resolves a weapon, and falls back to the fist otherwise', () => {
+    expect(weaponProfile('knife')).toEqual({ attackKind: 'melee', damageBase: 12, variance: 6, range: 1 });
+    expect(weaponProfile(null)).toBe(FIST_PROFILE);
+    expect(weaponProfile(undefined)).toBe(FIST_PROFILE);
+    expect(weaponProfile('medkit')).toBe(FIST_PROFILE); // not a weapon
+    expect(weaponProfile('ghost')).toBe(FIST_PROFILE);   // unknown
   });
 });

@@ -9,7 +9,8 @@
  * `CharacterData.SLOT_REGISTRY`: frozen records keyed by id + a lookup helper.
  */
 
-import type { AttackKind } from '@systems/combat/CombatMath';
+import type { AttackKind, WeaponProfile } from '@systems/combat/CombatMath';
+import { FIST_PROFILE } from '@systems/combat/CombatMath';
 import type { SkillId } from '@entities/CharacterStats';
 
 export type ItemCategory = 'melee' | 'consumable' | 'misc';
@@ -76,4 +77,15 @@ export function itemWeight(id: string): number { return ITEM_BY_ID.get(id)?.weig
 export function itemMaxStack(id: string): number {
   const def = ITEM_BY_ID.get(id);
   return def ? (def.stackable ? Math.max(1, def.maxStack) : 1) : 1;
+}
+
+/**
+ * The combat profile (damage/variance/reach) for an equipped weapon id. Returns the
+ * bare-fist profile for null/undefined/unknown/non-weapon ids — so an unarmed
+ * fighter behaves exactly as before Phase 9.
+ */
+export function weaponProfile(weaponId: string | null | undefined): WeaponProfile {
+  const def = weaponId ? WEAPON_BY_ID.get(weaponId) : undefined;
+  if (!def) return FIST_PROFILE;
+  return { attackKind: def.attackKind, damageBase: def.damageBase, variance: def.variance, range: def.range };
 }

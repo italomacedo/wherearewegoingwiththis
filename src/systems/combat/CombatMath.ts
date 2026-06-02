@@ -206,6 +206,36 @@ export function rollDamage(stats: CharacterStats, kind: AttackKind, rng: RollFn 
     : RANGED_BASE + Math.floor(stats.attributes.destreza / 20) + variance;
 }
 
+/**
+ * The mechanical profile a combatant fights with — resolved from the equipped
+ * weapon (Phase 9). Damage base/variance + reach come from the weapon; the bare
+ * fist is the default so an unarmed fight matches the legacy constants exactly.
+ */
+export interface WeaponProfile {
+  attackKind: AttackKind;
+  damageBase: number;
+  variance: number;
+  /** Reach in metres (melee range gate). */
+  range: number;
+}
+
+/** Bare fist: identical to the pre-Phase-9 melee constants. */
+export const FIST_PROFILE: WeaponProfile = {
+  attackKind: 'melee',
+  damageBase: MELEE_BASE,
+  variance: DAMAGE_VARIANCE,
+  range: MELEE_RANGE,
+};
+
+/** Damage on a hit using a weapon profile: damageBase + attribute scaling + d(0..variance-1). */
+export function rollWeaponDamage(stats: CharacterStats, profile: WeaponProfile, rng: RollFn = defaultRoll): number {
+  const variance = Math.floor(rng() * Math.max(1, profile.variance));
+  const scale = profile.attackKind === 'melee'
+    ? Math.floor(stats.attributes.forca / 10)
+    : Math.floor(stats.attributes.destreza / 20);
+  return profile.damageBase + scale + variance;
+}
+
 // ─── Initiative ───────────────────────────────────────────────────────────────
 
 export interface Initiable {
