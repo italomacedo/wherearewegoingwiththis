@@ -75,6 +75,7 @@ export const STRINGS: Record<string, Entry> = {
   'combat.won': e('You won the fight.', 'Você venceu o combate.'),
   'combat.lost': e('You were taken down.', 'Você foi derrubado.'),
   'combat.fled': e('You fled the fight.', 'Você fugiu do combate.'),
+  'combat.over': e('The fight is over.', 'O combate terminou.'),
   'combat.log': e('Combat log', 'Registro de combate'),
   'combat.logHit': e('{a} HITS {b} — {dmg} dmg  ({chance}% to hit, rolled {roll})', '{a} ACERTA {b} — {dmg} de dano  ({chance}% de acerto, rolou {roll})'),
   'combat.logKill': e('{a} DROPS {b} — {dmg} dmg  ({chance}% to hit, rolled {roll})', '{a} DERRUBA {b} — {dmg} de dano  ({chance}% de acerto, rolou {roll})'),

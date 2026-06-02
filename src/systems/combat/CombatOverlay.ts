@@ -41,6 +41,7 @@ export class CombatOverlay {
   private open = false;
   private controller: CombatController | null = null;
   private handlers: CombatOverlayHandlers = {};
+  private finished = false;
   private portraitSources: Record<string, TransformNode | AbstractMesh> = {};
 
   private gui: AdvancedDynamicTexture | null = null;
@@ -96,9 +97,11 @@ export class CombatOverlay {
     if (this.panel) this.panel.isVisible = true;
     if (this.caption) this.caption.isVisible = false;
     if (this.logStack) this.logStack.clearControls();
+    this.finished = false;
     this.buildPortraits();
-    // If the enemy won initiative, play out its turn(s) before handing control over.
-    this.pumpEnemyTurns();
+    // Turn pacing (AI/spectator stepping) is driven by the scene's tick — just render
+    // the opening state; if an NPC won initiative the scene steps it on the next tick.
+    this.refresh();
   }
 
   /* istanbul ignore next — browser GUI only */
@@ -114,16 +117,17 @@ export class CombatOverlay {
     this.portraits.build(entries, this.gui);
   }
 
-  /** Run enemy turns until it's the player's turn (or the fight ends), then render. */
+  /**
+   * Render a batch of resulting log entries (player's action or one AI turn the
+   * scene stepped): play each beat, refresh the HUD, and finish once if the fight
+   * has resolved. Public so the scene's timed turn driver can feed AI entries.
+   */
   /* istanbul ignore next — browser GUI only */
-  private pumpEnemyTurns(): void {
-    const c = this.controller;
-    if (!c) return;
-    // NOTE: synchronous burst for now; Fase 8B.7 replaces this with timed stepping
-    // (one AI turn per tick) for the live multi-combatant / spectator presentation.
-    c.runToCompletion().forEach((e) => this.appendBeat(e));
+  renderEntries(entries: CombatLogEntry[]): void {
+    entries.forEach((e) => this.appendBeat(e));
     this.refresh();
-    if (c.isOver()) this.finish(c.outcome());
+    const c = this.controller;
+    if (c && c.isOver()) this.finish(c.outcome());
   }
 
   /* istanbul ignore next — browser GUI only */
@@ -131,18 +135,22 @@ export class CombatOverlay {
     const c = this.controller;
     if (!c || !this.statusText || !this.buttonsRow) return;
     const st = c.getState();
-    const me = st.combatants.find((x) => x.isPlayer);
-    const foe = st.combatants.find((x) => !x.isPlayer);
+    const me = st.combatants.find((x) => x.isPlayer && !x.removed);
+    const playerStanding = !!me && me.alive;
     const turn = c.isPlayerTurn() ? t('combat.yourTurn') : t('combat.enemyTurn');
-    const hp = (n: { name: string; hp: { current: number; max: number } } | undefined) =>
-      n ? `${n.name} ${Math.round((n.hp.current / n.hp.max) * 100)}%` : '';
-    this.statusText.text =
-      `${turn}   ·   ${t('combat.ap')} ${me?.ap ?? 0}/${me?.maxAp ?? 0}   ·   ` +
-      `${t('combat.distance')} ${Math.round(st.distance)}m   ·   ${hp(me)}  vs  ${hp(foe)}`;
+    // N-way HP roster: every still-standing combatant as "Name hp%".
+    const roster = st.combatants
+      .filter((x) => x.alive && !x.removed)
+      .map((x) => `${x.name} ${Math.round((x.hp.current / x.hp.max) * 100)}%`)
+      .join('   ');
+    const apPart = playerStanding ? `${t('combat.ap')} ${me!.ap}/${me!.maxAp}   ·   ` : '';
+    this.statusText.text = `${turn}   ·   ${apPart}${roster}`;
 
-    this.portraits.setActive(c.getState().activeId);
+    this.portraits.setActive(st.activeId);
 
+    // Buttons only on the player's own turn; spectator / AI turns show none.
     this.buttonsRow.clearControls();
+    if (!playerStanding || !c.isPlayerTurn()) return;
     c.options().forEach((opt) => {
       const btn = Button.CreateSimpleButton(`combat-${opt.labelKey}`, t(opt.labelKey));
       btn.width = '104px';
@@ -152,7 +160,7 @@ export class CombatOverlay {
       btn.fontSize = 12;
       btn.fontFamily = '"Courier New", monospace';
       btn.thickness = 1;
-      btn.isEnabled = opt.enabled && c.isPlayerTurn();
+      btn.isEnabled = opt.enabled;
       btn.onPointerUpObservable.add(() => this.onPlayerAction(opt));
       this.buttonsRow!.addControl(btn);
     });
@@ -179,14 +187,8 @@ export class CombatOverlay {
   submitPlayerAction(action: import('./CombatController').PlayerActionOption['action']): void {
     const c = this.controller;
     if (!c || !c.isPlayerTurn() || c.isOver()) return;
-    c.takePlayerAction(action).forEach((e) => this.appendBeat(e));
-    // If the player's turn has ended (or the fight ended), let the AI take its turns.
-    if (!c.isOver() && !c.isPlayerTurn()) {
-      this.pumpEnemyTurns();
-      return;
-    }
-    this.refresh();
-    if (c.isOver()) this.finish(c.outcome());
+    // Apply only the player's action; AI turns are stepped by the scene's timed driver.
+    this.renderEntries(c.takePlayerAction(action));
   }
 
   /* istanbul ignore next — browser GUI only */
@@ -229,7 +231,12 @@ export class CombatOverlay {
 
   /* istanbul ignore next — browser GUI only */
   private finish(outcome: CombatOutcome): void {
-    const key = outcome === 'player_won' ? 'combat.won' : outcome === 'player_lost' ? 'combat.lost' : 'combat.fled';
+    if (this.finished) return;
+    this.finished = true;
+    const key = outcome === 'player_won' ? 'combat.won'
+      : outcome === 'player_lost' ? 'combat.lost'
+        : outcome === 'fled' ? 'combat.fled'
+          : 'combat.over'; // 'resolved' — a player-absent fight ended
     this.showCaption(t(key));
     if (this.buttonsRow) this.buttonsRow.clearControls();
     this.handlers.onEnd?.(outcome);

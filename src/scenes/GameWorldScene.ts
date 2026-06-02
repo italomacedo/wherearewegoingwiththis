@@ -33,7 +33,7 @@ import { ClaudeNPCService, ClaudeBridge } from '@systems/ClaudeNPCService';
 import { DialogSystem, DialogLine } from '@systems/DialogSystem';
 import { createZara } from '@entities/npcs/zara';
 import { createMback } from '@entities/npcs/mback';
-import { PlayerAction, NPCDefinition, NPCAgent } from '@entities/NPCAgent';
+import { PlayerAction, NPCDefinition, NPCAgent, friendlyFireDefection } from '@entities/NPCAgent';
 import { CharacterAssembler, AssembledCharacter } from '@systems/CharacterAssembler';
 import { WorldSnapshot } from '@systems/npc/PromptBuilder';
 import { resolveAddressee, AddressCandidate, stripShout } from '@systems/npc/Addressing';
@@ -50,9 +50,10 @@ import { combatClipFor } from '@assets/AvatarMeshCatalog';
 import { CombatEncounter, CombatantInit, CombatOutcome } from '@systems/combat/CombatEncounter';
 import {
   combatTuningFromSettings, CombatTuning, Point2, Pathfinder,
-  distance2, moveApCost, MELEE_RANGE,
+  distance2, moveApCost, MELEE_RANGE, centroidOf,
 } from '@systems/combat/CombatMath';
 import { buildWalkGrid, gridPathfinder } from '@systems/combat/CombatMovement';
+import { recruitSides, RecruitParticipant, SIDE_INITIATOR, SIDE_TARGET } from '@systems/combat/CombatRecruiter';
 import { COMBAT_OBSTACLES, COMBAT_BOUNDS } from '@assets/WorldAssetCatalog';
 
 export class GameWorldScene extends BaseScene {
@@ -93,6 +94,12 @@ export class GameWorldScene extends BaseScene {
     | null = null;
   private moveTrail: LinesMesh | null = null;
   private combatPointerObs: Observer<PointerInfo> | null = null;
+  /** Active N-way encounter + the player's side (for friendly-fire defection). */
+  private combatEnc: CombatEncounter | null = null;
+  private combatPlayerSide: string | null = null;
+  /** Accumulated seconds toward the next paced AI/spectator turn. */
+  private combatTurnAccum = 0;
+  private static readonly COMBAT_TURN_DELAY = 0.7; // seconds between AI turns (live pacing)
   private hud: WorldHud | null = null;
   private npcMeshes: AbstractMesh[] = [];
   private npcVisuals: AssembledCharacter[] = [];
@@ -374,6 +381,7 @@ export class GameWorldScene extends BaseScene {
 
     // Turn-based combat owns the screen: freeze the world, only the camera lives.
     if (this.combat?.isOpen()) {
+      this.tickCombat(dt);
       this.cameraSystem?.update();
       this.inputSystem?.endFrame();
       return;
@@ -534,77 +542,143 @@ export class GameWorldScene extends BaseScene {
         // The agent that deliberated walks toward its chosen target.
         this.beginApproach(d.agentId, d.intent.targetNpcId);
       }
-      if (res.attackers.length > 0 && !this.combat?.isOpen()) {
-        // A hostile NPC commits to an attack → start the turn-based duel.
+      // Autonomous NPC↔NPC fight: a deliberated `attack` on a hated NPC starts a
+      // live spectator combat (8B). The player isn't a participant.
+      if (d && d.intent.kind === 'attack' && d.intent.targetNpcId && !this.combat?.isOpen()) {
+        this.beginCombat(d.agentId, d.intent.targetNpcId);
+      } else if (res.attackers.length > 0 && !this.combat?.isOpen()) {
+        // A hostile-to-player NPC commits to an attack → interactive duel with the player.
         this.startCombat(res.attackers[0]!);
       }
     });
   }
 
-  /**
-   * Begin a turn-based duel between the player and a hostile NPC. Builds the pure
-   * CombatEncounter from both sheets, wires the overlay (Claude dramatizes salient
-   * beats), and applies the outcome on resolution. Browser-only.
-   */
-  /* istanbul ignore next — browser-only combat wiring (pure logic is tested in CombatController) */
+  /** Player provokes a fight with an NPC → interactive combat. */
+  /* istanbul ignore next — browser-only combat wiring */
   private startCombat(enemyId: string): void {
-    if (typeof document === 'undefined' || !this.combat) return;
-    const agent = this.npcManager?.getAgent(enemyId);
-    if (!agent) return;
-    // Combat takes over the screen — close any open chat (T/E) first.
+    this.beginCombat('player', enemyId);
+  }
+
+  /**
+   * Begin an N-way fight: recruit sides from everyone present by their relationship
+   * ledgers (CombatRecruiter), build the pure CombatEncounter at the fighters' real
+   * positions, and wire the overlay. The fight is interactive when the player is the
+   * initiator/target, or a live spectator autopilot otherwise (8B). Browser-only.
+   */
+  /* istanbul ignore next — browser-only combat wiring (pure logic is tested) */
+  private beginCombat(initiatorId: string, targetId: string): void {
+    if (typeof document === 'undefined' || !this.combat || this.combat.isOpen()) return;
+    const mgr = this.npcManager;
+    if (!mgr) return;
     this.dialog?.close();
 
-    const enemyStats = this.enemyStatsFor(agent);
-    // Real ground positions seed the encounter; movement routes around obstacles.
-    const playerPos = this.player?.getRoot().position ?? Vector3.Zero();
-    const enemyHolderNode = this.npcHolderById.get(enemyId);
-    const enemyPos = enemyHolderNode?.position ?? agent.getPosition();
-    const player: CombatantInit = {
-      id: 'player', name: this.playerName, isPlayer: true,
-      stats: this.playerStats, health: this.playerHealthState,
-      pos: { x: playerPos.x, z: playerPos.z },
-    };
-    const enemy: CombatantInit = {
-      id: enemyId, name: agent.getDisplayName(), isPlayer: false,
-      stats: enemyStats, health: { current: 100, max: 100 },
-      pos: { x: enemyPos.x, z: enemyPos.z },
-    };
+    const playerInvolved = initiatorId === 'player' || targetId === 'player';
+    // Whole-scene recruitment: each NPC's relationships come from its disposition
+    // (toward the player) and its ledger (toward other NPCs).
+    const participants: RecruitParticipant[] = [];
+    if (playerInvolved) participants.push({ id: 'player', relationTo: () => 'neutral' });
+    for (const a of mgr.getAgents()) {
+      participants.push({
+        id: a.definition.id,
+        relationTo: (other) => (other === 'player' ? a.getDisposition() : a.getRelationship(other)),
+      });
+    }
+    const sides = recruitSides({ initiatorId, targetId, participants });
+    const ids = Object.keys(sides);
+
     const tuning = combatTuningFromSettings(SettingsService.load());
-    const grid = buildWalkGrid([...COMBAT_OBSTACLES], COMBAT_BOUNDS, 1, 0.6);
-    this.combatPathfind = gridPathfinder(grid);
+    this.combatPathfind = gridPathfinder(buildWalkGrid([...COMBAT_OBSTACLES], COMBAT_BOUNDS, 1, 0.6));
     this.combatTuning = tuning;
-    const enc = new CombatEncounter([player, enemy], { tuning, pathfind: this.combatPathfind });
-    // Melee-only for now: nobody has a firearm (inventory comes later) and there are
-    // no cover props → Shoot/Reload/Cover/Hunker are omitted from the menu + AI.
-    const controller = new CombatController(
-      enc, { player: this.playerName, [enemyId]: agent.getDisplayName() }, 'player', MELEE_ONLY_CAPS,
-    );
+    this.combatTurnAccum = 0;
+
+    const names: Record<string, string> = {};
+    const sources: Record<string, TransformNode> = {};
+    const combatants: CombatantInit[] = [];
+    for (const id of ids) {
+      const side = sides[id]!;
+      if (id === 'player') {
+        const p = this.player?.getRoot().position ?? Vector3.Zero();
+        combatants.push({ id, name: this.playerName, isPlayer: true, stats: this.playerStats, health: this.playerHealthState, pos: { x: p.x, z: p.z }, side });
+        names[id] = this.playerName;
+        if (this.player) sources[id] = this.player.getRoot();
+      } else {
+        const a = mgr.getAgent(id);
+        const holder = this.npcHolderById.get(id);
+        if (!a) continue;
+        const pos = holder?.position ?? a.getPosition();
+        combatants.push({ id, name: a.getDisplayName(), isPlayer: false, stats: this.enemyStatsFor(a), health: { current: 100, max: 100 }, pos: { x: pos.x, z: pos.z }, side });
+        names[id] = a.getDisplayName();
+        if (holder) sources[id] = holder;
+      }
+    }
+    // Need at least two distinct sides among the recruited combatants.
+    if (combatants.length < 2 || new Set(combatants.map((c) => c.side)).size < 2) return;
+
+    this.combatPlayerSide = sides['player'] ?? null;
+    const enc = new CombatEncounter(combatants, { tuning, pathfind: this.combatPathfind });
+    this.combatEnc = enc;
+    // Melee-only for now (no firearms/cover). Player id '__none__' for a spectator fight.
+    const controller = new CombatController(enc, names, playerInvolved ? 'player' : '__none__', MELEE_ONLY_CAPS);
 
     const language = languageName(getLocale());
     this.combat.setHandlers({
       narrate: (beat) => this.npcManager?.narrateCombat(beat, language) ?? Promise.resolve(beat),
-      onEnd: (outcome) => this.endCombat(enemyId, outcome),
-      onBeat: (entry) => this.animateCombatBeat(entry),
+      onEnd: (outcome) => this.endCombat(outcome),
+      onBeat: (entry) => this.onCombatBeat(entry),
       onRequestTarget: (attackKind) => { this.combatTargeting = { mode: 'attack', attackKind }; },
       onRequestMove: () => { this.combatTargeting = { mode: 'move' }; },
     });
-    // One pointer observer drives both targeting modes (gated on combatTargeting).
     this.combatPointerObs = this.babylonScene.onPointerObservable.add((info) => this.handleCombatPointer(info));
-
-    // Supply the world meshes for the 3D portrait subprojections (initiative order).
-    const enemyHolder = this.npcHolderById.get(enemyId);
-    const sources: Record<string, TransformNode> = {};
-    if (this.player) sources.player = this.player.getRoot();
-    if (enemyHolder) sources[enemyId] = enemyHolder;
     this.combat.setPortraitSources(sources);
     this.combat.start(controller);
+    this.frameCombatCamera();
+  }
 
-    // Cinematic framing: pull the camera onto the midpoint of the two fighters.
-    if (this.cameraSystem && this.player && enemyHolder) {
-      const mid = Vector3.Center(this.player.getRoot().position, enemyHolder.position);
-      this.combatFocus = new TransformNode('combat-focus', this.babylonScene);
-      this.combatFocus.position.copyFrom(mid);
-      this.cameraSystem.enterConversationMode(this.combatFocus, GameWorldScene.COMBAT_CAMERA_RADIUS);
+  /** Pace AI / spectator turns one per COMBAT_TURN_DELAY; the player's own turn waits for input. */
+  /* istanbul ignore next — browser-only turn driver */
+  private tickCombat(dt: number): void {
+    const c = this.combat?.getController();
+    if (!c || c.isOver()) return;
+    const standing = c.getState().combatants.some((x) => x.isPlayer && !x.removed && x.alive);
+    if (standing && c.isPlayerTurn()) { this.combatTurnAccum = 0; return; } // wait for the player's click
+    this.combatTurnAccum += dt;
+    if (this.combatTurnAccum < GameWorldScene.COMBAT_TURN_DELAY) return;
+    this.combatTurnAccum = 0;
+    this.combat?.renderEntries(c.stepNextAiTurn());
+    this.frameCombatCamera();
+  }
+
+  /** Frame the combat camera on the centroid of the still-standing combatants. */
+  /* istanbul ignore next — browser-only camera */
+  private frameCombatCamera(): void {
+    if (!this.cameraSystem || !this.combatEnc) return;
+    const live = this.combatEnc.getState().combatants.filter((c) => c.alive && !c.removed);
+    if (live.length === 0) return;
+    const c = centroidOf(live.map((x) => x.pos));
+    if (!this.combatFocus) this.combatFocus = new TransformNode('combat-focus', this.babylonScene);
+    this.combatFocus.position.set(c.x, 0, c.z);
+    this.cameraSystem.enterConversationMode(this.combatFocus, GameWorldScene.COMBAT_CAMERA_RADIUS);
+  }
+
+  /** Per-applied-beat hook: play the animation, then apply friendly-fire defection. */
+  /* istanbul ignore next — browser-only */
+  private onCombatBeat(entry: CombatLogEntry): void {
+    this.animateCombatBeat(entry);
+    this.applyFriendlyFire(entry);
+  }
+
+  /** Intentionally striking an ally worsens its disposition and may flip it against you. */
+  /* istanbul ignore next — browser-only */
+  private applyFriendlyFire(entry: CombatLogEntry): void {
+    if (!entry.friendlyFire || !entry.isPlayerActor || !entry.targetId) return;
+    if (entry.kind !== 'hit' && entry.kind !== 'death') return;
+    const agent = this.npcManager?.getAgent(entry.targetId);
+    if (!agent) return;
+    const { disposition, defects } = friendlyFireDefection(agent.getDisposition());
+    agent.setDisposition(disposition);
+    if (defects && this.combatEnc && this.combatPlayerSide) {
+      const opposing = this.combatPlayerSide === SIDE_INITIATOR ? SIDE_TARGET : SIDE_INITIATOR;
+      this.combatEnc.setSide(entry.targetId, opposing); // the betrayed ally turns on the player
     }
   }
 
@@ -800,23 +874,30 @@ export class GameWorldScene extends BaseScene {
 
   /** Apply a resolved combat outcome to the world (player HP, defeat, disposition). */
   /* istanbul ignore next — browser-only combat wiring */
-  private endCombat(enemyId: string, outcome: CombatOutcome): void {
+  private endCombat(outcome: CombatOutcome): void {
     const state = this.combat?.getController()?.getState();
     const me = state?.combatants.find((c) => c.isPlayer);
     if (me) {
       this.playerHealthState = { current: me.hp.current, max: me.hp.max };
       this.player?.setHealthState(this.playerHealthState);
     }
-    if (outcome === 'player_won') {
-      // The enemy is down: relax their hostility for now (defeated, not dead-coded).
-      this.npcManager?.getAgent(enemyId)?.setDisposition('wary');
+    // Relax every surviving enemy (a different side than the player) on a win/flee/resolve.
+    if (outcome !== 'player_lost' && state && this.combatPlayerSide) {
+      for (const c of state.combatants) {
+        if (!c.isPlayer && c.side !== this.combatPlayerSide && c.alive) {
+          this.npcManager?.getAgent(c.id)?.setDisposition('wary');
+        }
+      }
     }
     this.combat?.close();
-    // Tear down targeting: pointer observer, trail, pathfinder.
+    // Tear down targeting + encounter state.
     this.clearCombatTargeting();
     if (this.combatPointerObs) { this.babylonScene.onPointerObservable.remove(this.combatPointerObs); this.combatPointerObs = null; }
     this.combatPathfind = null;
     this.combatTuning = null;
+    this.combatEnc = null;
+    this.combatPlayerSide = null;
+    this.combatTurnAccum = 0;
     // Restore the on-foot camera framing.
     this.cameraSystem?.exitConversationMode();
     this.combatFocus?.dispose();
