@@ -191,10 +191,10 @@ describe('PromptBuilder', () => {
       const p = PromptBuilder.buildCombatNarrationPrompt('Hero lands a hit on Zara.', 'Portuguese');
       expect(p).toContain('Hero lands a hit on Zara.');
       expect(p).toContain('Portuguese');
-      expect(p).toContain('Do NOT mention dice');
+      expect(p).toContain('No dice');
     });
     it('defaults to English', () => {
-      expect(PromptBuilder.buildCombatNarrationPrompt('Zara reloads.')).toContain('in English');
+      expect(PromptBuilder.buildCombatNarrationPrompt('Zara reloads.')).toContain('In English');
     });
   });
 

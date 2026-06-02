@@ -1,4 +1,4 @@
-import { CombatController, playerActionOptions, isCriticalHit, CRITICAL_HIT_THRESHOLD, objectiveLogLine, MELEE_ONLY_CAPS, CombatLogEntry } from '@systems/combat/CombatController';
+import { CombatController, playerActionOptions, isCriticalHit, CRITICAL_ROLL, objectiveLogLine, MELEE_ONLY_CAPS, CombatLogEntry } from '@systems/combat/CombatController';
 import { CombatEncounter, CombatantInit } from '@systems/combat/CombatEncounter';
 import { DEFAULT_COMBAT_TUNING, MELEE_RANGE } from '@systems/combat/CombatMath';
 import { createDefaultStats, CharacterStats } from '@entities/CharacterStats';
@@ -85,13 +85,13 @@ describe('playerActionOptions', () => {
 describe('isCriticalHit', () => {
   const entry = (over: Partial<CombatLogEntry>): CombatLogEntry =>
     ({ actorId: 'player', actorName: 'Hero', kind: 'hit', beat: 'x', isPlayerActor: true, ...over });
-  it('is true only for a landed hit/kill above the probability threshold', () => {
-    expect(isCriticalHit(entry({ kind: 'hit', probability: 0.95 }))).toBe(true);
-    expect(isCriticalHit(entry({ kind: 'death', probability: 0.99 }))).toBe(true);
-    expect(isCriticalHit(entry({ kind: 'hit', probability: CRITICAL_HIT_THRESHOLD }))).toBe(false); // strictly >
-    expect(isCriticalHit(entry({ kind: 'hit', probability: 0.5 }))).toBe(false);
-    expect(isCriticalHit(entry({ kind: 'miss', probability: 0.99 }))).toBe(false);
-    expect(isCriticalHit(entry({ kind: 'hit' }))).toBe(false); // no probability
+  it('is true only for a landed hit/kill rolled critically low (rare natural crit)', () => {
+    expect(isCriticalHit(entry({ kind: 'hit', roll: 2 }))).toBe(true);
+    expect(isCriticalHit(entry({ kind: 'death', roll: 0 }))).toBe(true);
+    expect(isCriticalHit(entry({ kind: 'hit', roll: CRITICAL_ROLL }))).toBe(false); // strictly <
+    expect(isCriticalHit(entry({ kind: 'hit', roll: 40, probability: 0.99 }))).toBe(false); // high P, normal roll
+    expect(isCriticalHit(entry({ kind: 'miss', roll: 1 }))).toBe(false); // a miss is never critical
+    expect(isCriticalHit(entry({ kind: 'hit' }))).toBe(false); // no roll → not critical
   });
 });
 

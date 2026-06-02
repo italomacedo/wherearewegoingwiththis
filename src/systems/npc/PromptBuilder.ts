@@ -135,10 +135,9 @@ export class PromptBuilder {
    */
   static buildCombatNarrationPrompt(beat: string, language = 'English'): string {
     return [
-      `Narrate, in ${language}, in ONE short, vivid, poetic sentence, this DECISIVE blow in a`,
-      'gunfight/brawl on a rainy, neon-lit cyberpunk street. Make it cinematic and visceral.',
-      'Do NOT mention dice, numbers, hit points, action points, skills, or game mechanics.',
-      'No quotation marks, no new named characters.',
+      `In ${language}, ONE short punchy sentence (max ~12 words) for this CRITICAL blow`,
+      'in a cyberpunk street brawl. Gritty, not flowery — no purple prose.',
+      'No dice/numbers/mechanics, no quotation marks, no new named characters.',
       `Beat: ${beat}`,
     ].join('\n');
   }

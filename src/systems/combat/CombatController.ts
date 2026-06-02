@@ -84,12 +84,16 @@ export const MELEE_ONLY_CAPS: CombatCapabilities = { firearm: false, cover: fals
 
 const MAX_ENEMY_ACTIONS = 50; // runaway guard
 
-/** A landed blow is "critical" (worth a Claude-narrated line) when its to-hit P cleared this. */
-export const CRITICAL_HIT_THRESHOLD = 0.9;
+/**
+ * A "critical" is a NATURAL low roll (d100 under this), not merely a likely hit —
+ * so it stays rare (~CRITICAL_ROLL%) regardless of the stat matchup, and only a
+ * critical earns a (succinct) poetic Claude line.
+ */
+export const CRITICAL_ROLL = 5;
 
-/** True for a landed hit/kill whose to-hit probability cleared the critical threshold. */
+/** True for a landed hit/kill rolled critically low (a rare natural crit). */
 export function isCriticalHit(entry: CombatLogEntry): boolean {
-  return (entry.kind === 'hit' || entry.kind === 'death') && (entry.probability ?? 0) > CRITICAL_HIT_THRESHOLD;
+  return (entry.kind === 'hit' || entry.kind === 'death') && (entry.roll ?? 100) < CRITICAL_ROLL;
 }
 
 /**
