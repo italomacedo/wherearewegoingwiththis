@@ -35,6 +35,8 @@ export interface CombatLogEntry {
   attackKind?: 'melee' | 'ranged';
   /** True when the actor struck a combatant on its own side (8B friendly fire). */
   friendlyFire?: boolean;
+  /** Attacker's weapon display label (e.g. "Knife" / "fists") for the log. */
+  weaponName?: string;
   /** For 'move': the routed waypoints walked (the scene animates the avatar along them). */
   path?: Point2[];
 }
@@ -51,10 +53,11 @@ export function objectiveLogLine(entry: CombatLogEntry): { key: string; params: 
   const dmg = entry.damage ?? 0;
   const roll = Math.floor(entry.roll ?? 0);
   const chance = Math.round((entry.probability ?? 0) * 100);
+  const weapon = entry.weaponName ?? '';
   switch (entry.kind) {
-    case 'hit': return { key: 'combat.logHit', params: { a, b, dmg, roll, chance } };
-    case 'death': return { key: 'combat.logKill', params: { a, b, dmg, roll, chance } };
-    case 'miss': return { key: 'combat.logMiss', params: { a, b, roll, chance } };
+    case 'hit': return { key: 'combat.logHit', params: { a, b, dmg, roll, chance, weapon } };
+    case 'death': return { key: 'combat.logKill', params: { a, b, dmg, roll, chance, weapon } };
+    case 'miss': return { key: 'combat.logMiss', params: { a, b, roll, chance, weapon } };
     case 'move': return { key: 'combat.logMove', params: { a } };
     case 'cover': return { key: 'combat.logCover', params: { a } };
     case 'hunker': return { key: 'combat.logHunker', params: { a } };
@@ -158,7 +161,7 @@ export class CombatController {
       targetName: ev.targetId ? (this.names[ev.targetId] ?? ev.targetId) : undefined,
       isPlayerActor: ev.actorId === this.playerId, attackOutcome,
       damage: ev.damage, probability: ev.probability, roll: ev.roll, attackKind: ev.attackKind,
-      friendlyFire: ev.friendlyFire, path: ev.path,
+      friendlyFire: ev.friendlyFire, weaponName: ev.weaponName, path: ev.path,
     };
   }
 

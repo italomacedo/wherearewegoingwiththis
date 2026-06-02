@@ -24,7 +24,7 @@ import { WorldZone } from '@entities/WorldZone';
 import { GameClock, DayPeriod } from '@systems/GameClock';
 import { CharacterAppearance, DEFAULT_APPEARANCE } from '@entities/CharacterData';
 import { Inventory, defaultInventoryState } from '@entities/Inventory';
-import { weaponProfile } from '@entities/items/ItemCatalog';
+import { weaponProfile, itemDef } from '@entities/items/ItemCatalog';
 import { InventoryOverlay } from '@systems/InventoryOverlay';
 import { NPCManager, NPCMemoryMap, AutonomyContext, AutonomyJob } from '@systems/NPCManager';
 import { ClaudeCallQueue, queueConfigFromSettings } from '@systems/ClaudeCallQueue';
@@ -306,6 +306,9 @@ export class GameWorldScene extends BaseScene {
     this.inventoryOverlay.setHandlers({
       onChange: () => this.persistSession(),
       onHeal: (amount) => { this.player?.getHealth().heal(amount); },
+      // Looting a corpse framed the camera on it (conversation mode); restore the
+      // normal follow camera when the overlay closes.
+      onClose: () => this.cameraSystem?.exitConversationMode(),
     });
 
     // Turn-based combat overlay (triggered by a hostile NPC's attack intent).
@@ -777,7 +780,7 @@ export class GameWorldScene extends BaseScene {
       const side = sides[id]!;
       if (id === 'player') {
         const p = this.player?.getRoot().position ?? Vector3.Zero();
-        combatants.push({ id, name: this.playerName, isPlayer: true, stats: this.playerStats, health: this.playerHealthState, pos: { x: p.x, z: p.z }, side, weapon: weaponProfile(this.playerInventory.equippedWeaponId) });
+        combatants.push({ id, name: this.playerName, isPlayer: true, stats: this.playerStats, health: this.playerHealthState, pos: { x: p.x, z: p.z }, side, weapon: weaponProfile(this.playerInventory.equippedWeaponId), weaponName: this.weaponLabel(this.playerInventory.equippedWeaponId) });
         names[id] = this.playerName;
         if (this.player) sources[id] = this.player.getRoot();
       } else {
@@ -786,7 +789,7 @@ export class GameWorldScene extends BaseScene {
         if (!a || a.isDefeated()) continue;
         const pos = holder?.position ?? a.getPosition();
         const hp = GameWorldScene.NPC_COMBAT_HP;
-        combatants.push({ id, name: a.getDisplayName(), isPlayer: false, stats: this.enemyStatsFor(a), health: { current: hp, max: hp }, pos: { x: pos.x, z: pos.z }, side, weapon: weaponProfile(a.getCombatWeaponId()) });
+        combatants.push({ id, name: a.getDisplayName(), isPlayer: false, stats: this.enemyStatsFor(a), health: { current: hp, max: hp }, pos: { x: pos.x, z: pos.z }, side, weapon: weaponProfile(a.getCombatWeaponId()), weaponName: this.weaponLabel(a.getCombatWeaponId()) });
         names[id] = a.getDisplayName();
         if (holder) sources[id] = holder;
       }
@@ -1760,6 +1763,12 @@ export class GameWorldScene extends BaseScene {
   getPauseMenu(): PauseMenu | null { return this.pauseMenu; }
   getInventoryOverlay(): InventoryOverlay | null { return this.inventoryOverlay; }
   getPlayerInventory(): Inventory { return this.playerInventory; }
+
+  /** Localized weapon label for the combat log (the item name, or "fists" when unarmed). */
+  weaponLabel(weaponId: string | null): string {
+    const def = weaponId ? itemDef(weaponId) : undefined;
+    return def ? t(def.nameKey) : t('item.fists');
+  }
   getGameOverMenu(): GameOverMenu | null { return this.gameOverMenu; }
   getCombat(): CombatOverlay | null { return this.combat; }
   getHud(): WorldHud | null { return this.hud; }

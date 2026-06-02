@@ -434,6 +434,15 @@ describe('CombatEncounter — sides & N-way (8B)', () => {
     expect(knifeDmg).toBeGreaterThan(fistDmg);
   });
 
+  it('carries the attacker weapon label on hit/miss events', () => {
+    const c = [mk('player', true, 'A', { dex: 60 }), mk('enemy', false, 'B')];
+    c[0]!.weaponName = 'Knife';
+    const hitEnc = new CombatEncounter(c.map((x) => ({ ...x })), { rng: seq(0.01, 0) });
+    expect(hitEnc.apply({ type: 'attack', attackKind: 'melee', targetId: 'enemy' }).weaponName).toBe('Knife');
+    const missEnc = new CombatEncounter(c.map((x) => ({ ...x })), { rng: seq(0.99, 0) });
+    expect(missEnc.apply({ type: 'attack', attackKind: 'melee', targetId: 'enemy' }).weaponName).toBe('Knife');
+  });
+
   it('a longer-reach weapon can strike from beyond the bare-fist range', () => {
     const c = [
       mk('player', true, 'A', { dex: 60, pos: { x: 0, z: 0 } }),

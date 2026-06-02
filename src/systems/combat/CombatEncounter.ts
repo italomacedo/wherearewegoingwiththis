@@ -46,6 +46,8 @@ export interface CombatantInit {
    * Defaults to the bare fist (legacy constants) when omitted.
    */
   weapon?: WeaponProfile;
+  /** Display label of the weapon (e.g. "Knife" / "fists") for the combat log. */
+  weaponName?: string;
 }
 
 export type CombatActionType = 'attack' | 'move' | 'cover' | 'hunker' | 'reload' | 'flee' | 'end_turn';
@@ -92,6 +94,8 @@ export interface CombatEvent {
   attackKind?: AttackKind;
   /** For attack events: true when the actor struck a combatant on its OWN side. */
   friendlyFire?: boolean;
+  /** For attack events: the actor's weapon display label (e.g. "Knife" / "fists"). */
+  weaponName?: string;
 }
 
 export interface CombatantView {
@@ -128,6 +132,7 @@ interface Slot {
   side: string;
   removed: boolean;
   weapon: WeaponProfile;
+  weaponName?: string;
 }
 
 function clamp(v: number, lo: number, hi: number): number {
@@ -163,6 +168,7 @@ export class CombatEncounter {
       side: c.side ?? (c.isPlayer ? 'player' : 'enemy'),
       removed: false,
       weapon: c.weapon ?? FIST_PROFILE,
+      weaponName: c.weaponName,
     }));
     this.order = initiativeOrder(combatants.map((c) => ({ id: c.id, dexterity: c.stats.attributes.destreza })));
     this.beginTurn(this.order[this.activeIdx]!);
@@ -394,14 +400,15 @@ export class CombatEncounter {
         );
         const probability = hit.probability;
         const roll = hit.roll;
+        const weaponName = actor.weaponName;
         if (!hit.success) {
-          return { kind: 'miss', actorId, targetId, distance: dist, ap: actor.ap, probability, roll, attackKind: kind, friendlyFire };
+          return { kind: 'miss', actorId, targetId, distance: dist, ap: actor.ap, probability, roll, attackKind: kind, friendlyFire, weaponName };
         }
         const damage = rollWeaponDamage(actor.init.stats, actor.weapon, this.rng);
         target.health.applyDamage(damage);
         const dead = target.health.isDead();
         if (dead) this.resolve(); // side-based win/lose (N-way)
-        return { kind: dead ? 'death' : 'hit', actorId, targetId, damage, distance: dist, ap: actor.ap, probability, roll, attackKind: kind, friendlyFire };
+        return { kind: dead ? 'death' : 'hit', actorId, targetId, damage, distance: dist, ap: actor.ap, probability, roll, attackKind: kind, friendlyFire, weaponName };
       }
       /* istanbul ignore next — exhaustive switch guard */
       default:

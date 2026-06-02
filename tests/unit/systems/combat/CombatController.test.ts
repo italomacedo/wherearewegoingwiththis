@@ -115,12 +115,12 @@ describe('objectiveLogLine', () => {
   const entry = (over: Partial<CombatLogEntry>): CombatLogEntry =>
     ({ actorId: 'player', actorName: 'Hero', kind: 'hit', beat: 'x', isPlayerActor: true, ...over });
   it('builds an i18n key + params per event, with roll/chance + damage on hits', () => {
-    expect(objectiveLogLine(entry({ kind: 'hit', targetName: 'Zara', damage: 14, roll: 33.7, probability: 0.72 })))
-      .toEqual({ key: 'combat.logHit', params: { a: 'Hero', b: 'Zara', dmg: 14, roll: 33, chance: 72 } });
-    expect(objectiveLogLine(entry({ kind: 'death', targetName: 'Zara', damage: 9, roll: 5, probability: 0.9 })))
-      .toEqual({ key: 'combat.logKill', params: { a: 'Hero', b: 'Zara', dmg: 9, roll: 5, chance: 90 } });
-    expect(objectiveLogLine(entry({ kind: 'miss', targetName: 'Zara', roll: 88, probability: 0.4 })))
-      .toEqual({ key: 'combat.logMiss', params: { a: 'Hero', b: 'Zara', roll: 88, chance: 40 } });
+    expect(objectiveLogLine(entry({ kind: 'hit', targetName: 'Zara', damage: 14, roll: 33.7, probability: 0.72, weaponName: 'Knife' })))
+      .toEqual({ key: 'combat.logHit', params: { a: 'Hero', b: 'Zara', dmg: 14, roll: 33, chance: 72, weapon: 'Knife' } });
+    expect(objectiveLogLine(entry({ kind: 'death', targetName: 'Zara', damage: 9, roll: 5, probability: 0.9, weaponName: 'Knife' })))
+      .toEqual({ key: 'combat.logKill', params: { a: 'Hero', b: 'Zara', dmg: 9, roll: 5, chance: 90, weapon: 'Knife' } });
+    expect(objectiveLogLine(entry({ kind: 'miss', targetName: 'Zara', roll: 88, probability: 0.4, weaponName: 'fists' })))
+      .toEqual({ key: 'combat.logMiss', params: { a: 'Hero', b: 'Zara', roll: 88, chance: 40, weapon: 'fists' } });
     expect(objectiveLogLine(entry({ kind: 'move' }))).toEqual({ key: 'combat.logMove', params: { a: 'Hero' } });
     expect(objectiveLogLine(entry({ kind: 'cover' }))!.key).toBe('combat.logCover');
     expect(objectiveLogLine(entry({ kind: 'hunker' }))!.key).toBe('combat.logHunker');
@@ -132,7 +132,7 @@ describe('objectiveLogLine', () => {
     expect(objectiveLogLine(entry({ kind: 'rejected' }))).toBeNull();
   });
   it('defaults damage/roll/chance to 0 and target to empty when absent', () => {
-    expect(objectiveLogLine(entry({ kind: 'hit' }))).toEqual({ key: 'combat.logHit', params: { a: 'Hero', b: '', dmg: 0, roll: 0, chance: 0 } });
+    expect(objectiveLogLine(entry({ kind: 'hit' }))).toEqual({ key: 'combat.logHit', params: { a: 'Hero', b: '', dmg: 0, roll: 0, chance: 0, weapon: '' } });
   });
 });
 
