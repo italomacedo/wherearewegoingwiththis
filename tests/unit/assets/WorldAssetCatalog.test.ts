@@ -1,6 +1,6 @@
 import {
   WorldProp, ZONE_HALF, facingCenter, MERCADO_PROPS, NAVE_MODEL, VENDOR_SPOT,
-  EXIT_WALL, CORRIDOR_COLLIDERS,
+  EXIT_WALL, CORRIDOR_COLLIDERS, COMBAT_OBSTACLES, COMBAT_BOUNDS,
 } from '../../../src/assets/WorldAssetCatalog';
 
 const within = (p: WorldProp) =>
@@ -76,6 +76,17 @@ describe('WorldAssetCatalog — downtown city block (pure)', () => {
     const ends = CORRIDOR_COLLIDERS.filter((c) => c.size[2] > c.size[0]);
     expect(sides).toHaveLength(2);
     expect(ends).toHaveLength(2);
+  });
+
+  it('exposes combat-movement obstacles (perimeter + exit wall) and arena bounds', () => {
+    // Perimeter colliders + the exit wall, all with positive footprints.
+    expect(COMBAT_OBSTACLES.length).toBe(CORRIDOR_COLLIDERS.length + 1);
+    expect(COMBAT_OBSTACLES.some((o) => o.key === EXIT_WALL.key)).toBe(true);
+    for (const o of COMBAT_OBSTACLES) expect(o.size[0] > 0 && o.size[2] > 0).toBe(true);
+    // Bounds form a non-empty rectangle inside the zone.
+    expect(COMBAT_BOUNDS.maxX).toBeGreaterThan(COMBAT_BOUNDS.minX);
+    expect(COMBAT_BOUNDS.maxZ).toBeGreaterThan(COMBAT_BOUNDS.minZ);
+    expect(COMBAT_BOUNDS.maxX).toBeLessThanOrEqual(ZONE_HALF);
   });
 
   it('includes street props and a sidewalk vendor stall with food', () => {

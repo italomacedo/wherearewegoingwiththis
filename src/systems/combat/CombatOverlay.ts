@@ -14,6 +14,16 @@ export interface CombatOverlayHandlers {
   narrate?: (beat: string) => Promise<string>;
   /** Fired for every applied combat event (the scene plays the matching animation). */
   onBeat?: (entry: CombatLogEntry) => void;
+  /**
+   * Player clicked Attack: the scene enters 3-D target-picking and, once the player
+   * clicks a combatant in range, calls back submitPlayerAction({attack, targetId}).
+   */
+  onRequestTarget?: (attackKind: 'melee' | 'ranged' | undefined) => void;
+  /**
+   * Player clicked Move: the scene enters ground-targeting (the on-ground trail)
+   * and, once the player clicks a reachable point, calls submitPlayerAction({move,to}).
+   */
+  onRequestMove?: () => void;
 }
 
 /**
@@ -153,7 +163,24 @@ export class CombatOverlay {
   private onPlayerAction(opt: { action: import('./CombatController').PlayerActionOption['action'] }): void {
     const c = this.controller;
     if (!c || !c.isPlayerTurn() || c.isOver()) return;
-    const entries = c.takePlayerAction(opt.action);
+    // Attack/Move need a 3-D target/destination → hand off to the scene's targeting
+    // mode, which calls submitPlayerAction() once the player clicks. Everything else
+    // (cover/hunker/reload/flee/end_turn) applies immediately.
+    if (opt.action.type === 'attack') { this.handlers.onRequestTarget?.(opt.action.attackKind); return; }
+    if (opt.action.type === 'move') { this.handlers.onRequestMove?.(); return; }
+    this.submitPlayerAction(opt.action);
+  }
+
+  /**
+   * Apply a fully-resolved player action (target/destination filled in by the
+   * scene's targeting), append its beats, and advance. Called by the overlay for
+   * instant actions and by the scene after a 3-D pick.
+   */
+  /* istanbul ignore next — browser GUI only */
+  submitPlayerAction(action: import('./CombatController').PlayerActionOption['action']): void {
+    const c = this.controller;
+    if (!c || !c.isPlayerTurn() || c.isOver()) return;
+    const entries = c.takePlayerAction(action);
     entries.forEach((e) => this.appendBeat(e));
     this.refresh();
     if (c.isOver()) this.finish(c.outcome());

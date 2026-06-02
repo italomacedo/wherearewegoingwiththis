@@ -1,6 +1,7 @@
 import {
-  Engine, Color4, Vector3, AbstractMesh, TransformNode, MeshBuilder,
-  PhysicsAggregate, PhysicsShapeType, AnimationGroup, Animation,
+  Engine, Color4, Color3, Vector3, Matrix, AbstractMesh, TransformNode, MeshBuilder,
+  PhysicsAggregate, PhysicsShapeType, AnimationGroup, Animation, LinesMesh,
+  PointerEventTypes, PointerInfo, Observer, Node,
 } from '@babylonjs/core';
 import { BaseScene } from './BaseScene';
 import { ServiceLocator } from '@core/ServiceLocator';
@@ -47,7 +48,12 @@ import { CombatOverlay } from '@systems/combat/CombatOverlay';
 import { CombatController, CombatLogEntry, MELEE_ONLY_CAPS } from '@systems/combat/CombatController';
 import { combatClipFor } from '@assets/AvatarMeshCatalog';
 import { CombatEncounter, CombatantInit } from '@systems/combat/CombatEncounter';
-import { combatTuningFromSettings } from '@systems/combat/CombatMath';
+import {
+  combatTuningFromSettings, CombatTuning, Point2, Pathfinder,
+  distance2, moveApCost, MELEE_RANGE,
+} from '@systems/combat/CombatMath';
+import { buildWalkGrid, gridPathfinder } from '@systems/combat/CombatMovement';
+import { COMBAT_OBSTACLES, COMBAT_BOUNDS } from '@assets/WorldAssetCatalog';
 
 export class GameWorldScene extends BaseScene {
   /** Setting used for the ambient "react to surroundings" narration (global chat). */
@@ -76,6 +82,17 @@ export class GameWorldScene extends BaseScene {
   private gameOverMenu: GameOverMenu | null = null;
   private combatFocus: TransformNode | null = null;
   private static readonly COMBAT_CAMERA_RADIUS = 9;
+  // ─── Tactical combat targeting (Fase 8A, browser-only) ───────────────────────
+  /** Routed pathfinder + tuning for the active encounter (set in startCombat). */
+  private combatPathfind: Pathfinder | null = null;
+  private combatTuning: CombatTuning | null = null;
+  /** Current player targeting mode (Attack picks a foe avatar; Move picks ground). */
+  private combatTargeting:
+    | { mode: 'attack'; attackKind: 'melee' | 'ranged' | undefined }
+    | { mode: 'move' }
+    | null = null;
+  private moveTrail: LinesMesh | null = null;
+  private combatPointerObs: Observer<PointerInfo> | null = null;
   private hud: WorldHud | null = null;
   private npcMeshes: AbstractMesh[] = [];
   private npcVisuals: AssembledCharacter[] = [];
@@ -535,19 +552,25 @@ export class GameWorldScene extends BaseScene {
     this.dialog?.close();
 
     const enemyStats = this.enemyStatsFor(agent);
+    // Real ground positions seed the encounter; movement routes around obstacles.
+    const playerPos = this.player?.getRoot().position ?? Vector3.Zero();
+    const enemyHolderNode = this.npcHolderById.get(enemyId);
+    const enemyPos = enemyHolderNode?.position ?? agent.getPosition();
     const player: CombatantInit = {
       id: 'player', name: this.playerName, isPlayer: true,
       stats: this.playerStats, health: this.playerHealthState,
+      pos: { x: playerPos.x, z: playerPos.z },
     };
     const enemy: CombatantInit = {
       id: enemyId, name: agent.getDisplayName(), isPlayer: false,
       stats: enemyStats, health: { current: 100, max: 100 },
+      pos: { x: enemyPos.x, z: enemyPos.z },
     };
-    const initialDistance = Math.max(2, Math.min(20, Math.round(agent.distanceTo(this.player?.getPosition() ?? Vector3.Zero()))));
-    const enc = new CombatEncounter([player, enemy], {
-      tuning: combatTuningFromSettings(SettingsService.load()),
-      initialDistance,
-    });
+    const tuning = combatTuningFromSettings(SettingsService.load());
+    const grid = buildWalkGrid([...COMBAT_OBSTACLES], COMBAT_BOUNDS, 1, 0.6);
+    this.combatPathfind = gridPathfinder(grid);
+    this.combatTuning = tuning;
+    const enc = new CombatEncounter([player, enemy], { tuning, pathfind: this.combatPathfind });
     // Melee-only for now: nobody has a firearm (inventory comes later) and there are
     // no cover props → Shoot/Reload/Cover/Hunker are omitted from the menu + AI.
     const controller = new CombatController(
@@ -559,7 +582,11 @@ export class GameWorldScene extends BaseScene {
       narrate: (beat) => this.npcManager?.narrateCombat(beat, language) ?? Promise.resolve(beat),
       onEnd: (outcome) => this.endCombat(enemyId, outcome),
       onBeat: (entry) => this.animateCombatBeat(entry),
+      onRequestTarget: (attackKind) => { this.combatTargeting = { mode: 'attack', attackKind }; },
+      onRequestMove: () => { this.combatTargeting = { mode: 'move' }; },
     });
+    // One pointer observer drives both targeting modes (gated on combatTargeting).
+    this.combatPointerObs = this.babylonScene.onPointerObservable.add((info) => this.handleCombatPointer(info));
 
     // Supply the world meshes for the 3D portrait subprojections (initiative order).
     const enemyHolder = this.npcHolderById.get(enemyId);
@@ -581,6 +608,11 @@ export class GameWorldScene extends BaseScene {
   /** Play attack/hit/dodge/death animations on the world meshes for a resolved combat beat. */
   /* istanbul ignore next — browser-only animation playback */
   private animateCombatBeat(entry: CombatLogEntry): void {
+    // Movement: walk the avatar along the routed polyline to its new position.
+    if (entry.kind === 'move' && entry.path && entry.path.length > 1) {
+      this.walkAlongPath(entry.actorId, entry.path);
+      return;
+    }
     // NOTE: cover/hunker have NO pose and a miss has NO dodge for now — the Quaternius
     // rig lacks block/crouch clips and Roll read badly. Proper block + crouch clips
     // need a rig retarget (future work; see ADR-0019 deferred list).
@@ -642,6 +674,127 @@ export class GameWorldScene extends BaseScene {
     }
   }
 
+  /**
+   * Pointer driver for the two targeting modes (gated on combatTargeting):
+   *  - move: hover draws the routed on-ground trail (green if affordable, red if
+   *    over the AP budget); a click on a green trail commits the move.
+   *  - attack: a click on a foe avatar within melee range commits the strike.
+   */
+  /* istanbul ignore next — browser-only pointer/targeting */
+  private handleCombatPointer(info: PointerInfo): void {
+    const targeting = this.combatTargeting;
+    const c = this.combat?.getController();
+    if (!targeting || !c || !c.isPlayerTurn() || c.isOver()) return;
+    const me = c.getState().combatants.find((x) => x.isPlayer);
+    if (!me) return;
+
+    if (targeting.mode === 'move') {
+      const to = this.groundPointFromPointer();
+      const path = to && this.combatPathfind ? this.combatPathfind(me.pos, to) : null;
+      const tuning = this.combatTuning;
+      const reachable = !!path && !!tuning && path.meters > 0 && moveApCost(path.meters, tuning) <= me.ap;
+      if (info.type === PointerEventTypes.POINTERMOVE) { this.drawMoveTrail(path, reachable); return; }
+      if (info.type === PointerEventTypes.POINTERTAP && reachable && to) {
+        this.clearCombatTargeting();
+        this.combat?.submitPlayerAction({ type: 'move', to });
+      }
+      return;
+    }
+
+    // Attack mode: resolve the clicked avatar → strike if it is within melee range.
+    if (info.type !== PointerEventTypes.POINTERTAP) return;
+    const picked = info.pickInfo?.pickedMesh ?? null;
+    const targetId = picked ? this.combatantIdOfPickedMesh(picked) : null;
+    if (!targetId || targetId === me.id) return; // clicked nothing / self
+    const tgt = c.getState().combatants.find((x) => x.id === targetId);
+    if (!tgt || !tgt.alive) return;
+    if (distance2(me.pos, tgt.pos) > MELEE_RANGE) return; // out of range → ignore the click
+    this.clearCombatTargeting();
+    this.combat?.submitPlayerAction({ type: 'attack', attackKind: targeting.attackKind, targetId });
+  }
+
+  /** Ground-plane (y=0) point under the cursor, or null if the ray is parallel. */
+  /* istanbul ignore next — browser-only picking */
+  private groundPointFromPointer(): Point2 | null {
+    const cam = this.babylonScene.activeCamera;
+    if (!cam) return null;
+    const ray = this.babylonScene.createPickingRay(this.babylonScene.pointerX, this.babylonScene.pointerY, Matrix.Identity(), cam);
+    if (Math.abs(ray.direction.y) < 1e-6) return null;
+    const tHit = -ray.origin.y / ray.direction.y;
+    if (tHit < 0) return null;
+    const p = ray.origin.add(ray.direction.scale(tHit));
+    return { x: p.x, z: p.z };
+  }
+
+  /** Map a picked mesh up its parent chain to a combatant id (or null). */
+  /* istanbul ignore next — browser-only picking */
+  private combatantIdOfPickedMesh(mesh: AbstractMesh): string | null {
+    const playerRoot = this.player?.getRoot() ?? null;
+    let n: Node | null = mesh;
+    while (n) {
+      if (playerRoot && n === playerRoot) return 'player';
+      for (const [id, holder] of this.npcHolderById) if (n === holder) return id;
+      n = n.parent;
+    }
+    return null;
+  }
+
+  /** Draw/replace the on-ground move trail; green when affordable, red when over budget. */
+  /* istanbul ignore next — browser-only rendering */
+  private drawMoveTrail(path: { points: Point2[] } | null, reachable: boolean): void {
+    this.moveTrail?.dispose();
+    this.moveTrail = null;
+    if (!path || path.points.length < 2) return;
+    const pts = path.points.map((p) => new Vector3(p.x, 0.15, p.z));
+    const line = MeshBuilder.CreateLines('combat-move-trail', { points: pts }, this.babylonScene);
+    line.color = reachable ? Color3.Green() : Color3.Red();
+    line.isPickable = false;
+    this.moveTrail = line;
+  }
+
+  /** Leave targeting mode and clear the trail. */
+  /* istanbul ignore next — browser-only */
+  private clearCombatTargeting(): void {
+    this.combatTargeting = null;
+    this.moveTrail?.dispose();
+    this.moveTrail = null;
+  }
+
+  /** Walk an avatar along the routed polyline (walk clip + facing), then idle. */
+  /* istanbul ignore next — browser-only animation playback */
+  private walkAlongPath(actorId: string, path: Point2[]): void {
+    const node = this.combatNode(actorId);
+    if (!node || path.length < 2) return;
+    const groups = actorId === 'player'
+      ? (this.player?.getAnimationGroups() ?? [])
+      : (this.npcGroupsById.get(actorId) ?? []);
+    const y = node.position.y;
+    const keys: { frame: number; value: Vector3 }[] = [{ frame: 0, value: new Vector3(path[0]!.x, y, path[0]!.z) }];
+    let frame = 0;
+    const fps = 60;
+    const speed = 3.5; // metres/second, matches the walk cadence
+    for (let i = 1; i < path.length; i++) {
+      const seg = distance2(path[i - 1]!, path[i]!);
+      frame += Math.max(1, (seg / speed) * fps);
+      keys.push({ frame, value: new Vector3(path[i]!.x, y, path[i]!.z) });
+    }
+    // Face the final travel direction (avatars face +Z at rotation.y = 0).
+    const last = path[path.length - 1]!;
+    const prev = path[path.length - 2]!;
+    node.rotation.y = Math.atan2(last.x - prev.x, last.z - prev.z);
+
+    const anim = new Animation('combat-walk', 'position', fps, Animation.ANIMATIONTYPE_VECTOR3, Animation.ANIMATIONLOOPMODE_CONSTANT);
+    anim.setKeys(keys);
+    const walk = groups.find((g) => g.name.toLowerCase() === 'walk') ?? null;
+    const idle = groups.find((g) => g.name.toLowerCase() === 'idle') ?? null;
+    groups.forEach((g) => g.stop());
+    walk?.start(true);
+    this.babylonScene.beginDirectAnimation(node, [anim], 0, frame, false, 1, () => {
+      walk?.stop();
+      idle?.start(true);
+    });
+  }
+
   /** Apply a resolved combat outcome to the world (player HP, defeat, disposition). */
   /* istanbul ignore next — browser-only combat wiring */
   private endCombat(enemyId: string, outcome: 'player_won' | 'player_lost' | 'fled' | 'ongoing'): void {
@@ -656,6 +809,11 @@ export class GameWorldScene extends BaseScene {
       this.npcManager?.getAgent(enemyId)?.setDisposition('wary');
     }
     this.combat?.close();
+    // Tear down targeting: pointer observer, trail, pathfinder.
+    this.clearCombatTargeting();
+    if (this.combatPointerObs) { this.babylonScene.onPointerObservable.remove(this.combatPointerObs); this.combatPointerObs = null; }
+    this.combatPathfind = null;
+    this.combatTuning = null;
     // Restore the on-foot camera framing.
     this.cameraSystem?.exitConversationMode();
     this.combatFocus?.dispose();

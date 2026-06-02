@@ -15,7 +15,7 @@ import {
 import { chooseCombatAction, prefersMelee } from './CombatAI';
 import { combatBeat, CombatNames } from './CombatNarration';
 import {
-  CombatTuning, MELEE_RANGE, FLEE_MIN_DISTANCE, maxMoveMeters,
+  CombatTuning, MELEE_RANGE, FLEE_MIN_DISTANCE, maxMoveMeters, Point2,
 } from './CombatMath';
 
 export interface CombatLogEntry {
@@ -34,6 +34,8 @@ export interface CombatLogEntry {
   probability?: number;
   roll?: number;
   attackKind?: 'melee' | 'ranged';
+  /** For 'move': the routed waypoints walked (the scene animates the avatar along them). */
+  path?: Point2[];
 }
 
 /**
@@ -159,6 +161,7 @@ export class CombatController {
       targetName: ev.targetId ? (this.names[ev.targetId] ?? ev.targetId) : undefined,
       isPlayerActor: ev.actorId === this.playerId, attackOutcome,
       damage: ev.damage, probability: ev.probability, roll: ev.roll, attackKind: ev.attackKind,
+      path: ev.path,
     };
   }
 
