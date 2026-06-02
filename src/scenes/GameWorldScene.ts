@@ -281,6 +281,19 @@ export class GameWorldScene extends BaseScene {
     // setters still win if a test injected them before onEnter.
     this.adoptSession(ServiceLocator.tryGet<GameSession>('gameSession'));
 
+    // Raise the per-material light cap (Babylon default 4) on EVERY material —
+    // including async-loaded world assets (sidewalks/props/buildings) — so the
+    // player's flashlight (a 5th+ light alongside the street neons) lights them.
+    /* istanbul ignore next — browser-only material wiring */
+    if (typeof document !== 'undefined') {
+      const lift = (m: unknown) => {
+        const mat = m as { maxSimultaneousLights?: number };
+        if ((mat.maxSimultaneousLights ?? 4) < 8) mat.maxSimultaneousLights = 8;
+      };
+      this.babylonScene.materials.forEach(lift);
+      this.babylonScene.onNewMaterialAddedObservable.add(lift);
+    }
+
     // Camera FIRST — guarantees the scene always has an active camera so it
     // renders even if a later async step (physics WASM, asset load) is slow.
     this.cameraSystem = new CameraSystem(this.babylonScene);
@@ -791,12 +804,7 @@ export class GameWorldScene extends BaseScene {
         light.intensity = 60;
         light.range = 30;
         light.parent = this.player.getRoot(); // follows the hero's facing
-        // The street already runs several neon lights; raise every material's light
-        // cap so this 5th+ SpotLight actually contributes (Babylon default cap = 4).
-        for (const m of this.babylonScene.materials) {
-          const mat = m as unknown as { maxSimultaneousLights?: number };
-          if ((mat.maxSimultaneousLights ?? 4) < 8) mat.maxSimultaneousLights = 8;
-        }
+        // (Material light caps are raised once in onEnter — incl. async assets.)
         this.flashlightLight = light;
       }
       this.flashlightLight.setEnabled(true);
