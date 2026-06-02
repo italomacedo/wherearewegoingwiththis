@@ -51,6 +51,15 @@ export const straightLinePath: Pathfinder = (from, to) => ({
   meters: distance2(from, to),
 });
 
+/** Average of ground points (the combat camera frames this). Returns origin if empty. */
+export function centroidOf(points: readonly Point2[]): Point2 {
+  if (points.length === 0) return { x: 0, z: 0 };
+  let sx = 0;
+  let sz = 0;
+  for (const p of points) { sx += p.x; sz += p.z; }
+  return { x: sx / points.length, z: sz / points.length };
+}
+
 // ─── Tuning (mirrors the Options settings; defaults match the owner's model) ──
 
 export interface CombatTuning {

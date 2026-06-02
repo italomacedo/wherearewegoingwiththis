@@ -5,7 +5,7 @@ import {
   rollDamage, initiativeOrder,
   MELEE_RANGE, FLEE_MIN_DISTANCE, COVER_NONE, COVER_PARTIAL, COVER_FULL,
   MELEE_BASE, RANGED_BASE,
-  distance2, straightLinePath, truncatePath,
+  distance2, straightLinePath, truncatePath, centroidOf,
 } from '@systems/combat/CombatMath';
 import { CharacterStats, createDefaultStats } from '@entities/CharacterStats';
 
@@ -175,6 +175,11 @@ describe('ground geometry', () => {
   it('straightLinePath is a two-point segment with the Euclidean length', () => {
     const p = straightLinePath({ x: 0, z: 0 }, { x: 0, z: 6 });
     expect(p).toEqual({ points: [{ x: 0, z: 0 }, { x: 0, z: 6 }], meters: 6 });
+  });
+
+  it('centroidOf averages the points (origin when empty)', () => {
+    expect(centroidOf([{ x: 0, z: 0 }, { x: 4, z: 2 }])).toEqual({ x: 2, z: 1 });
+    expect(centroidOf([])).toEqual({ x: 0, z: 0 });
   });
 });
 
