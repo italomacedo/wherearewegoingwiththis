@@ -12,6 +12,7 @@ import {
 import { HealthState, describeCondition } from '@entities/Health';
 import { ZoneManager } from '@systems/ZoneManager';
 import { PauseMenu } from '@systems/PauseMenu';
+import { GameOverMenu } from '@systems/GameOverMenu';
 import { WorldHud } from '@systems/WorldHud';
 import { CameraSystem, KEY_ORBIT_SPEED } from '@systems/CameraSystem';
 import { InputSystem } from '@systems/InputSystem';
@@ -72,6 +73,7 @@ export class GameWorldScene extends BaseScene {
   private chatMode: 'npc' | 'global' = 'npc';
   private pauseMenu: PauseMenu | null = null;
   private combat: CombatOverlay | null = null;
+  private gameOverMenu: GameOverMenu | null = null;
   private combatFocus: TransformNode | null = null;
   private static readonly COMBAT_CAMERA_RADIUS = 9;
   private hud: WorldHud | null = null;
@@ -247,6 +249,13 @@ export class GameWorldScene extends BaseScene {
     // Turn-based combat overlay (triggered by a hostile NPC's attack intent).
     this.combat = new CombatOverlay(this.babylonScene);
 
+    // Game-over overlay (shown on death): Load last save / Return to main menu.
+    this.gameOverMenu = new GameOverMenu(this.babylonScene);
+    this.gameOverMenu.setHandlers({
+      onLoad: () => this.reloadLastSave(),
+      onMainMenu: () => { void ServiceLocator.get<SceneManager>('sceneManager').loadScene('main-menu'); },
+    });
+
     // Static colliders for the nave + Zara so the hero can't walk through them.
     if (this.babylonScene.isPhysicsEnabled()) {
       /* istanbul ignore next — physics colliders are browser/Electron only */
@@ -275,8 +284,9 @@ export class GameWorldScene extends BaseScene {
   }
 
   async onExit(): Promise<void> {
-    // Autosave before tearing anything down (npcManager is disposed below).
-    this.persistSession();
+    // Autosave before tearing anything down (npcManager is disposed below) —
+    // but NOT on game over, or we'd overwrite the save with the dead state.
+    if (!this.gameOver) this.persistSession();
     this.detachInput?.();
     this.player?.dispose();
     this.vehicle?.dispose();
@@ -286,6 +296,7 @@ export class GameWorldScene extends BaseScene {
     this.dialog?.dispose();
     this.pauseMenu?.dispose();
     this.combat?.dispose();
+    this.gameOverMenu?.dispose();
     this.hud?.dispose();
     /* istanbul ignore next — entity colliders only exist in browser with physics */
     this.entityAggregates.forEach((a) => a.dispose());
@@ -329,6 +340,14 @@ export class GameWorldScene extends BaseScene {
 
     // ESC toggles the pause menu (unless the dialog owns the keyboard). While
     // paused, the world is frozen — only the menu (and camera follow) live on.
+    // Game over freezes everything but the camera until the player picks an option.
+    this.checkGameOver();
+    if (this.gameOverMenu?.isOpen()) {
+      this.cameraSystem?.update();
+      this.inputSystem?.endFrame();
+      return;
+    }
+
     this.handlePauseInput();
     if (this.pauseMenu?.isOpen()) {
       this.cameraSystem?.update();
@@ -368,16 +387,27 @@ export class GameWorldScene extends BaseScene {
       this.handleChatInput();
     }
     this.updateHud(dialogOpen);
-    this.checkGameOver();
     this.inputSystem?.endFrame();
     this.gameTimeSeconds += dt;
   }
 
-  /** When the hero dies, end the run and return to the main menu. */
+  /** When the hero dies, freeze the run and show the Game Over menu (once). */
   private checkGameOver(): void {
     if (this.gameOver || !this.player?.isDead()) return;
     this.gameOver = true;
-    void ServiceLocator.get<SceneManager>('sceneManager').loadScene('main-menu');
+    this.gameOverMenu?.openMenu();
+  }
+
+  /** Reload the player's last save and re-enter the world (Game Over → Load). */
+  private reloadLastSave(): void {
+    const sm = ServiceLocator.get<SceneManager>('sceneManager');
+    const save = SaveService.load(this.saveId);
+    if (save) {
+      ServiceLocator.register('gameSession', GameSession.fromSave(save));
+      void sm.loadScene('game-world');
+    } else {
+      void sm.loadScene('main-menu');
+    }
   }
 
   // ─── NPCs ──────────────────────────────────────────────────────────────────
@@ -1138,6 +1168,7 @@ export class GameWorldScene extends BaseScene {
   getNpcManager(): NPCManager | null { return this.npcManager; }
   getDialog(): DialogSystem | null { return this.dialog; }
   getPauseMenu(): PauseMenu | null { return this.pauseMenu; }
+  getGameOverMenu(): GameOverMenu | null { return this.gameOverMenu; }
   getCombat(): CombatOverlay | null { return this.combat; }
   getHud(): WorldHud | null { return this.hud; }
 }

@@ -394,13 +394,21 @@ describe('GameWorldScene', () => {
     expect(scene.getHud()!.getVehicleStatus()).toBe('NAVE 100%');
   });
 
-  it('returns to the main menu when the hero dies (game over)', async () => {
+  it('opens the Game Over menu when the hero dies; its options load/quit', async () => {
     const sm = { loadScene: jest.fn().mockResolvedValue(undefined), transitionDurationMs: 0 };
     ServiceLocator.register('sceneManager', sm);
     await scene.onEnter();
     scene.getPlayer()!.getHealth().applyDamage(1000);
     scene.update();
+    const over = scene.getGameOverMenu()!;
+    expect(over.isOpen()).toBe(true);
+    expect(sm.loadScene).not.toHaveBeenCalledWith('main-menu'); // no auto-return now
+    // Return to main menu option
+    over.quitToMainMenu();
     expect(sm.loadScene).toHaveBeenCalledWith('main-menu');
+    // Load last save: no save on disk for this scene's id → falls back to main menu
+    over.loadLastSave();
+    expect(sm.loadScene).toHaveBeenCalled();
   });
 
   it('persists player health to the save', async () => {
