@@ -40,14 +40,24 @@ describe('recruitSides', () => {
     expect(sides.passerby).toBeUndefined();
   });
 
-  it('a conflicted tie keeps the bystander out', () => {
-    // wary toward BOTH fighters → equal pull to each side → out.
+  it('a conflicted tie (antagonistic to both) piles on with the initiator', () => {
+    // THE real scenario: Zara is wary of Mback AND wary of the player (initialDisposition).
+    // She loathes the victim → joins the aggressor rather than defending someone she dislikes.
     const sides = recruitSides({
       initiatorId: 'player',
       targetId: 'mback',
-      participants: [p('player'), p('mback'), p('torn', { player: 'wary', mback: 'wary' })],
+      participants: [p('player'), p('mback'), p('zara', { player: 'wary', mback: 'wary' })],
     });
-    expect(sides.torn).toBeUndefined();
+    expect(sides.zara).toBe(SIDE_INITIATOR);
+  });
+
+  it('a purely neutral bystander (0–0) still stays out', () => {
+    const sides = recruitSides({
+      initiatorId: 'player',
+      targetId: 'mback',
+      participants: [p('player'), p('mback'), p('bystander')],
+    });
+    expect(sides.bystander).toBeUndefined();
   });
 
   it('a stronger bond breaks the tie (hostile outweighs wary)', () => {

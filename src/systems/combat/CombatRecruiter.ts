@@ -8,8 +8,12 @@
  *   - hostile/wary toward a fighter  → join the OPPOSING side (help bring them down)
  *   - friendly toward a fighter      → join THEIR side (defend them)
  *   - neutral                        → no vote
- * Votes are summed by magnitude (hostile=2, wary/friendly=1); the heavier side
- * wins, and a tie (including all-neutral) keeps the bystander OUT of the fight.
+ * Votes are summed by magnitude (hostile=2, wary/friendly=1); the heavier side wins.
+ * A CONFLICTED tie (antagonistic to both fighters, e.g. wary of the player AND of the
+ * target) resolves toward the INITIATOR's side — disliking the victim is the chance to
+ * pile on, per "dislike X + the player attacks X → join against X" (the bystander's
+ * wariness of the aggressor doesn't make it defend someone it also dislikes). A purely
+ * neutral / unconflicted tie keeps the bystander OUT.
  *
  * The caller supplies each participant's `relationTo(otherId)` (the scene reads it
  * from disposition-to-player for the player and from the NPC ledger for NPCs), so
@@ -66,7 +70,8 @@ export function recruitSides(input: RecruitInput): Record<string, string> {
 
     if (scoreInit > scoreTarget) sides[p.id] = SIDE_INITIATOR;
     else if (scoreTarget > scoreInit) sides[p.id] = SIDE_TARGET;
-    // equal (incl. 0–0 neutral, or a conflicted tie) → stays out of the fight
+    else if (scoreInit > 0) sides[p.id] = SIDE_INITIATOR; // conflicted tie → pile on with the aggressor
+    // else 0–0 (neutral to both) → stays out of the fight
   }
   return sides;
 }
