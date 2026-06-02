@@ -80,3 +80,37 @@ and **8B — multi-combatant + autonomous/spectator combat**.
   ADR-0019's behaviour is preserved.
 - Token cost: the only Claude call in combat remains the rare critical-hit narration,
   gated by `ClaudeCallQueue`; autonomous fights reuse that path.
+
+## Playtest follow-ups (applied) + open items
+
+Owner Electron playtest validated the core scenario (attack Mback → Zara joins you)
+after a recruiter fix, and drove this polish (all browser-only / `istanbul ignore`d):
+- **Recruiter conflicted-tie → initiator** (a bystander wary of BOTH the player and the
+  victim piles on with the aggressor, per "dislike X + the player attacks X → join").
+- **Free RTS combat camera** for the player's turn (`CameraSystem.enterFreeMode/panFree`,
+  arrows/WASD pan via `getForwardRay`, Z/C orbit, **wheel-zoom only in free/combat mode**
+  to stop on-foot metagaming); spectator fights keep the centroid camera.
+- **Attack targeting by ground point + nearest combatant + hover ring** (green in-range /
+  red out), replacing the fragile `scene.pick` mesh hit. The Move trail/ground ray use
+  `cameraToUseForPointers` (NOT `scene.activeCamera`, which the portrait strip leaves on a
+  portrait camera).
+- **Facing**: fighters turn to face their target before striking; the combat walk keyframes
+  per-segment yaw (no moonwalk).
+- **Enemy nerf** (shared `enemyStatsFor` + `NPC_COMBAT_HP`=70) so the player can win.
+- **Death persists**: `NPCAgent.markDefeated/isDefeated`; the dead hold the Death pose and are
+  excluded from recruitment / autonomy / combat triggers (no resurrection).
+- **`[E] Interact`** rename; a dead NPC is a **searchable corpse** (diegetic one-line stub, no
+  live persona) — real frisk/loot deferred to the inventory phase.
+- **Post-combat position sync**: `PlayerController.teleport` (recreates the Havok capsule) +
+  moving each NPC holder/agent so `[E]`/proximity/camera follow a repositioned fighter.
+
+**Open (deferred) playtest bugs:**
+- **(A)** an NPC snaps back to its *original* facing at the END of a combat move — the
+  holder-rotation pin doesn't hold; likely the embedded **Idle clip resets the avatar
+  `__root__` rotation**. Fix on the avatar node, not the holder.
+- **(B)** the attack hover ring is slightly offset from the NPC's real position (ground point
+  vs holder origin/feet).
+- **(C)** a surviving NPC is not told another NPC died (no combat-outcome memory injected) —
+  future "NPC knows who died".
+- **Tuning:** move cost (1 AP/m) vs turn length — low-Dex allies take many turns to close
+  distance; revisit AP/turn or metres/AP.
