@@ -583,9 +583,12 @@ export class GameWorldScene extends BaseScene {
     const gap = flat.length();
     const step = gap > 0.001 ? Math.min(1, Math.max(0.3, gap - 1)) : 0;
     const lungeTo = gap > 0.001 ? origin.add(flat.normalize().scale(step)) : origin;
-    Animation.CreateAndStartAnimation('lunge-in', attacker, 'position', 60, 7, origin, lungeTo, 0);
+    // CONSTANT loop mode = absolute keyframe values. (RELATIVE/0 offsets relative to
+    // the current position and ACCUMULATES, drifting the hero away each strike.)
+    const ABS = Animation.ANIMATIONLOOPMODE_CONSTANT;
+    Animation.CreateAndStartAnimation('lunge-in', attacker, 'position', 60, 7, origin, lungeTo, ABS);
     this.playCombatClip(attackerId, 'punch', false, () => {
-      Animation.CreateAndStartAnimation('lunge-out', attacker, 'position', 60, 9, attacker.position.clone(), origin, 0);
+      Animation.CreateAndStartAnimation('lunge-out', attacker, 'position', 60, 9, attacker.position.clone(), origin, ABS);
     });
   }
 
