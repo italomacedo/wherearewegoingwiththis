@@ -194,7 +194,7 @@ describe('PromptBuilder', () => {
       expect(p).toContain('No dice');
     });
     it('defaults to English', () => {
-      expect(PromptBuilder.buildCombatNarrationPrompt('Zara reloads.')).toContain('In English');
+      expect(PromptBuilder.buildCombatNarrationPrompt('Zara reloads.')).toContain('in English');
     });
   });
 

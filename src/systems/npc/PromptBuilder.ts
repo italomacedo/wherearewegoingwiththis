@@ -135,7 +135,7 @@ export class PromptBuilder {
    */
   static buildCombatNarrationPrompt(beat: string, language = 'English'): string {
     return [
-      `In ${language}, ONE short punchy sentence (max ~12 words) for this CRITICAL blow`,
+      `Narrate in ${language}, in ONE short punchy sentence (max ~12 words), this CRITICAL blow`,
       'in a cyberpunk street brawl. Gritty, not flowery — no purple prose.',
       'No dice/numbers/mechanics, no quotation marks, no new named characters.',
       `Beat: ${beat}`,
