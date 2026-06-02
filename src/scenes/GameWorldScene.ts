@@ -23,6 +23,9 @@ import { MercadoSombrasZone } from '@entities/zones/MercadoSombrasZone';
 import { WorldZone } from '@entities/WorldZone';
 import { GameClock, DayPeriod } from '@systems/GameClock';
 import { CharacterAppearance, DEFAULT_APPEARANCE } from '@entities/CharacterData';
+import { Inventory, defaultInventoryState } from '@entities/Inventory';
+import { weaponProfile, itemDef } from '@entities/items/ItemCatalog';
+import { InventoryOverlay } from '@systems/InventoryOverlay';
 import { NPCManager, NPCMemoryMap, AutonomyContext, AutonomyJob } from '@systems/NPCManager';
 import { ClaudeCallQueue, queueConfigFromSettings } from '@systems/ClaudeCallQueue';
 import { IntentCandidate } from '@systems/npc/Intent';
@@ -76,8 +79,9 @@ export class GameWorldScene extends BaseScene {
   private npcManager: NPCManager | null = null;
   private injectedService: ClaudeNPCService | null = null;
   private dialog: DialogSystem | null = null;
-  private chatMode: 'npc' | 'global' | 'corpse' = 'npc';
+  private chatMode: 'npc' | 'global' = 'npc';
   private pauseMenu: PauseMenu | null = null;
+  private inventoryOverlay: InventoryOverlay | null = null;
   private combat: CombatOverlay | null = null;
   private gameOverMenu: GameOverMenu | null = null;
   private combatFocus: TransformNode | null = null;
@@ -153,6 +157,7 @@ export class GameWorldScene extends BaseScene {
   private npcMemory: NPCMemoryMap = {};
   private playerName = 'Operative';
   private playerStats: CharacterStats = createDefaultStats();
+  private playerInventory: Inventory = new Inventory();
   private gameTimeSeconds = 0;
   private saveId = '';
   private spawnOverride: Vector3 | null = null;
@@ -186,6 +191,7 @@ export class GameWorldScene extends BaseScene {
     this.appearance = session.character.appearance;
     this.playerName = session.character.name;
     this.playerStats = session.character.stats ?? createDefaultStats();
+    this.playerInventory = Inventory.fromState(session.inventory ?? defaultInventoryState());
     this.npcMemory = session.npcMemory ?? {};
     this.gameTimeSeconds = session.gameTimeSeconds;
     this.playerHealthState = session.playerHealth ?? { ...DEFAULT_PLAYER_HEALTH };
@@ -219,8 +225,9 @@ export class GameWorldScene extends BaseScene {
       : this.vehicleState;
 
     const character = { ...save.character, stats: this.playerStats };
+    const inventory = this.playerInventory.toState();
     SaveService.save({
-      ...save, character, world, gameTimeSeconds: this.gameTimeSeconds, npcMemory: memory, playerHealth, vehicle,
+      ...save, character, world, gameTimeSeconds: this.gameTimeSeconds, npcMemory: memory, playerHealth, vehicle, inventory,
     });
 
     const session = ServiceLocator.tryGet<GameSession>('gameSession');
@@ -231,6 +238,7 @@ export class GameWorldScene extends BaseScene {
       session.gameTimeSeconds = this.gameTimeSeconds;
       session.playerHealth = playerHealth;
       session.vehicle = vehicle;
+      session.inventory = inventory;
     }
   }
 
@@ -292,6 +300,16 @@ export class GameWorldScene extends BaseScene {
     // Pause menu (ESC) with in-game Save (Phase 5 evidence).
     this.pauseMenu = new PauseMenu(this.babylonScene);
     this.wirePauseMenu();
+
+    // Inventory overlay (I) — manage the pack; loot a corpse. Freezes the world.
+    this.inventoryOverlay = new InventoryOverlay(this.babylonScene);
+    this.inventoryOverlay.setHandlers({
+      onChange: () => this.persistSession(),
+      onHeal: (amount) => { this.player?.getHealth().heal(amount); },
+      // Looting a corpse framed the camera on it (conversation mode); restore the
+      // normal follow camera when the overlay closes.
+      onClose: () => this.cameraSystem?.exitConversationMode(),
+    });
 
     // Turn-based combat overlay (triggered by a hostile NPC's attack intent).
     this.combat = new CombatOverlay(this.babylonScene);
@@ -465,6 +483,7 @@ export class GameWorldScene extends BaseScene {
     this.npcManager?.dispose();
     this.dialog?.dispose();
     this.pauseMenu?.dispose();
+    this.inventoryOverlay?.dispose();
     this.combat?.dispose();
     this.gameOverMenu?.dispose();
     this.hud?.dispose();
@@ -500,6 +519,7 @@ export class GameWorldScene extends BaseScene {
     this.npcManager = null;
     this.dialog = null;
     this.pauseMenu = null;
+    this.inventoryOverlay = null;
     this.hud = null;
     this.detachInput = null;
     ['physics', 'cameraSystem', 'inputSystem', 'zoneManager', 'player', 'vehicle', 'npcManager'].forEach((k) =>
@@ -533,6 +553,14 @@ export class GameWorldScene extends BaseScene {
       this.tickCombat(dt);
       this.stepNpcWalks(dt); // advance any in-progress combat move
       this.pinCombatFacings();
+      this.cameraSystem?.update();
+      this.inputSystem?.endFrame();
+      return;
+    }
+
+    // Inventory overlay (I) — freezes the world like pause; ESC/I closes it.
+    this.handleInventoryInput();
+    if (this.inventoryOverlay?.isOpen()) {
       this.cameraSystem?.update();
       this.inputSystem?.endFrame();
       return;
@@ -607,6 +635,7 @@ export class GameWorldScene extends BaseScene {
       const savedLedger = NPCManager.restoreRelationships(this.npcMemory, def.id);
       if (savedLedger) agent.restoreRelationships(savedLedger);
       agent.restoreEvents(NPCManager.restoreEvents(this.npcMemory, def.id));
+      agent.restoreInventory(NPCManager.restoreInventory(this.npcMemory, def.id));
       const anchor = await this.buildNPCVisual(def);
       this.npcAnchors.push(anchor);
     }
@@ -751,7 +780,7 @@ export class GameWorldScene extends BaseScene {
       const side = sides[id]!;
       if (id === 'player') {
         const p = this.player?.getRoot().position ?? Vector3.Zero();
-        combatants.push({ id, name: this.playerName, isPlayer: true, stats: this.playerStats, health: this.playerHealthState, pos: { x: p.x, z: p.z }, side });
+        combatants.push({ id, name: this.playerName, isPlayer: true, stats: this.playerStats, health: this.playerHealthState, pos: { x: p.x, z: p.z }, side, weapon: weaponProfile(this.playerInventory.equippedWeaponId), weaponName: this.weaponLabel(this.playerInventory.equippedWeaponId) });
         names[id] = this.playerName;
         if (this.player) sources[id] = this.player.getRoot();
       } else {
@@ -760,7 +789,7 @@ export class GameWorldScene extends BaseScene {
         if (!a || a.isDefeated()) continue;
         const pos = holder?.position ?? a.getPosition();
         const hp = GameWorldScene.NPC_COMBAT_HP;
-        combatants.push({ id, name: a.getDisplayName(), isPlayer: false, stats: this.enemyStatsFor(a), health: { current: hp, max: hp }, pos: { x: pos.x, z: pos.z }, side });
+        combatants.push({ id, name: a.getDisplayName(), isPlayer: false, stats: this.enemyStatsFor(a), health: { current: hp, max: hp }, pos: { x: pos.x, z: pos.z }, side, weapon: weaponProfile(a.getCombatWeaponId()), weaponName: this.weaponLabel(a.getCombatWeaponId()) });
         names[id] = a.getDisplayName();
         if (holder) sources[id] = holder;
       }
@@ -1323,12 +1352,10 @@ export class GameWorldScene extends BaseScene {
     }
     const agent = this.npcManager.getConversableAgent(this.player.getPosition());
     if (agent && agent.isDefeated()) {
-      // A corpse can be searched/frisked but never converses (no live persona). Real
-      // frisk results + loot land with the inventory phase.
-      this.chatMode = 'corpse';
-      const name = agent.isNameKnown() ? agent.definition.name : null;
-      const line = name ? t('interact.corpse', { name }) : t('interact.corpseUnknown');
-      this.dialog.open(agent.getDisplayName(), [{ role: 'narration', text: line }]);
+      // A corpse never converses (no live persona) — searching it opens the loot
+      // overlay, transferring the dead NPC's items to the player (Phase 9).
+      const name = agent.isNameKnown() ? agent.definition.name : t('inventory.corpseUnknown');
+      this.inventoryOverlay?.openLoot(this.playerInventory, agent.getInventory(), name);
       const holder = this.npcHolderById.get(agent.definition.id);
       if (holder) this.cameraSystem?.enterConversationMode(holder);
       return;
@@ -1366,7 +1393,6 @@ export class GameWorldScene extends BaseScene {
   private wireDialog(): void {
     if (!this.dialog) return;
     this.dialog.onSubmit((message) => {
-      if (this.chatMode === 'corpse') { this.dialog?.addSystemLine(t('dialog.corpseSilent')); return; }
       if (this.chatMode === 'global') void this.sendGlobalMessage(message);
       else void this.sendToActiveNPC(message);
     });
@@ -1646,16 +1672,34 @@ export class GameWorldScene extends BaseScene {
 
   // ─── Pause + HUD ─────────────────────────────────────────────────────────────
 
-  /** ESC toggles pause, except while the dialog field is focused. */
+  /** ESC toggles pause, except while the dialog field is focused / a modal is open. */
   private handlePauseInput(): void {
     if (!this.inputSystem || !this.pauseMenu) return;
     if (!this.inputSystem.wasJustPressed('pause')) return;
+    if (this.inventoryOverlay?.isOpen()) {
+      // ESC closes the inventory rather than pausing.
+      this.inventoryOverlay.close();
+      return;
+    }
     if (this.dialog?.isOpen()) {
       // ESC closes the dialog rather than pausing.
       if (!this.dialog.isInputFocused()) this.closeDialog();
       return;
     }
     this.pauseMenu.toggle();
+  }
+
+  /** `I` opens the inventory (manage); while open, `I`/ESC closes it. */
+  private handleInventoryInput(): void {
+    if (!this.inputSystem || !this.inventoryOverlay) return;
+    const overlay = this.inventoryOverlay;
+    if (overlay.isOpen()) {
+      if (this.inputSystem.wasJustPressed('inventory.open')) overlay.close();
+      return;
+    }
+    // Don't open over another modal or while typing in the dialog.
+    if (this.dialog?.isOpen() || this.pauseMenu?.isOpen() || this.gameOverMenu?.isOpen()) return;
+    if (this.inputSystem.wasJustPressed('inventory.open')) overlay.openManage(this.playerInventory);
   }
 
   private wirePauseMenu(): void {
@@ -1717,6 +1761,14 @@ export class GameWorldScene extends BaseScene {
   getNpcManager(): NPCManager | null { return this.npcManager; }
   getDialog(): DialogSystem | null { return this.dialog; }
   getPauseMenu(): PauseMenu | null { return this.pauseMenu; }
+  getInventoryOverlay(): InventoryOverlay | null { return this.inventoryOverlay; }
+  getPlayerInventory(): Inventory { return this.playerInventory; }
+
+  /** Localized weapon label for the combat log (the item name, or "fists" when unarmed). */
+  weaponLabel(weaponId: string | null): string {
+    const def = weaponId ? itemDef(weaponId) : undefined;
+    return def ? t(def.nameKey) : t('item.fists');
+  }
   getGameOverMenu(): GameOverMenu | null { return this.gameOverMenu; }
   getCombat(): CombatOverlay | null { return this.combat; }
   getHud(): WorldHud | null { return this.hud; }

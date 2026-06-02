@@ -3,6 +3,7 @@ import {
   NPCMemory, SaveGame, VehicleSaveState, DEFAULT_PLAYER_HEALTH, DEFAULT_VEHICLE_STATE,
 } from '@systems/SaveService';
 import { HealthState } from '@entities/Health';
+import { InventoryState, defaultInventoryState } from '@entities/Inventory';
 
 export interface WorldState {
   zone: string;
@@ -31,6 +32,7 @@ export class GameSession {
     public vehicle: VehicleSaveState = {
       health: { ...DEFAULT_VEHICLE_STATE.health }, destroyed: false,
     },
+    public inventory: InventoryState = defaultInventoryState(),
   ) {}
 
   /** Builds a session from a persisted save. */
@@ -43,6 +45,7 @@ export class GameSession {
       save.gameTimeSeconds,
       save.playerHealth ?? { ...DEFAULT_PLAYER_HEALTH },
       save.vehicle ?? { health: { ...DEFAULT_VEHICLE_STATE.health }, destroyed: false },
+      save.inventory ?? defaultInventoryState(),
     );
   }
 }

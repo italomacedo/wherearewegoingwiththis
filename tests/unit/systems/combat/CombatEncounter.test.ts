@@ -409,4 +409,52 @@ describe('CombatEncounter — sides & N-way (8B)', () => {
     expect(enc.sideOf('ally')).toBe('B');
     expect(() => enc.setSide('ghost', 'B')).not.toThrow();
   });
+
+  function hpOf(enc: CombatEncounter, id: string): number {
+    return enc.getState().combatants.find((c) => c.id === id)!.hp.current;
+  }
+
+  it('an equipped melee weapon out-damages the bare fist on a hit', () => {
+    // Adjacent combatants (distance 0 ≤ reach 1); seq(0.01,0) = sure hit, 0 variance.
+    const fistEnc = new CombatEncounter(
+      [mk('player', true, 'A', { dex: 60 }), mk('enemy', false, 'B')],
+      { rng: seq(0.01, 0) },
+    );
+    fistEnc.apply({ type: 'attack', attackKind: 'melee', targetId: 'enemy' });
+    const fistDmg = 100 - hpOf(fistEnc, 'enemy'); // 8 + floor(20/10) = 10
+
+    const c = [mk('player', true, 'A', { dex: 60 }), mk('enemy', false, 'B')];
+    c[0]!.weapon = { attackKind: 'melee', damageBase: 12, variance: 6, range: 1 };
+    const knifeEnc = new CombatEncounter(c, { rng: seq(0.01, 0) });
+    knifeEnc.apply({ type: 'attack', attackKind: 'melee', targetId: 'enemy' });
+    const knifeDmg = 100 - hpOf(knifeEnc, 'enemy'); // 12 + 2 = 14
+
+    expect(fistDmg).toBe(10);
+    expect(knifeDmg).toBe(14);
+    expect(knifeDmg).toBeGreaterThan(fistDmg);
+  });
+
+  it('carries the attacker weapon label on hit/miss events', () => {
+    const c = [mk('player', true, 'A', { dex: 60 }), mk('enemy', false, 'B')];
+    c[0]!.weaponName = 'Knife';
+    const hitEnc = new CombatEncounter(c.map((x) => ({ ...x })), { rng: seq(0.01, 0) });
+    expect(hitEnc.apply({ type: 'attack', attackKind: 'melee', targetId: 'enemy' }).weaponName).toBe('Knife');
+    const missEnc = new CombatEncounter(c.map((x) => ({ ...x })), { rng: seq(0.99, 0) });
+    expect(missEnc.apply({ type: 'attack', attackKind: 'melee', targetId: 'enemy' }).weaponName).toBe('Knife');
+  });
+
+  it('a longer-reach weapon can strike from beyond the bare-fist range', () => {
+    const c = [
+      mk('player', true, 'A', { dex: 60, pos: { x: 0, z: 0 } }),
+      mk('enemy', false, 'B', { pos: { x: 2, z: 0 } }), // 2 m away
+    ];
+    // Fist (reach 1) cannot reach 2 m.
+    const fist = new CombatEncounter(c.map((x) => ({ ...x })), { rng: seq(0.01, 0) });
+    expect(fist.apply({ type: 'attack', attackKind: 'melee', targetId: 'enemy' }).kind).toBe('rejected');
+    // A reach-3 polearm can.
+    const cc = c.map((x) => ({ ...x }));
+    cc[0]!.weapon = { attackKind: 'melee', damageBase: 10, variance: 4, range: 3 };
+    const reach = new CombatEncounter(cc, { rng: seq(0.01, 0) });
+    expect(reach.apply({ type: 'attack', attackKind: 'melee', targetId: 'enemy' }).kind).toBe('hit');
+  });
 });

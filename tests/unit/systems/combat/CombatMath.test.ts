@@ -2,7 +2,7 @@ import {
   CombatTuning, DEFAULT_COMBAT_TUNING, combatTuningFromSettings,
   actionPointsFor, moveApCost, maxMoveMeters,
   attackValue, dodgeValue, resolveAttack,
-  rollDamage, initiativeOrder,
+  rollDamage, rollWeaponDamage, FIST_PROFILE, WeaponProfile, initiativeOrder,
   MELEE_RANGE, FLEE_MIN_DISTANCE, COVER_NONE, COVER_PARTIAL, COVER_FULL,
   MELEE_BASE, RANGED_BASE,
   distance2, straightLinePath, truncatePath, centroidOf,
@@ -141,6 +141,35 @@ describe('rollDamage', () => {
     const dmg = rollDamage(sheet({ forca: 20 }), 'melee');
     expect(dmg).toBeGreaterThanOrEqual(MELEE_BASE + 2);
     expect(dmg).toBeLessThanOrEqual(MELEE_BASE + 2 + 4);
+  });
+});
+
+describe('rollWeaponDamage', () => {
+  it('the fist profile reproduces the legacy melee constants exactly', () => {
+    const stats = sheet({ forca: 60 });
+    expect(rollWeaponDamage(stats, FIST_PROFILE, seq(0))).toBe(rollDamage(stats, 'melee', seq(0)));
+    expect(rollWeaponDamage(stats, FIST_PROFILE, seq(0.99))).toBe(rollDamage(stats, 'melee', seq(0.99)));
+  });
+
+  it('a melee weapon adds its damageBase + Força/10 + variance', () => {
+    const knife: WeaponProfile = { attackKind: 'melee', damageBase: 12, variance: 6, range: 1 };
+    expect(rollWeaponDamage(sheet({ forca: 50 }), knife, seq(0))).toBe(12 + 5 + 0);
+    expect(rollWeaponDamage(sheet({ forca: 50 }), knife, seq(0.99))).toBe(12 + 5 + 5); // floor(0.99*6)=5
+  });
+
+  it('a ranged profile scales with Destreza/20', () => {
+    const gun: WeaponProfile = { attackKind: 'ranged', damageBase: 10, variance: 4, range: 12 };
+    expect(rollWeaponDamage(sheet({ destreza: 80 }), gun, seq(0))).toBe(10 + 4 + 0);
+  });
+
+  it('guards a zero-variance profile (no divide-by-zero / NaN)', () => {
+    const blunt: WeaponProfile = { attackKind: 'melee', damageBase: 9, variance: 0, range: 1 };
+    expect(rollWeaponDamage(sheet({ forca: 20 }), blunt, seq(0.5))).toBe(9 + 2 + 0);
+  });
+
+  it('uses the default RNG when none is injected', () => {
+    const dmg = rollWeaponDamage(sheet({ forca: 20 }), FIST_PROFILE);
+    expect(dmg).toBeGreaterThanOrEqual(MELEE_BASE + 2);
   });
 });
 

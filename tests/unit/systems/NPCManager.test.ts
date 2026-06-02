@@ -225,6 +225,17 @@ describe('NPCManager', () => {
     expect(NPCManager.restoreEvents(undefined, 'npc_a')).toBeUndefined();
   });
 
+  it('serializes + restores the NPC inventory (Phase 9 corpse loot stays looted)', () => {
+    const agent = manager.spawn({ ...def, loadout: [{ id: 'knife', qty: 1 }, { id: 'medkit', qty: 2 }] });
+    agent.getInventory().remove('medkit', 1); // someone looted one
+    const memory = manager.serializeMemory();
+    expect(memory['npc_a'].inventory!.items).toEqual([{ id: 'knife', qty: 1 }, { id: 'medkit', qty: 1 }]);
+    expect(memory['npc_a'].inventory!.equippedWeaponId).toBe('knife');
+    expect(NPCManager.restoreInventory(memory, 'npc_a')!.equippedWeaponId).toBe('knife');
+    expect(NPCManager.restoreInventory(memory, 'npc_z')).toBeUndefined();
+    expect(NPCManager.restoreInventory(undefined, 'npc_a')).toBeUndefined();
+  });
+
   it('dispose clears agents and cooldowns', () => {
     manager.spawn(def);
     manager.dispose();
