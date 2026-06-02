@@ -24,6 +24,10 @@ export interface CombatOverlayHandlers {
    * and, once the player clicks a reachable point, calls submitPlayerAction({move,to}).
    */
   onRequestMove?: () => void;
+  /** Pointer moved over the battlefield (scrim) — the scene previews the move trail. */
+  onTargetMove?: () => void;
+  /** Pointer released over the battlefield (scrim) — the scene commits the targeted action. */
+  onTargetCommit?: () => void;
 }
 
 /**
@@ -254,6 +258,13 @@ export class CombatOverlay {
     scrim.background = 'rgba(2,0,4,0.22)';
     scrim.thickness = 0;
     scrim.isVisible = false;
+    // The scrim is the full-screen pointer surface for 3-D targeting (Move trail +
+    // click-to-attack). It blocks pointers so its observables fire reliably over the
+    // whole battlefield; the action buttons (pointer-blockers, added on top) consume
+    // their own clicks, so selecting a mode never leaks a world "confirm" click.
+    scrim.isPointerBlocker = true;
+    scrim.onPointerMoveObservable.add(() => this.handlers.onTargetMove?.());
+    scrim.onPointerUpObservable.add(() => this.handlers.onTargetCommit?.());
     gui.addControl(scrim);
     this.panel = scrim;
 
