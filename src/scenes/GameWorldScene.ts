@@ -1,6 +1,6 @@
 import {
   Engine, Color4, Vector3, AbstractMesh, TransformNode, MeshBuilder,
-  PhysicsAggregate, PhysicsShapeType, AnimationGroup,
+  PhysicsAggregate, PhysicsShapeType, AnimationGroup, Animation,
 } from '@babylonjs/core';
 import { BaseScene } from './BaseScene';
 import { ServiceLocator } from '@core/ServiceLocator';
@@ -542,31 +542,61 @@ export class GameWorldScene extends BaseScene {
     }
   }
 
-  /** Play attack/hit/death animations on the world meshes for a resolved combat beat. */
+  /** Play attack/hit/dodge/death animations on the world meshes for a resolved combat beat. */
   /* istanbul ignore next — browser-only animation playback */
   private animateCombatBeat(entry: CombatLogEntry): void {
-    if (entry.attackKind && (entry.kind === 'hit' || entry.kind === 'miss' || entry.kind === 'death')) {
+    if (!entry.attackKind || !(entry.kind === 'hit' || entry.kind === 'miss' || entry.kind === 'death')) return;
+    const dead = entry.kind === 'death';
+    const landed = entry.kind === 'hit' || dead;
+    // Target reacts: HitRecieve / Death on a landed blow, a dodge Roll on a miss.
+    if (entry.targetId) {
+      this.playCombatClip(entry.targetId, dead ? 'death' : (landed ? 'hit' : 'dodge'), dead);
+    }
+    // Attacker: melee lunges in, strikes, and retreats; ranged shoots in place.
+    if (entry.attackKind === 'melee' && entry.targetId) {
+      this.meleeLunge(entry.actorId, entry.targetId);
+    } else {
       this.playCombatClip(entry.actorId, combatClipFor(entry.attackKind), false);
     }
-    if (entry.targetId && (entry.kind === 'hit' || entry.kind === 'death')) {
-      const dead = entry.kind === 'death';
-      this.playCombatClip(entry.targetId, dead ? 'death' : 'hit', dead);
-    }
+  }
+
+  /** The world node for a combatant id (player root or NPC holder). */
+  /* istanbul ignore next — browser-only */
+  private combatNode(actorId: string): TransformNode | null {
+    return actorId === 'player' ? (this.player?.getRoot() ?? null) : (this.npcHolderById.get(actorId) ?? null);
+  }
+
+  /** Melee choreography: dash ~1 m toward the target, punch, then slide back to origin. */
+  /* istanbul ignore next — browser-only animation playback */
+  private meleeLunge(attackerId: string, targetId: string): void {
+    const attacker = this.combatNode(attackerId);
+    const target = this.combatNode(targetId);
+    if (!attacker || !target) { this.playCombatClip(attackerId, 'punch', false); return; }
+    const origin = attacker.position.clone();
+    const flat = target.position.subtract(attacker.position);
+    flat.y = 0;
+    const gap = flat.length();
+    const step = gap > 0.001 ? Math.min(1, Math.max(0.3, gap - 1)) : 0;
+    const lungeTo = gap > 0.001 ? origin.add(flat.normalize().scale(step)) : origin;
+    Animation.CreateAndStartAnimation('lunge-in', attacker, 'position', 60, 7, origin, lungeTo, 0);
+    this.playCombatClip(attackerId, 'punch', false, () => {
+      Animation.CreateAndStartAnimation('lunge-out', attacker, 'position', 60, 9, attacker.position.clone(), origin, 0);
+    });
   }
 
   /** One-shot a named avatar clip on a combatant's mesh, returning to idle (unless `hold`). */
   /* istanbul ignore next — browser-only animation playback */
-  private playCombatClip(actorId: string, key: string, hold: boolean): void {
+  private playCombatClip(actorId: string, key: string, hold: boolean, onEnd?: () => void): void {
     const groups = actorId === 'player'
       ? (this.player?.getAnimationGroups() ?? [])
       : (this.npcGroupsById.get(actorId) ?? []);
     const clip = groups.find((g) => g.name.toLowerCase() === key);
-    if (!clip) return;
+    if (!clip) { onEnd?.(); return; }
     const idle = groups.find((g) => g.name.toLowerCase() === 'idle') ?? null;
     groups.forEach((g) => g.stop());
     clip.start(false);
     if (!hold) {
-      clip.onAnimationEndObservable.addOnce(() => { idle?.start(true); });
+      clip.onAnimationEndObservable.addOnce(() => { idle?.start(true); onEnd?.(); });
     }
   }
 

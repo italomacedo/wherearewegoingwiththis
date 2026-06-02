@@ -30,8 +30,9 @@ export interface CombatLogEntry {
   damage?: number;
   /** Set for attack events so the overlay can highlight hits/misses/kills. */
   attackOutcome?: 'hit' | 'miss' | 'death';
-  /** To-hit probability (0..1) and kind for attack events (gates critical narration + animation). */
+  /** To-hit probability (0..1), the d100 roll, and kind for attack events. */
   probability?: number;
+  roll?: number;
   attackKind?: 'melee' | 'ranged';
 }
 
@@ -45,10 +46,12 @@ export function objectiveLogLine(entry: CombatLogEntry): { key: string; params: 
   const a = entry.actorName;
   const b = entry.targetName ?? '';
   const dmg = entry.damage ?? 0;
+  const roll = Math.floor(entry.roll ?? 0);
+  const chance = Math.round((entry.probability ?? 0) * 100);
   switch (entry.kind) {
-    case 'hit': return { key: 'combat.logHit', params: { a, b, dmg } };
-    case 'death': return { key: 'combat.logKill', params: { a, b, dmg } };
-    case 'miss': return { key: 'combat.logMiss', params: { a, b } };
+    case 'hit': return { key: 'combat.logHit', params: { a, b, dmg, roll, chance } };
+    case 'death': return { key: 'combat.logKill', params: { a, b, dmg, roll, chance } };
+    case 'miss': return { key: 'combat.logMiss', params: { a, b, roll, chance } };
     case 'move': return { key: 'combat.logMove', params: { a } };
     case 'cover': return { key: 'combat.logCover', params: { a } };
     case 'hunker': return { key: 'combat.logHunker', params: { a } };
@@ -126,7 +129,7 @@ export class CombatController {
       actorName: this.names[ev.actorId] ?? ev.actorId,
       targetName: ev.targetId ? (this.names[ev.targetId] ?? ev.targetId) : undefined,
       isPlayerActor: ev.actorId === this.playerId, attackOutcome,
-      damage: ev.damage, probability: ev.probability, attackKind: ev.attackKind,
+      damage: ev.damage, probability: ev.probability, roll: ev.roll, attackKind: ev.attackKind,
     };
   }
 

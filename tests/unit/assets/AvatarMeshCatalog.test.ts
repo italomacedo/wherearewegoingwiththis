@@ -46,7 +46,7 @@ describe('AvatarMeshCatalog — Quaternius Ultimate Modular outfits (pure)', () 
   it('COMBAT_CLIPS maps to embedded Quaternius clip names; combatClipFor picks by kind', () => {
     expect(COMBAT_CLIPS).toEqual({
       punch: 'Punch_Right', kick: 'Kick_Right', shoot: 'Gun_Shoot',
-      aim: 'Idle_Gun_Pointing', hit: 'HitRecieve', death: 'Death',
+      aim: 'Idle_Gun_Pointing', hit: 'HitRecieve', dodge: 'Roll', death: 'Death',
     });
     expect(combatClipFor('melee')).toBe('punch');
     expect(combatClipFor('ranged')).toBe('shoot');

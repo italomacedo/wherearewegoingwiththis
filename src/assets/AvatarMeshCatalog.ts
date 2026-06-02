@@ -73,12 +73,13 @@ export type LocoClipState = keyof typeof LOCO_CLIPS;
  * so zero retargeting). These are kept (renamed to the lowercase key) by
  * `assembleGltf` alongside the loco clips and played one-shot during combat.
  */
-export const COMBAT_CLIPS: Record<'punch' | 'kick' | 'shoot' | 'aim' | 'hit' | 'death', string> = {
+export const COMBAT_CLIPS: Record<'punch' | 'kick' | 'shoot' | 'aim' | 'hit' | 'dodge' | 'death', string> = {
   punch: 'Punch_Right',
   kick: 'Kick_Right',
   shoot: 'Gun_Shoot',
   aim: 'Idle_Gun_Pointing',
   hit: 'HitRecieve',
+  dodge: 'Roll',
   death: 'Death',
 };
 

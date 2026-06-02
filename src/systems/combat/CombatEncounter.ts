@@ -60,8 +60,9 @@ export interface CombatEvent {
   reason?: 'not_active' | 'over' | 'out_of_ap' | 'too_far' | 'invalid';
   /** Remaining AP for the actor after the action. */
   ap?: number;
-  /** For attack events (hit/miss/death): the to-hit probability (0..1) and the kind. */
+  /** For attack events (hit/miss/death): the to-hit probability (0..1), the d100 roll, and the kind. */
   probability?: number;
+  roll?: number;
   attackKind?: AttackKind;
 }
 
@@ -243,16 +244,17 @@ export class CombatEncounter {
           this.rng,
         );
         const probability = hit.probability;
+        const roll = hit.roll;
         if (!hit.success) {
-          return { kind: 'miss', actorId, targetId, distance: this.distance, ap: actor.ap, probability, attackKind: kind };
+          return { kind: 'miss', actorId, targetId, distance: this.distance, ap: actor.ap, probability, roll, attackKind: kind };
         }
         const damage = rollDamage(actor.init.stats, kind, this.rng);
         target.health.applyDamage(damage);
         if (target.health.isDead()) {
           this.outcome = target.init.isPlayer ? 'player_lost' : 'player_won';
-          return { kind: 'death', actorId, targetId, damage, distance: this.distance, ap: actor.ap, probability, attackKind: kind };
+          return { kind: 'death', actorId, targetId, damage, distance: this.distance, ap: actor.ap, probability, roll, attackKind: kind };
         }
-        return { kind: 'hit', actorId, targetId, damage, distance: this.distance, ap: actor.ap, probability, attackKind: kind };
+        return { kind: 'hit', actorId, targetId, damage, distance: this.distance, ap: actor.ap, probability, roll, attackKind: kind };
       }
       /* istanbul ignore next — exhaustive switch guard */
       default:
