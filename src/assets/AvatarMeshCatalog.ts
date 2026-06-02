@@ -73,13 +73,14 @@ export type LocoClipState = keyof typeof LOCO_CLIPS;
  * so zero retargeting). These are kept (renamed to the lowercase key) by
  * `assembleGltf` alongside the loco clips and played one-shot during combat.
  */
-export const COMBAT_CLIPS: Record<'punch' | 'kick' | 'shoot' | 'aim' | 'hit' | 'death', string> = {
+export const COMBAT_CLIPS: Record<'punch' | 'kick' | 'shoot' | 'aim' | 'hit' | 'death' | 'slash', string> = {
   punch: 'Punch_Right',
   kick: 'Kick_Right',
   shoot: 'Gun_Shoot',
   aim: 'Idle_Gun_Pointing',
   hit: 'HitRecieve',
   death: 'Death',
+  slash: 'Sword_Slash', // armed melee swing (Phase 10) — verified in men/ + women/ GLBs
 };
 
 export type CombatClipState = keyof typeof COMBAT_CLIPS;
@@ -87,6 +88,24 @@ export type CombatClipState = keyof typeof COMBAT_CLIPS;
 /** The clip an attacker plays for a given attack kind (melee → punch, ranged → shoot). */
 export function combatClipFor(attackKind: 'melee' | 'ranged'): CombatClipState {
   return attackKind === 'melee' ? 'punch' : 'shoot';
+}
+
+/**
+ * The attack clip for a strike, accounting for whether the fighter is armed:
+ *  - ranged → shoot
+ *  - armed melee (a real weapon in hand) → its `override` clip, else a sword slash
+ *  - bare-fisted melee → punch
+ * Pure; the caller supplies `armedMelee` (item-layer knowledge) and any per-weapon
+ * clip override, keeping this catalog free of an ItemCatalog dependency.
+ */
+export function attackClipFor(
+  attackKind: 'melee' | 'ranged',
+  armedMelee = false,
+  override?: CombatClipState,
+): CombatClipState {
+  if (attackKind === 'ranged') return 'shoot';
+  if (armedMelee) return override ?? 'slash';
+  return 'punch';
 }
 
 /**

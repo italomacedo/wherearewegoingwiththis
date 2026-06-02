@@ -1,5 +1,5 @@
 import {
-  OUTFITS, DEFAULT_OUTFIT, LOCO_CLIPS, COMBAT_CLIPS, combatClipFor,
+  OUTFITS, DEFAULT_OUTFIT, LOCO_CLIPS, COMBAT_CLIPS, combatClipFor, attackClipFor,
   LOCO_CLIP_GROUND_SPEED, LOCO_SPEED_RATIO_MIN, LOCO_SPEED_RATIO_MAX, computeLocoSpeedRatio,
   outfitsForGender, outfitByKey, genderOfOutfit, tintRoleForMaterial,
 } from '../../../src/assets/AvatarMeshCatalog';
@@ -46,10 +46,18 @@ describe('AvatarMeshCatalog — Quaternius Ultimate Modular outfits (pure)', () 
   it('COMBAT_CLIPS maps to embedded Quaternius clip names; combatClipFor picks by kind', () => {
     expect(COMBAT_CLIPS).toEqual({
       punch: 'Punch_Right', kick: 'Kick_Right', shoot: 'Gun_Shoot',
-      aim: 'Idle_Gun_Pointing', hit: 'HitRecieve', death: 'Death',
+      aim: 'Idle_Gun_Pointing', hit: 'HitRecieve', death: 'Death', slash: 'Sword_Slash',
     });
     expect(combatClipFor('melee')).toBe('punch');
     expect(combatClipFor('ranged')).toBe('shoot');
+  });
+
+  it('attackClipFor: slash when armed melee, punch bare-fisted, shoot when ranged', () => {
+    expect(attackClipFor('melee', false)).toBe('punch');     // bare fists
+    expect(attackClipFor('melee', true)).toBe('slash');       // armed (knife/axe/…)
+    expect(attackClipFor('melee', true, 'kick')).toBe('kick'); // per-weapon override
+    expect(attackClipFor('ranged')).toBe('shoot');
+    expect(attackClipFor('ranged', true)).toBe('shoot');      // armed irrelevant for ranged
   });
 
   describe('computeLocoSpeedRatio — match clip cadence to ground speed', () => {

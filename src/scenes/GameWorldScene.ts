@@ -24,7 +24,7 @@ import { WorldZone } from '@entities/WorldZone';
 import { GameClock, DayPeriod } from '@systems/GameClock';
 import { CharacterAppearance, DEFAULT_APPEARANCE } from '@entities/CharacterData';
 import { Inventory, defaultInventoryState } from '@entities/Inventory';
-import { weaponProfile, itemDef } from '@entities/items/ItemCatalog';
+import { weaponProfile, itemDef, isMeleeWeapon } from '@entities/items/ItemCatalog';
 import { InventoryOverlay } from '@systems/InventoryOverlay';
 import { HeldItemRig, resolveAttachWith, boneFor, AttachOverrides } from '@systems/HeldItems';
 import { AdjustOverlay } from '@systems/AdjustOverlay';
@@ -51,7 +51,7 @@ import { t, getLocale, languageName } from '@systems/I18n';
 import { SettingsService } from '@systems/SettingsService';
 import { CombatOverlay } from '@systems/combat/CombatOverlay';
 import { CombatController, CombatLogEntry, MELEE_ONLY_CAPS } from '@systems/combat/CombatController';
-import { combatClipFor } from '@assets/AvatarMeshCatalog';
+import { combatClipFor, attackClipFor, CombatClipState } from '@assets/AvatarMeshCatalog';
 import { CombatEncounter, CombatantInit, CombatOutcome } from '@systems/combat/CombatEncounter';
 import {
   combatTuningFromSettings, CombatTuning, Point2, Pathfinder,
@@ -107,6 +107,8 @@ export class GameWorldScene extends BaseScene {
   /** Routed pathfinder + tuning for the active encounter (set in startCombat). */
   private combatPathfind: Pathfinder | null = null;
   private combatTuning: CombatTuning | null = null;
+  /** Equipped weapon id per combatant (drives the melee swing clip: slash vs punch). */
+  private combatWeaponId = new Map<string, string | null>();
   /** Current player targeting mode (Attack picks a foe avatar; Move picks ground). */
   private combatTargeting:
     | { mode: 'attack'; attackKind: 'melee' | 'ranged' | undefined }
@@ -858,6 +860,7 @@ export class GameWorldScene extends BaseScene {
     this.combatPathfind = gridPathfinder(buildWalkGrid([...COMBAT_OBSTACLES], COMBAT_BOUNDS, 1, 0.6));
     this.combatTuning = tuning;
     this.combatTurnAccum = 0;
+    this.combatWeaponId.clear();
 
     const names: Record<string, string> = {};
     const sources: Record<string, TransformNode> = {};
@@ -867,6 +870,7 @@ export class GameWorldScene extends BaseScene {
       if (id === 'player') {
         const p = this.player?.getRoot().position ?? Vector3.Zero();
         combatants.push({ id, name: this.playerName, isPlayer: true, stats: this.playerStats, health: this.playerHealthState, pos: { x: p.x, z: p.z }, side, weapon: weaponProfile(this.playerInventory.equippedWeaponId), weaponName: this.weaponLabel(this.playerInventory.equippedWeaponId) });
+        this.combatWeaponId.set(id, this.playerInventory.equippedWeaponId);
         names[id] = this.playerName;
         if (this.player) sources[id] = this.player.getRoot();
       } else {
@@ -876,6 +880,7 @@ export class GameWorldScene extends BaseScene {
         const pos = holder?.position ?? a.getPosition();
         const hp = GameWorldScene.NPC_COMBAT_HP;
         combatants.push({ id, name: a.getDisplayName(), isPlayer: false, stats: this.enemyStatsFor(a), health: { current: hp, max: hp }, pos: { x: pos.x, z: pos.z }, side, weapon: weaponProfile(a.getCombatWeaponId()), weaponName: this.weaponLabel(a.getCombatWeaponId()) });
+        this.combatWeaponId.set(id, a.getCombatWeaponId());
         names[id] = a.getDisplayName();
         if (holder) sources[id] = holder;
       }
@@ -1065,10 +1070,19 @@ export class GameWorldScene extends BaseScene {
 
   /** Melee choreography: dash ~1 m toward the target, punch, then slide back to origin. */
   /* istanbul ignore next — browser-only animation playback */
+  /** Swing clip for a combatant's melee strike: armed → slash (or the weapon's
+   * holdClip), bare-fisted → punch. */
+  private meleeClip(actorId: string): CombatClipState {
+    const wid = this.combatWeaponId.get(actorId) ?? null;
+    const override = wid ? itemDef(wid)?.holdClip : undefined;
+    return attackClipFor('melee', isMeleeWeapon(wid ?? ''), override);
+  }
+
   private meleeLunge(attackerId: string, targetId: string): void {
+    const swing = this.meleeClip(attackerId);
     const attacker = this.combatNode(attackerId);
     const target = this.combatNode(targetId);
-    if (!attacker || !target) { this.playCombatClip(attackerId, 'punch', false); return; }
+    if (!attacker || !target) { this.playCombatClip(attackerId, swing, false); return; }
     const origin = attacker.position.clone();
     const flat = target.position.subtract(attacker.position);
     flat.y = 0;
@@ -1079,7 +1093,7 @@ export class GameWorldScene extends BaseScene {
     // the current position and ACCUMULATES, drifting the hero away each strike.)
     const ABS = Animation.ANIMATIONLOOPMODE_CONSTANT;
     Animation.CreateAndStartAnimation('lunge-in', attacker, 'position', 60, 7, origin, lungeTo, ABS);
-    this.playCombatClip(attackerId, 'punch', false, () => {
+    this.playCombatClip(attackerId, swing, false, () => {
       Animation.CreateAndStartAnimation('lunge-out', attacker, 'position', 60, 9, attacker.position.clone(), origin, ABS);
     });
   }
