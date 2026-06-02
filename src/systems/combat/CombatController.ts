@@ -15,7 +15,7 @@ import {
 import { chooseCombatAction, prefersMelee } from './CombatAI';
 import { combatBeat, CombatNames } from './CombatNarration';
 import {
-  CombatTuning, MELEE_RANGE, maxMoveMeters,
+  CombatTuning, MELEE_RANGE, FLEE_MIN_DISTANCE, maxMoveMeters,
 } from './CombatMath';
 
 export interface CombatLogEntry {
@@ -97,9 +97,12 @@ export function isCriticalHit(entry: CombatLogEntry): boolean {
 }
 
 /**
- * The player's action menu for the current state (move buttons step 1 metre).
- * Firearm actions (Shoot/Reload) and cover actions (Take cover / Hunker down) are
- * only offered when the loadout/scenery allows them (`caps`).
+ * The player's action menu for the current state. Attack and Move are "modes":
+ * the browser enters a targeting mode and fills the concrete target/destination on
+ * the 3D click (so these options carry no targetId/`to`). `enabled` reflects only
+ * what's affordable/legal up front (AP, a foe in melee reach, flee distance).
+ * Firearm actions (Shoot/Reload) and cover actions are only offered when the
+ * loadout/scenery allows them (`caps`).
  */
 export function playerActionOptions(
   state: CombatState, playerId: string, tuning: CombatTuning, caps: CombatCapabilities = ALL_CAPABILITIES,
@@ -113,14 +116,13 @@ export function playerActionOptions(
   const opts: PlayerActionOption[] = [];
   if (caps.firearm) opts.push({ action: { type: 'attack', attackKind: 'ranged' }, labelKey: 'combat.shoot', enabled: canPrimary });
   opts.push({ action: { type: 'attack', attackKind: 'melee' }, labelKey: 'combat.strike', enabled: canPrimary && inMelee });
-  opts.push({ action: { type: 'move', meters: 1, toward: true }, labelKey: 'combat.advance', enabled: canMove1 && state.distance > 0 });
-  opts.push({ action: { type: 'move', meters: 1, toward: false }, labelKey: 'combat.retreat', enabled: canMove1 });
+  opts.push({ action: { type: 'move' }, labelKey: 'combat.move', enabled: canMove1 });
   if (caps.cover) {
     opts.push({ action: { type: 'cover' }, labelKey: 'combat.cover', enabled: canSecondary });
     opts.push({ action: { type: 'hunker' }, labelKey: 'combat.hunker', enabled: canSecondary });
   }
   if (caps.firearm) opts.push({ action: { type: 'reload' }, labelKey: 'combat.reload', enabled: canSecondary });
-  opts.push({ action: { type: 'flee' }, labelKey: 'combat.flee', enabled: true });
+  opts.push({ action: { type: 'flee' }, labelKey: 'combat.flee', enabled: state.distance > FLEE_MIN_DISTANCE });
   opts.push({ action: { type: 'end_turn' }, labelKey: 'combat.endTurn', enabled: true });
   return opts;
 }
@@ -160,6 +162,26 @@ export class CombatController {
     };
   }
 
+  /**
+   * Turn the AI's abstract decision into a concrete encounter action: pick the
+   * nearest living foe as the target, and for 'move' route a concrete destination
+   * toward that foe (reserving AP for a strike). Degrades to end_turn when the
+   * enemy can neither reach nor strike anyone.
+   */
+  private resolveEnemyAction(decision: CombatAction): CombatAction {
+    const targetId = this.enc.nearestFoeId(this.enemyId);
+    if (decision.type === 'attack') {
+      if (!targetId) return { type: 'end_turn' };
+      return { type: 'attack', attackKind: decision.attackKind, targetId };
+    }
+    if (decision.type === 'move') {
+      if (!targetId) return { type: 'end_turn' };
+      const reach = this.enc.reachableToward(this.enemyId, targetId, this.enc.getTuning().primaryCost);
+      return reach ? { type: 'move', to: reach.to } : { type: 'end_turn' };
+    }
+    return decision;
+  }
+
   /** Run the enemy's whole turn via the AI policy; returns its log entries. */
   runEnemyTurn(): CombatLogEntry[] {
     const out: CombatLogEntry[] = [];
@@ -168,7 +190,7 @@ export class CombatController {
     while (!this.isOver() && this.enc.activeId() === this.enemyId && guard++ < MAX_ENEMY_ACTIONS) {
       const st = this.enc.getState();
       const self = st.combatants.find((c) => c.id === this.enemyId)!;
-      const action = chooseCombatAction({
+      const decision = chooseCombatAction({
         ap: self.ap,
         distance: st.distance,
         hpFraction: self.hp.max > 0 ? self.hp.current / self.hp.max : 0,
@@ -178,11 +200,11 @@ export class CombatController {
         hasCover: this.caps.cover,
         tuning: this.enc.getTuning(),
       });
+      const action = this.resolveEnemyAction(decision);
       const ev = this.enc.apply(action);
       const entry = this.entryOf(ev);
       if (entry) out.push(entry);
       if (action.type === 'end_turn') break;
-      /* istanbul ignore next — defensive: the AI only returns affordable/ending actions */
       if (ev.kind === 'rejected') { this.enc.apply({ type: 'end_turn' }); break; }
     }
     return out;

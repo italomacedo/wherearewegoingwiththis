@@ -38,30 +38,33 @@ function mkController(opts: { rng?: () => number; playerDex?: number; enemyDex?:
 }
 
 describe('playerActionOptions', () => {
-  it('enables ranged + secondaries with full AP, disables melee out of range', () => {
-    const enc = mkController().enc;
+  it('enables ranged + move with full AP, disables melee out of range, gates flee by distance', () => {
+    const enc = mkController().enc; // distance 6
     const opts = playerActionOptions(enc.getState(), 'player', DEFAULT_COMBAT_TUNING);
     const by = (k: string) => opts.find((o) => o.labelKey === k)!;
     expect(by('combat.shoot').enabled).toBe(true);
     expect(by('combat.strike').enabled).toBe(false); // distance 6 > melee range
-    expect(by('combat.advance').enabled).toBe(true);
-    expect(by('combat.flee').enabled).toBe(true);
+    expect(by('combat.move').enabled).toBe(true);
+    expect(by('combat.flee').enabled).toBe(false);   // foe within FLEE_MIN_DISTANCE
     expect(by('combat.endTurn').enabled).toBe(true);
   });
 
-  it('enables melee once in range and disables advance at distance 0', () => {
-    const enc = mkController({ initialDistance: 1 }).enc;
-    const opts = playerActionOptions(enc.getState(), 'player', DEFAULT_COMBAT_TUNING);
-    expect(opts.find((o) => o.labelKey === 'combat.strike')!.enabled).toBe(true);
+  it('enables melee once in range; flee only when the foe is far enough', () => {
+    const close = playerActionOptions(mkController({ initialDistance: 1 }).enc.getState(), 'player', DEFAULT_COMBAT_TUNING);
+    expect(close.find((o) => o.labelKey === 'combat.strike')!.enabled).toBe(true);
+    expect(close.find((o) => o.labelKey === 'combat.flee')!.enabled).toBe(false);
     expect(MELEE_RANGE).toBeGreaterThanOrEqual(1);
+    const far = playerActionOptions(mkController({ initialDistance: 12 }).enc.getState(), 'player', DEFAULT_COMBAT_TUNING);
+    expect(far.find((o) => o.labelKey === 'combat.flee')!.enabled).toBe(true);
   });
 
-  it('disables AP-bound actions when the player is out of AP', () => {
-    const enc = mkController({ playerDex: 20 }).enc; // 2 AP
+  it('disables AP-bound actions when the player is out of AP (flee stays free if far)', () => {
+    const enc = mkController({ playerDex: 20, initialDistance: 12 }).enc; // 2 AP, foe far
     enc.apply({ type: 'attack', attackKind: 'ranged' }); // spend 2
     const opts = playerActionOptions(enc.getState(), 'player', DEFAULT_COMBAT_TUNING);
     expect(opts.find((o) => o.labelKey === 'combat.shoot')!.enabled).toBe(false);
     expect(opts.find((o) => o.labelKey === 'combat.cover')!.enabled).toBe(false);
+    expect(opts.find((o) => o.labelKey === 'combat.move')!.enabled).toBe(false);
     expect(opts.find((o) => o.labelKey === 'combat.flee')!.enabled).toBe(true);
   });
 
@@ -71,10 +74,10 @@ describe('playerActionOptions', () => {
     expect(opts.find((o) => o.labelKey === 'combat.shoot')!.enabled).toBe(false);
   });
 
-  it('melee-only caps omit Shoot/Reload/Cover/Hunker, keep Strike/move/flee/end', () => {
+  it('melee-only caps omit Shoot/Reload/Cover/Hunker, keep Strike/Move/Flee/End', () => {
     const enc = mkController({ initialDistance: 1 }).enc;
     const keys = playerActionOptions(enc.getState(), 'player', DEFAULT_COMBAT_TUNING, MELEE_ONLY_CAPS).map((o) => o.labelKey);
-    expect(keys).toEqual(['combat.strike', 'combat.advance', 'combat.retreat', 'combat.flee', 'combat.endTurn']);
+    expect(keys).toEqual(['combat.strike', 'combat.move', 'combat.flee', 'combat.endTurn']);
     expect(keys).not.toContain('combat.shoot');
     expect(keys).not.toContain('combat.cover');
     expect(keys).not.toContain('combat.hunker');
@@ -154,11 +157,18 @@ describe('CombatController', () => {
   });
 
   it('ignores actions when it is not the player turn or the fight is over', () => {
-    const { ctrl } = mkController();
+    const { ctrl } = mkController({ initialDistance: 12 }); // far enough to flee
     ctrl.takePlayerAction({ type: 'flee' });        // ends as fled
     expect(ctrl.isOver()).toBe(true);
     expect(ctrl.takePlayerAction({ type: 'attack' })).toEqual([]);
     expect(ctrl.runEnemyTurn()).toEqual([]);
+  });
+
+  it('ending the player turn auto-runs the enemy turn', () => {
+    const { ctrl } = mkController({ enemyDex: 40, rng: seq(0, 0) });
+    const entries = ctrl.takePlayerAction({ type: 'end_turn' });
+    expect(entries.some((e) => e.actorId === 'zara')).toBe(true);
+    expect(ctrl.isPlayerTurn()).toBe(true); // back to the player afterwards
   });
 
   it('a lethal player shot ends the fight without an enemy turn', () => {

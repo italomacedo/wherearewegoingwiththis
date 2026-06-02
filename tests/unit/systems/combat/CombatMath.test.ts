@@ -3,8 +3,9 @@ import {
   actionPointsFor, moveApCost, maxMoveMeters,
   attackValue, dodgeValue, resolveAttack,
   rollDamage, initiativeOrder,
-  MELEE_RANGE, COVER_NONE, COVER_PARTIAL, COVER_FULL,
+  MELEE_RANGE, FLEE_MIN_DISTANCE, COVER_NONE, COVER_PARTIAL, COVER_FULL,
   MELEE_BASE, RANGED_BASE,
+  distance2, straightLinePath, truncatePath,
 } from '@systems/combat/CombatMath';
 import { CharacterStats, createDefaultStats } from '@entities/CharacterStats';
 
@@ -156,10 +157,47 @@ describe('initiativeOrder', () => {
 });
 
 describe('constants', () => {
-  it('exposes melee range and cover tiers', () => {
-    expect(MELEE_RANGE).toBeGreaterThan(0);
+  it('exposes melee range, flee distance and cover tiers', () => {
+    expect(MELEE_RANGE).toBe(1);
+    expect(FLEE_MIN_DISTANCE).toBe(10);
     expect(COVER_NONE).toBe(0);
     expect(COVER_PARTIAL).toBe(20);
     expect(COVER_FULL).toBe(40);
+  });
+});
+
+describe('ground geometry', () => {
+  it('distance2 is the Euclidean distance', () => {
+    expect(distance2({ x: 0, z: 0 }, { x: 3, z: 4 })).toBe(5);
+    expect(distance2({ x: 1, z: 1 }, { x: 1, z: 1 })).toBe(0);
+  });
+
+  it('straightLinePath is a two-point segment with the Euclidean length', () => {
+    const p = straightLinePath({ x: 0, z: 0 }, { x: 0, z: 6 });
+    expect(p).toEqual({ points: [{ x: 0, z: 0 }, { x: 0, z: 6 }], meters: 6 });
+  });
+});
+
+describe('truncatePath', () => {
+  const path = [{ x: 0, z: 0 }, { x: 4, z: 0 }, { x: 4, z: 4 }]; // length 4 + 4 = 8
+
+  it('returns the whole path end when the budget covers it', () => {
+    expect(truncatePath(path, 100)).toEqual({ point: { x: 4, z: 4 }, meters: 8 });
+  });
+
+  it('stops partway along a segment when the budget runs out', () => {
+    // 4 m down the first leg, then 2 m up the second → (4, 2)
+    expect(truncatePath(path, 6)).toEqual({ point: { x: 4, z: 2 }, meters: 6 });
+  });
+
+  it('handles zero/negative budgets, single-point and empty paths', () => {
+    expect(truncatePath(path, 0)).toEqual({ point: { x: 0, z: 0 }, meters: 0 });
+    expect(truncatePath([{ x: 2, z: 3 }], 5)).toEqual({ point: { x: 2, z: 3 }, meters: 0 });
+    expect(truncatePath([], 5)).toEqual({ point: { x: 0, z: 0 }, meters: 0 });
+  });
+
+  it('skips zero-length segments without stalling', () => {
+    const dup = [{ x: 0, z: 0 }, { x: 0, z: 0 }, { x: 3, z: 0 }];
+    expect(truncatePath(dup, 2)).toEqual({ point: { x: 2, z: 0 }, meters: 2 });
   });
 });

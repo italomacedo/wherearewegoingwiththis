@@ -27,7 +27,7 @@ function makeCombatants(over: { player?: Partial<CharacterStats>; enemyDex?: num
 }
 
 describe('CombatEncounter — setup', () => {
-  it('throws unless exactly two combatants', () => {
+  it('throws when fewer than two combatants', () => {
     expect(() => new CombatEncounter([])).toThrow();
     expect(() => new CombatEncounter([makeCombatants()[0]!])).toThrow();
   });
@@ -40,9 +40,21 @@ describe('CombatEncounter — setup', () => {
     expect(enc.getOutcome()).toBe('ongoing');
   });
 
-  it('clamps the initial distance', () => {
-    const enc = new CombatEncounter(makeCombatants(), { initialDistance: 999 });
-    expect(enc.getDistance()).toBe(MAX_DISTANCE);
+  it('seeds combatants spaced along a line; clamps the spacing', () => {
+    const enc = new CombatEncounter(makeCombatants());
+    expect(enc.posOf('player')).toEqual({ x: 0, z: 0 });
+    expect(enc.posOf('zara')).toEqual({ x: DEFAULT_INITIAL_DISTANCE, z: 0 });
+    const far = new CombatEncounter(makeCombatants(), { initialDistance: 999 });
+    expect(far.getDistance()).toBe(MAX_DISTANCE);
+  });
+
+  it('honours an explicit starting position', () => {
+    const c = makeCombatants();
+    c[0]!.pos = { x: 2, z: -3 };
+    c[1]!.pos = { x: 2, z: 1 };
+    const enc = new CombatEncounter(c);
+    expect(enc.posOf('player')).toEqual({ x: 2, z: -3 });
+    expect(enc.getDistance()).toBe(4); // |(-3) - 1|
   });
 
   it('isAlive / apOf / coverOf answer for known ids and default for unknown ones', () => {
@@ -53,18 +65,49 @@ describe('CombatEncounter — setup', () => {
     expect(enc.coverOf('ghost')).toBe(0);
   });
 
-  it('getState reports both combatants', () => {
+  it('getState reports both combatants with their positions', () => {
     const st = new CombatEncounter(makeCombatants()).getState();
     expect(st.combatants.map((c) => c.id)).toEqual(['player', 'zara']);
-    expect(st.combatants[0]).toMatchObject({ isPlayer: true, maxAp: 6, alive: true });
+    expect(st.combatants[0]).toMatchObject({ isPlayer: true, maxAp: 6, alive: true, pos: { x: 0, z: 0 } });
+  });
+});
+
+describe('CombatEncounter — distance & targeting helpers', () => {
+  it('nearest foe / distance ignore the actor and dead combatants', () => {
+    const enc = new CombatEncounter(makeCombatants());
+    expect(enc.nearestFoeId('player')).toBe('zara');
+    expect(enc.distanceToNearestFoe('player')).toBe(DEFAULT_INITIAL_DISTANCE);
+    expect(enc.nearestFoeId('ghost')).toBeNull();
+    expect(enc.distanceToNearestFoe('ghost')).toBe(Infinity);
+  });
+
+  it('reachableToward stops a melee-step short of the target, capped by AP', () => {
+    const enc = new CombatEncounter(makeCombatants()); // dist 6, player 6 AP
+    const reach = enc.reachableToward('player', 'zara');
+    expect(reach).not.toBeNull();
+    // budget = min(maxMoveMeters(6)=6, 6 - MELEE_RANGE) = 5 → ends at x=5, cost 5
+    expect(reach!.to).toEqual({ x: 5, z: 0 });
+    expect(reach!.cost).toBe(5);
+  });
+
+  it('reachableToward returns null when already within melee range or unknown ids', () => {
+    const enc = new CombatEncounter(makeCombatants(), { initialDistance: 1 });
+    expect(enc.reachableToward('player', 'zara')).toBeNull();
+    expect(enc.reachableToward('player', 'ghost')).toBeNull();
+  });
+
+  it('reachableToward reserves AP for a follow-up strike', () => {
+    const enc = new CombatEncounter(makeCombatants()); // 6 AP
+    const reach = enc.reachableToward('player', 'zara', 2); // reserve 2 AP
+    // budget = min(maxMoveMeters(4)=4, 5) = 4 → ends at x=4, cost 4
+    expect(reach!.to).toEqual({ x: 4, z: 0 });
+    expect(reach!.cost).toBe(4);
   });
 });
 
 describe('CombatEncounter — AP economy', () => {
   it('rejects an action when AP is insufficient', () => {
-    // enemy Dex 20 → 2 AP; first attack spends 2, second has none.
     const c = makeCombatants();
-    c[0]!.stats.attributes.destreza = 20; // player slowest now → enemy acts? no, tie-break by id
     const enc = new CombatEncounter([
       { ...c[0]!, stats: stats({ destreza: 20, firearms: 80 }) },
       { ...c[1]!, stats: stats({ destreza: 10, perception: 20 }) },
@@ -72,6 +115,18 @@ describe('CombatEncounter — AP economy', () => {
     expect(enc.apOf('player')).toBe(2);
     enc.apply({ type: 'attack', attackKind: 'ranged' }); // spends 2
     const rej = enc.apply({ type: 'cover' });
+    expect(rej.kind).toBe('rejected');
+    expect(rej.reason).toBe('out_of_ap');
+  });
+
+  it('rejects an attack when AP cannot pay the primary cost', () => {
+    const c = makeCombatants();
+    const enc = new CombatEncounter([
+      { ...c[0]!, stats: stats({ destreza: 20, firearms: 80 }) }, // 2 AP
+      { ...c[1]!, stats: stats({ destreza: 10, perception: 20 }) },
+    ], { rng: seq(0, 0) });
+    enc.apply({ type: 'attack', attackKind: 'ranged' }); // spends 2 → 0
+    const rej = enc.apply({ type: 'attack', attackKind: 'ranged' });
     expect(rej.kind).toBe('rejected');
     expect(rej.reason).toBe('out_of_ap');
   });
@@ -85,25 +140,28 @@ describe('CombatEncounter — AP economy', () => {
 });
 
 describe('CombatEncounter — movement & cover', () => {
-  it('moving toward closes the distance and costs 1 AP/m by default', () => {
+  it('moving to a point updates the position and costs 1 AP/m of the routed path', () => {
     const enc = new CombatEncounter(makeCombatants());
-    const ev = enc.apply({ type: 'move', meters: 4 });
+    const ev = enc.apply({ type: 'move', to: { x: 4, z: 0 } });
     expect(ev.kind).toBe('move');
-    expect(enc.getDistance()).toBe(DEFAULT_INITIAL_DISTANCE - 4);
+    expect(ev.meters).toBe(4);
+    expect(ev.path).toEqual([{ x: 0, z: 0 }, { x: 4, z: 0 }]);
+    expect(enc.posOf('player')).toEqual({ x: 4, z: 0 });
+    expect(enc.getDistance()).toBe(2); // to zara at x=6
     expect(enc.apOf('player')).toBe(6 - 4);
   });
 
-  it('retreating opens the distance', () => {
+  it('rejects a move with no destination or zero length', () => {
     const enc = new CombatEncounter(makeCombatants());
-    enc.apply({ type: 'move', meters: 2, toward: false });
-    expect(enc.getDistance()).toBe(DEFAULT_INITIAL_DISTANCE + 2);
+    expect(enc.apply({ type: 'move' }).reason).toBe('invalid');
+    expect(enc.apply({ type: 'move', to: { x: 0, z: 0 } }).reason).toBe('invalid');
   });
 
-  it('rejects a non-positive move', () => {
-    const enc = new CombatEncounter(makeCombatants());
-    const ev = enc.apply({ type: 'move', meters: 0 });
+  it('rejects a move that costs more AP than available', () => {
+    const enc = new CombatEncounter(makeCombatants()); // 6 AP
+    const ev = enc.apply({ type: 'move', to: { x: 9, z: 0 } }); // 9 m > 6 AP
     expect(ev.kind).toBe('rejected');
-    expect(ev.reason).toBe('invalid');
+    expect(ev.reason).toBe('out_of_ap');
   });
 
   it('take cover sets partial defence; hunker sets full', () => {
@@ -117,7 +175,7 @@ describe('CombatEncounter — movement & cover', () => {
   it('moving breaks the actor cover', () => {
     const enc = new CombatEncounter(makeCombatants());
     enc.apply({ type: 'cover' });
-    enc.apply({ type: 'move', meters: 1 });
+    enc.apply({ type: 'move', to: { x: 1, z: 0 } });
     expect(enc.coverOf('player')).toBe(0);
   });
 
@@ -158,7 +216,6 @@ describe('CombatEncounter — attacks', () => {
   });
 
   it('a miss deals no damage', () => {
-    // weak attacker, defended target, high roll → miss
     const c: CombatantInit[] = [
       { id: 'player', name: 'Hero', isPlayer: true, stats: stats({ destreza: 60, firearms: 10 }), health: { current: 100, max: 100 } },
       { id: 'zara', name: 'Zara', isPlayer: false, stats: stats({ destreza: 40, perception: 90 }), health: { current: 30, max: 100 } },
@@ -169,21 +226,31 @@ describe('CombatEncounter — attacks', () => {
     expect(enc.getState().combatants.find((x) => x.id === 'zara')!.hp.current).toBe(30);
   });
 
+  it('targets the named combatant; rejects an unknown/dead target', () => {
+    const enc = new CombatEncounter(makeCombatants(), { rng: seq(0, 0) });
+    const ev = enc.apply({ type: 'attack', attackKind: 'ranged', targetId: 'zara' });
+    expect(ev.targetId).toBe('zara');
+    const bad = enc.apply({ type: 'attack', attackKind: 'ranged', targetId: 'ghost' });
+    expect(bad.kind).toBe('rejected');
+    expect(bad.reason).toBe('invalid');
+  });
+
   it('melee is rejected when out of range, allowed once closed', () => {
     const enc = new CombatEncounter(makeCombatants(), { initialDistance: 5, rng: seq(0, 0) });
     const tooFar = enc.apply({ type: 'attack', attackKind: 'melee' });
     expect(tooFar.kind).toBe('rejected');
     expect(tooFar.reason).toBe('too_far');
-    enc.apply({ type: 'move', meters: 4 }); // distance 1 ≤ MELEE_RANGE
+    enc.apply({ type: 'move', to: { x: 4, z: 0 } }); // distance 1 ≤ MELEE_RANGE
     expect(enc.getDistance()).toBeLessThanOrEqual(MELEE_RANGE);
     const ok = enc.apply({ type: 'attack', attackKind: 'melee' });
     expect(ok.kind).toBe('hit');
   });
 
-  it('defaults to a ranged attack when no kind is given', () => {
+  it('defaults to a ranged attack on the lone opponent when no kind/target given', () => {
     const enc = new CombatEncounter(makeCombatants(), { rng: seq(0, 0) });
     const ev = enc.apply({ type: 'attack' });
     expect(ev.kind).toBe('hit');
+    expect(ev.targetId).toBe('zara');
   });
 
   it('a lethal hit ends the encounter as player_won', () => {
@@ -210,15 +277,23 @@ describe('CombatEncounter — attacks', () => {
 });
 
 describe('CombatEncounter — flee & guards', () => {
-  it('flee ends the encounter as fled', () => {
-    const enc = new CombatEncounter(makeCombatants());
+  it('flee ends the encounter as fled when the nearest foe is far enough', () => {
+    const enc = new CombatEncounter(makeCombatants(), { initialDistance: 12 });
     const ev = enc.apply({ type: 'flee' });
     expect(ev.kind).toBe('flee');
     expect(enc.getOutcome()).toBe('fled');
   });
 
+  it('flee is rejected when a foe is within the flee distance', () => {
+    const enc = new CombatEncounter(makeCombatants()); // dist 6 ≤ 10
+    const ev = enc.apply({ type: 'flee' });
+    expect(ev.kind).toBe('rejected');
+    expect(ev.reason).toBe('too_close');
+    expect(enc.getOutcome()).toBe('ongoing');
+  });
+
   it('rejects any action once the encounter is over', () => {
-    const enc = new CombatEncounter(makeCombatants());
+    const enc = new CombatEncounter(makeCombatants(), { initialDistance: 12 });
     enc.apply({ type: 'flee' });
     const ev = enc.apply({ type: 'attack' });
     expect(ev.kind).toBe('rejected');
@@ -226,7 +301,7 @@ describe('CombatEncounter — flee & guards', () => {
   });
 
   it('advance is a no-op once over (end_turn after flee keeps outcome)', () => {
-    const enc = new CombatEncounter(makeCombatants());
+    const enc = new CombatEncounter(makeCombatants(), { initialDistance: 12 });
     enc.apply({ type: 'flee' });
     const ev = enc.apply({ type: 'end_turn' });
     expect(ev.kind).toBe('rejected');

@@ -19,6 +19,14 @@ import {
 } from './CombatMath';
 import { CombatAction } from './CombatEncounter';
 
+/**
+ * The AI returns an abstract action. For 'move' it does NOT pick a destination —
+ * it just signals "advance toward my target"; the controller routes the concrete
+ * path (around obstacles) and truncates it to the affordable distance, reserving
+ * AP for a strike. 'attack' likewise carries no targetId — the controller fills the
+ * nearest living foe. Everything else (cover/end_turn) is concrete.
+ */
+
 /** HP fraction at or below which the AI prioritises taking cover. */
 export const AI_LOW_HP = 0.35;
 
@@ -55,12 +63,9 @@ export function chooseCombatAction(view: CombatAIView): CombatAction {
   }
 
   if (melee) {
-    // 2a) Brawler: close the gap, reserving AP for the strike when affordable.
+    // 2a) Brawler: close the gap (controller routes it), then strike when in range.
     if (distance > MELEE_RANGE) {
-      const gap = Math.ceil(distance - MELEE_RANGE);
-      const reserve = ap >= tuning.primaryCost + tuning.moveApPerMeter ? tuning.primaryCost : 0;
-      const step = Math.min(gap, maxMoveMeters(ap - reserve, tuning));
-      if (step > 0) return { type: 'move', meters: step, toward: true };
+      if (maxMoveMeters(ap, tuning) >= 1) return { type: 'move', attackKind: 'melee' };
       return { type: 'end_turn' };
     }
     if (ap >= tuning.primaryCost) return { type: 'attack', attackKind: 'melee' };
