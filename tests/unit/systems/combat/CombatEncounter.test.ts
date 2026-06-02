@@ -148,6 +148,15 @@ describe('CombatEncounter — attacks', () => {
     expect(zara.hp.current).toBeLessThan(30);
   });
 
+  it('attack events carry the to-hit probability and the attack kind', () => {
+    const enc = new CombatEncounter(makeCombatants(), { rng: seq(0, 0) });
+    const ev = enc.apply({ type: 'attack', attackKind: 'ranged' });
+    expect(ev.kind).toBe('hit');
+    expect(ev.attackKind).toBe('ranged');
+    expect(ev.probability).toBeGreaterThan(0);
+    expect(ev.probability).toBeLessThanOrEqual(1);
+  });
+
   it('a miss deals no damage', () => {
     // weak attacker, defended target, high roll → miss
     const c: CombatantInit[] = [

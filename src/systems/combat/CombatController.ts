@@ -20,11 +20,15 @@ import {
 
 export interface CombatLogEntry {
   actorId: string;
+  targetId?: string;
   kind: CombatEvent['kind'];
   beat: string;
   isPlayerActor: boolean;
   /** Set for attack events so the overlay can highlight hits/misses/kills. */
   attackOutcome?: 'hit' | 'miss' | 'death';
+  /** To-hit probability (0..1) and kind for attack events (gates critical narration + animation). */
+  probability?: number;
+  attackKind?: 'melee' | 'ranged';
 }
 
 /** A player button: the action to apply, an i18n label key, and whether it is affordable now. */
@@ -35,6 +39,14 @@ export interface PlayerActionOption {
 }
 
 const MAX_ENEMY_ACTIONS = 50; // runaway guard
+
+/** A landed blow is "critical" (worth a Claude-narrated line) when its to-hit P cleared this. */
+export const CRITICAL_HIT_THRESHOLD = 0.9;
+
+/** True for a landed hit/kill whose to-hit probability cleared the critical threshold. */
+export function isCriticalHit(entry: CombatLogEntry): boolean {
+  return (entry.kind === 'hit' || entry.kind === 'death') && (entry.probability ?? 0) > CRITICAL_HIT_THRESHOLD;
+}
 
 /** The player's action menu for the current state (move buttons step 1 metre). */
 export function playerActionOptions(state: CombatState, playerId: string, tuning: CombatTuning): PlayerActionOption[] {
@@ -82,7 +94,11 @@ export class CombatController {
     const beat = combatBeat(ev, this.names);
     if (!beat) return null;
     const attackOutcome = ev.kind === 'hit' || ev.kind === 'miss' || ev.kind === 'death' ? ev.kind : undefined;
-    return { actorId: ev.actorId, kind: ev.kind, beat, isPlayerActor: ev.actorId === this.playerId, attackOutcome };
+    return {
+      actorId: ev.actorId, targetId: ev.targetId, kind: ev.kind, beat,
+      isPlayerActor: ev.actorId === this.playerId, attackOutcome,
+      probability: ev.probability, attackKind: ev.attackKind,
+    };
   }
 
   /** Run the enemy's whole turn via the AI policy; returns its log entries. */

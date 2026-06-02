@@ -1,4 +1,4 @@
-import { CombatController, playerActionOptions } from '@systems/combat/CombatController';
+import { CombatController, playerActionOptions, isCriticalHit, CRITICAL_HIT_THRESHOLD, CombatLogEntry } from '@systems/combat/CombatController';
 import { CombatEncounter, CombatantInit } from '@systems/combat/CombatEncounter';
 import { DEFAULT_COMBAT_TUNING, MELEE_RANGE } from '@systems/combat/CombatMath';
 import { createDefaultStats, CharacterStats } from '@entities/CharacterStats';
@@ -69,6 +69,29 @@ describe('playerActionOptions', () => {
     const enc = mkController().enc;
     const opts = playerActionOptions(enc.getState(), 'ghost', DEFAULT_COMBAT_TUNING);
     expect(opts.find((o) => o.labelKey === 'combat.shoot')!.enabled).toBe(false);
+  });
+});
+
+describe('isCriticalHit', () => {
+  const entry = (over: Partial<CombatLogEntry>): CombatLogEntry =>
+    ({ actorId: 'player', kind: 'hit', beat: 'x', isPlayerActor: true, ...over });
+  it('is true only for a landed hit/kill above the probability threshold', () => {
+    expect(isCriticalHit(entry({ kind: 'hit', probability: 0.95 }))).toBe(true);
+    expect(isCriticalHit(entry({ kind: 'death', probability: 0.99 }))).toBe(true);
+    expect(isCriticalHit(entry({ kind: 'hit', probability: CRITICAL_HIT_THRESHOLD }))).toBe(false); // strictly >
+    expect(isCriticalHit(entry({ kind: 'hit', probability: 0.5 }))).toBe(false);
+    expect(isCriticalHit(entry({ kind: 'miss', probability: 0.99 }))).toBe(false);
+    expect(isCriticalHit(entry({ kind: 'hit' }))).toBe(false); // no probability
+  });
+});
+
+describe('CombatController carries probability + attackKind on entries', () => {
+  it('a player hit entry exposes the probability and kind', () => {
+    const { ctrl } = mkController({ rng: seq(0, 0) });
+    const [entry] = ctrl.takePlayerAction({ type: 'attack', attackKind: 'ranged' });
+    expect(entry!.attackOutcome).toBe('hit');
+    expect(entry!.attackKind).toBe('ranged');
+    expect(typeof entry!.probability).toBe('number');
   });
 });
 

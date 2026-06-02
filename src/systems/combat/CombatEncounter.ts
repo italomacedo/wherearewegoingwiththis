@@ -60,6 +60,9 @@ export interface CombatEvent {
   reason?: 'not_active' | 'over' | 'out_of_ap' | 'too_far' | 'invalid';
   /** Remaining AP for the actor after the action. */
   ap?: number;
+  /** For attack events (hit/miss/death): the to-hit probability (0..1) and the kind. */
+  probability?: number;
+  attackKind?: AttackKind;
 }
 
 export interface CombatantView {
@@ -239,16 +242,17 @@ export class CombatEncounter {
           { attacker: actor.init.stats, defender: target.init.stats, kind, coverMod: target.cover },
           this.rng,
         );
+        const probability = hit.probability;
         if (!hit.success) {
-          return { kind: 'miss', actorId, targetId, distance: this.distance, ap: actor.ap };
+          return { kind: 'miss', actorId, targetId, distance: this.distance, ap: actor.ap, probability, attackKind: kind };
         }
         const damage = rollDamage(actor.init.stats, kind, this.rng);
         target.health.applyDamage(damage);
         if (target.health.isDead()) {
           this.outcome = target.init.isPlayer ? 'player_lost' : 'player_won';
-          return { kind: 'death', actorId, targetId, damage, distance: this.distance, ap: actor.ap };
+          return { kind: 'death', actorId, targetId, damage, distance: this.distance, ap: actor.ap, probability, attackKind: kind };
         }
-        return { kind: 'hit', actorId, targetId, damage, distance: this.distance, ap: actor.ap };
+        return { kind: 'hit', actorId, targetId, damage, distance: this.distance, ap: actor.ap, probability, attackKind: kind };
       }
       /* istanbul ignore next — exhaustive switch guard */
       default:

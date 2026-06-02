@@ -3,7 +3,7 @@ import {
   AdvancedDynamicTexture, Rectangle, TextBlock, Button, StackPanel, Control, ScrollViewer,
 } from '@babylonjs/gui';
 import { t } from '@systems/I18n';
-import { CombatController, CombatLogEntry } from './CombatController';
+import { CombatController, CombatLogEntry, isCriticalHit } from './CombatController';
 import { CombatOutcome } from './CombatEncounter';
 
 export interface CombatOverlayHandlers {
@@ -126,8 +126,9 @@ export class CombatOverlay {
   /* istanbul ignore next — browser GUI only */
   private appendBeat(entry: CombatLogEntry): void {
     const line = this.addLogLine(entry.beat, entry.isPlayerActor);
-    // Dramatize salient attack beats via Claude (bounded cost); fall back silently.
-    if (entry.attackOutcome && this.handlers.narrate) {
+    // Dramatize via Claude ONLY on a critical hit (landed blow with P>90%) — bounded
+    // cost + cinematic punch. Fall back to the factual beat silently.
+    if (isCriticalHit(entry) && this.handlers.narrate) {
       void this.handlers.narrate(entry.beat).then((text) => {
         if (text && line) line.text = `• ${text}`;
       }).catch(() => { /* keep the factual beat */ });
