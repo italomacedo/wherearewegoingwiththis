@@ -195,12 +195,12 @@ describe('Inventory', () => {
       expect(inv.acceptableQty('medkit', 5)).toBe(5);
     });
 
-    it('a held flashlight is NOT a combat weapon (fists), a melee weapon IS', () => {
+    it('the flashlight doubles as a melee weapon when held; swapping re-arms', () => {
       const inv = new Inventory();
       inv.add('flashlight', 1);
       inv.equipToSlot('main_hand', 'flashlight');
       expect(inv.equippedIn('main_hand')).toBe('flashlight');
-      expect(inv.equippedWeaponId).toBeNull();            // cosmetic, unarmed
+      expect(inv.equippedWeaponId).toBe('flashlight');    // bludgeon (melee)
       inv.add('knife', 1);
       inv.equipToSlot('main_hand', 'knife');              // replaces the flashlight
       expect(inv.equippedWeaponId).toBe('knife');

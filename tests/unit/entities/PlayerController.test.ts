@@ -22,6 +22,14 @@ describe('PlayerController', () => {
     engine.dispose();
   });
 
+  it('setIdleOverride is idempotent and safe to toggle', () => {
+    expect(() => {
+      player.setIdleOverride('aim');
+      player.setIdleOverride('aim'); // no-op on repeat
+      player.setIdleOverride(null);
+    }).not.toThrow();
+  });
+
   // ─── computeDisplacement (pure) ───────────────────────────────────────────
 
   it('zero axis yields zero displacement', () => {

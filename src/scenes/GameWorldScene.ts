@@ -1,6 +1,7 @@
 import {
   Engine, Color4, Color3, Vector3, Matrix, AbstractMesh, TransformNode, MeshBuilder,
   PhysicsAggregate, PhysicsShapeType, PhysicsMotionType, AnimationGroup, Animation, LinesMesh,
+  SpotLight,
 } from '@babylonjs/core';
 import { BaseScene } from './BaseScene';
 import { ServiceLocator } from '@core/ServiceLocator';
@@ -26,9 +27,9 @@ import { CharacterAppearance, DEFAULT_APPEARANCE } from '@entities/CharacterData
 import { Inventory, defaultInventoryState } from '@entities/Inventory';
 import { weaponProfile, itemDef, isMeleeWeapon } from '@entities/items/ItemCatalog';
 import { InventoryOverlay } from '@systems/InventoryOverlay';
-import { HeldItemRig, resolveAttachWith, boneFor, AttachOverrides } from '@systems/HeldItems';
+import { HeldItemRig, resolveAttachWith, boneFor, AttachOverrides, flashlightActive } from '@systems/HeldItems';
 import { AdjustOverlay } from '@systems/AdjustOverlay';
-import { EquipSlot } from '@entities/items/ItemCatalog';
+import { EquipSlot, ItemAttach } from '@entities/items/ItemCatalog';
 import { NPCManager, NPCMemoryMap, AutonomyContext, AutonomyJob } from '@systems/NPCManager';
 import { ClaudeCallQueue, queueConfigFromSettings } from '@systems/ClaudeCallQueue';
 import { IntentCandidate } from '@systems/npc/Intent';
@@ -99,6 +100,8 @@ export class GameWorldScene extends BaseScene {
   private heldAttach: AttachOverrides = {};
   /** Held-prop calibration overlay (Adjust tool). */
   private adjustOverlay: AdjustOverlay | null = null;
+  /** Spotlight projected forward while the flashlight is held (auto-on). */
+  private flashlightLight: SpotLight | null = null;
   private combat: CombatOverlay | null = null;
   private gameOverMenu: GameOverMenu | null = null;
   private combatFocus: TransformNode | null = null;
@@ -354,16 +357,8 @@ export class GameWorldScene extends BaseScene {
     // Adjust tool (Phase 10.4b): live-calibrate a held prop's attach transform.
     this.adjustOverlay = new AdjustOverlay(this.babylonScene);
     this.adjustOverlay.setHandlers({
-      onApply: (slot, attach) => {
-        // Live preview: re-position the already-mounted prop without reloading.
-        const bone = attach.bone ?? boneFor(this.playerInventory.equippedIn(slot) ?? '', slot, this.heldAttach);
-        void this.playerHeldRig?.applyLiveTransform(slot, attach, bone);
-      },
-      onSave: (itemId, _slot, attach) => {
-        this.heldAttach = { ...this.heldAttach, [itemId]: attach };
-        this.persistSession();
-        void this.syncPlayerHeldItems();
-      },
+      onApply: (slot, attach) => this.adjustPreview(slot, attach),
+      onSave: (itemId, _slot, attach) => this.adjustSave(itemId, attach),
       onClose: () => {
         this.cameraSystem?.setWheelZoomEnabled(false);
         this.cameraSystem?.exitConversationMode();
@@ -545,6 +540,8 @@ export class GameWorldScene extends BaseScene {
     this.inventoryOverlay?.dispose();
     this.adjustOverlay?.dispose();
     this.adjustOverlay = null;
+    this.flashlightLight?.dispose();
+    this.flashlightLight = null;
     this.playerHeldRig?.dispose();
     this.playerHeldRig = null;
     this.npcHeldRigById.forEach((r) => r.dispose());
@@ -755,8 +752,50 @@ export class GameWorldScene extends BaseScene {
   }
 
   /** Re-attach the hero's visible props to match its current inventory slots. */
+  /* istanbul ignore next — browser-only held-prop rig + effects */
   private async syncPlayerHeldItems(): Promise<void> {
     await this.playerHeldRig?.sync(this.playerInventory.toState().equipped, this.heldAttach);
+    this.updateHeldEffects();
+  }
+
+  /* istanbul ignore next — browser-only Adjust live preview */
+  private adjustPreview(slot: EquipSlot, attach: ItemAttach): void {
+    const bone = attach.bone ?? boneFor(this.playerInventory.equippedIn(slot) ?? '', slot, this.heldAttach);
+    void this.playerHeldRig?.applyLiveTransform(slot, attach, bone);
+  }
+
+  /* istanbul ignore next — browser-only Adjust persist */
+  private adjustSave(itemId: string, attach: ItemAttach): void {
+    this.heldAttach = { ...this.heldAttach, [itemId]: attach };
+    this.persistSession();
+    void this.syncPlayerHeldItems();
+  }
+
+  /**
+   * Apply non-mesh effects of the held main-hand item: the flashlight auto-lights a
+   * forward spotlight and puts the hero in the aim pose; anything else clears them.
+   */
+  /* istanbul ignore next — browser-only light + pose */
+  private updateHeldEffects(): void {
+    if (typeof document === 'undefined' || !this.player) return;
+    const on = flashlightActive(this.playerInventory.toState().equipped);
+    this.player.setIdleOverride(on ? 'aim' : null);
+    if (on) {
+      if (!this.flashlightLight) {
+        const light = new SpotLight(
+          'flashlight', new Vector3(0, 1.3, 0.2), new Vector3(0, -0.15, 1),
+          Math.PI / 2.2, 6, this.babylonScene,
+        );
+        light.diffuse = new Color3(0.95, 0.97, 1);
+        light.intensity = 9;
+        light.range = 24;
+        light.parent = this.player.getRoot(); // follows the hero's facing
+        this.flashlightLight = light;
+      }
+      this.flashlightLight.setEnabled(true);
+    } else {
+      this.flashlightLight?.setEnabled(false);
+    }
   }
 
   /** Builds a ClaudeNPCService when running in Electron; null otherwise. */
@@ -1071,7 +1110,9 @@ export class GameWorldScene extends BaseScene {
   /** Melee choreography: dash ~1 m toward the target, punch, then slide back to origin. */
   /* istanbul ignore next — browser-only animation playback */
   /** Swing clip for a combatant's melee strike: armed → slash (or the weapon's
-   * holdClip), bare-fisted → punch. */
+   * holdClip), bare-fisted → punch. (Browser combat playback support; pure logic
+   * lives in attackClipFor, fully tested.) */
+  /* istanbul ignore next — browser-only combat playback support */
   private meleeClip(actorId: string): CombatClipState {
     const wid = this.combatWeaponId.get(actorId) ?? null;
     const override = wid ? itemDef(wid)?.holdClip : undefined;

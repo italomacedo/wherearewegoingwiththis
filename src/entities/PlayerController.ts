@@ -47,6 +47,7 @@ export class PlayerController {
   private lastFallDamage = 0; // impact damage applied on the most recent landing
   private locoState: LocoState = 'idle';
   private playingState: LocoState | null = null;
+  private idleOverride: string | null = null; // e.g. 'aim' while holding a flashlight
   private lastGroundSpeed = 0; // units/sec last frame — drives the clip speedRatio
   private interacting = false;
   /** Havok collide-and-slide controller (browser + physics only; null in tests). */
@@ -192,6 +193,16 @@ export class PlayerController {
     this.updateAnimation();
   }
 
+  /**
+   * Override the clip played while standing idle (e.g. the flashlight "aim" pose).
+   * Pass null to restore the normal idle. Forces a re-evaluation next frame.
+   */
+  setIdleOverride(clip: string | null): void {
+    if (this.idleOverride === clip) return;
+    this.idleOverride = clip;
+    this.playingState = null; // re-apply the (possibly idle) clip on the next update
+  }
+
   /** Plays the active locomotion clip when it changes (browser-only playback). */
   private updateAnimation(): void {
     if (this.locoState === this.playingState) return;
@@ -206,8 +217,10 @@ export class PlayerController {
     const groups = this.assembled?.getAnimationGroups?.() ?? [];
     // Match the clip's cadence to the hero's ground speed so the feet stay planted.
     const ratio = computeLocoSpeedRatio(state, this.lastGroundSpeed);
+    // While idle, a held tool (e.g. flashlight) can override the pose (aim).
+    const matchKey = state === 'idle' && this.idleOverride ? this.idleOverride : state;
     for (const g of groups) {
-      const match = g.name.toLowerCase().includes(state);
+      const match = g.name.toLowerCase().includes(matchKey);
       if (match) {
         g.speedRatio = ratio;
         g.start(true); // loop

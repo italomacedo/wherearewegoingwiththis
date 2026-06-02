@@ -1,6 +1,6 @@
 import {
   attachBoneNameFor, resolveAttach, resolveAttachWith, boneFor, heldPropsFor,
-  DEFAULT_ATTACH, VISIBLE_SLOTS, AttachOverrides,
+  DEFAULT_ATTACH, VISIBLE_SLOTS, AttachOverrides, flashlightActive,
 } from '../../../src/systems/HeldItems';
 
 describe('HeldItems (pure decision logic)', () => {
@@ -44,6 +44,13 @@ describe('HeldItems (pure decision logic)', () => {
     expect(props).toHaveLength(1);
     expect(props[0].modelPath).toBe('items/pistol_1.glb');
     expect(props[0].bone).toBe('Wrist.R');
+  });
+
+  it('flashlightActive only when the flashlight is in the main hand', () => {
+    expect(flashlightActive({ main_hand: 'flashlight' })).toBe(true);
+    expect(flashlightActive({ main_hand: 'knife' })).toBe(false);
+    expect(flashlightActive({ back: 'flashlight' } as never)).toBe(false);
+    expect(flashlightActive(undefined)).toBe(false);
   });
 
   describe('save overrides (Adjust tool)', () => {

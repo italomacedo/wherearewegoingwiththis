@@ -12,9 +12,13 @@ describe('ItemCatalog', () => {
     }
   });
 
-  it('every melee weapon item is in the melee category', () => {
+  it('melee weapon items are in the melee category (or are tools that double as one)', () => {
     for (const w of Object.values(WEAPON_REGISTRY)) {
-      if (w.attackKind === 'melee') expect(ITEM_REGISTRY[w.id].category).toBe('melee');
+      if (w.attackKind !== 'melee') continue;
+      const def = ITEM_REGISTRY[w.id];
+      // Dedicated melee weapons are 'melee'; a tool-weapon (e.g. flashlight) keeps its
+      // own category but must declare an equip slot so it can be wielded.
+      expect(def.category === 'melee' || !!def.equipSlot).toBe(true);
     }
   });
 

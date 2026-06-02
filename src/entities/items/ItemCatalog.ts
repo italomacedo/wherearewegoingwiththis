@@ -118,6 +118,8 @@ export const WEAPON_REGISTRY: Readonly<Record<string, WeaponDef>> = Object.freez
   bat:     { id: 'bat',     attackKind: 'melee', skill: 'combate_corpo_a_corpo', damageBase: 14, variance: 7, range: 1 },
   axe:     { id: 'axe',     attackKind: 'melee', skill: 'combate_corpo_a_corpo', damageBase: 18, variance: 8, range: 1 },
   shovel:  { id: 'shovel',  attackKind: 'melee', skill: 'combate_corpo_a_corpo', damageBase: 15, variance: 8, range: 1 },
+  // The flashlight doubles as a weak melee bludgeon (owner's call).
+  flashlight: { id: 'flashlight', attackKind: 'melee', skill: 'combate_corpo_a_corpo', damageBase: 9, variance: 4, range: 1 },
   // Firearms model `ranged` for a FUTURE phase; cosmetic-only now (combat stays melee).
   pistol:  { id: 'pistol',  attackKind: 'ranged', skill: 'armas_de_fogo', damageBase: 18, variance: 6, range: 20 },
   revolver:{ id: 'revolver',attackKind: 'ranged', skill: 'armas_de_fogo', damageBase: 22, variance: 8, range: 22 },

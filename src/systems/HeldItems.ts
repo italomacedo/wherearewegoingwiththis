@@ -85,6 +85,11 @@ export function heldPropsFor(
   return out;
 }
 
+/** True when the flashlight is the held main-hand item (light on + aim pose). */
+export function flashlightActive(equipped: Partial<Record<EquipSlot, string>> | undefined): boolean {
+  return equipped?.main_hand === 'flashlight';
+}
+
 /* istanbul ignore next — entire browser rig is GPU/Electron only */
 interface AttachedEntry { itemId: string; root: AbstractMesh; }
 
