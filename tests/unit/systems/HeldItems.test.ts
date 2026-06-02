@@ -8,9 +8,11 @@ describe('HeldItems (pure decision logic)', () => {
     expect(attachBoneNameFor('back')).toBe('Chest');
   });
 
-  it('resolveAttach falls back to the slot default when the item has none', () => {
-    expect(resolveAttach('knife', 'main_hand')).toEqual(DEFAULT_ATTACH.main_hand);
-    expect(resolveAttach('backpack', 'back')).toEqual(DEFAULT_ATTACH.back);
+  it('resolveAttach uses the item override when present, else the slot default', () => {
+    // knife has a measured per-item transform
+    expect(resolveAttach('knife', 'main_hand').scale).toBeCloseTo(0.38, 5);
+    // pipe is a model-less legacy item with no transform → slot default
+    expect(resolveAttach('pipe', 'main_hand')).toEqual(DEFAULT_ATTACH.main_hand);
   });
 
   it('VISIBLE_SLOTS are the two body slots', () => {
@@ -24,7 +26,7 @@ describe('HeldItems (pure decision logic)', () => {
     expect(knife.itemId).toBe('knife');
     expect(knife.modelPath).toBe('items/knife.glb');
     expect(knife.bone).toBe('Wrist.R');
-    expect(knife.attach).toEqual(DEFAULT_ATTACH.main_hand);
+    expect(knife.attach.scale).toBeCloseTo(0.38, 5);
     const pack = props.find((p) => p.slot === 'back')!;
     expect(pack.modelPath).toBe('items/backpack.glb');
     expect(pack.bone).toBe('Chest');

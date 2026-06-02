@@ -37,7 +37,8 @@ describe('ItemCatalog', () => {
     expect(itemHungerRestore('medkit')).toBe(0);
     expect(itemModelPath('knife')).toBe('items/knife.glb');
     expect(itemModelPath('scrap')).toBeUndefined();
-    expect(itemAttach('knife')).toBeUndefined();   // no per-item transform tuned yet
+    expect(itemAttach('knife')?.scale).toBeCloseTo(0.38, 5); // measured hand scale
+    expect(itemAttach('pipe')).toBeUndefined();              // legacy, no model/transform
     expect(itemAttach('ghost')).toBeUndefined();
   });
 

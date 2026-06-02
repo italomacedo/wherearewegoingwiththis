@@ -70,32 +70,41 @@ export interface WeaponDef {
   range: number;
 }
 
+/**
+ * Held-prop transform helper. `scale` is derived from each GLB's measured bounding
+ * box so the prop reads at a realistic size in the avatar's hand (the Survival/Food
+ * pack source meshes are authored large — e.g. the knife is ~0.79 u, the axe ~29 u).
+ * pos/rot default to origin; fine-tuned in Electron.
+ */
+const hold = (scale: number, pos: [number, number, number] = [0, 0, 0], rot: [number, number, number] = [0, 0, 0]): ItemAttach =>
+  ({ pos, rot, scale });
+
 export const ITEM_REGISTRY: Readonly<Record<string, ItemDef>> = Object.freeze({
   // ── Melee weapons (Phase 9 legacy + Phase 10 Survival Pack models) ──
-  knife:   { id: 'knife',   nameKey: 'item.knife',   category: 'melee', weight: 0.6, stackable: false, maxStack: 1, modelPath: 'items/knife.glb' },
+  knife:   { id: 'knife',   nameKey: 'item.knife',   category: 'melee', weight: 0.6, stackable: false, maxStack: 1, modelPath: 'items/knife.glb', attach: hold(0.38) },
   pipe:    { id: 'pipe',    nameKey: 'item.pipe',    category: 'melee', weight: 2.0, stackable: false, maxStack: 1 }, // legacy, no pack model
   bat:     { id: 'bat',     nameKey: 'item.bat',     category: 'melee', weight: 1.4, stackable: false, maxStack: 1 }, // legacy, no pack model
-  axe:     { id: 'axe',     nameKey: 'item.axe',     category: 'melee', weight: 2.4, stackable: false, maxStack: 1, modelPath: 'items/axe.glb' },
-  shovel:  { id: 'shovel',  nameKey: 'item.shovel',  category: 'melee', weight: 2.6, stackable: false, maxStack: 1, modelPath: 'items/shovel.glb' },
+  axe:     { id: 'axe',     nameKey: 'item.axe',     category: 'melee', weight: 2.4, stackable: false, maxStack: 1, modelPath: 'items/axe.glb', attach: hold(0.03) },
+  shovel:  { id: 'shovel',  nameKey: 'item.shovel',  category: 'melee', weight: 2.6, stackable: false, maxStack: 1, modelPath: 'items/shovel.glb', attach: hold(0.5) },
   // ── Firearms (Phase 10: COSMETIC only — attach to hand, no shooting/ammo yet) ──
-  pistol:  { id: 'pistol',  nameKey: 'item.pistol',  category: 'misc', weight: 1.0, stackable: false, maxStack: 1, equipSlot: 'main_hand', modelPath: 'items/pistol_1.glb' },
-  revolver:{ id: 'revolver',nameKey: 'item.revolver',category: 'misc', weight: 1.2, stackable: false, maxStack: 1, equipSlot: 'main_hand', modelPath: 'items/revolver_1.glb' },
-  shotgun: { id: 'shotgun', nameKey: 'item.shotgun', category: 'misc', weight: 3.5, stackable: false, maxStack: 1, equipSlot: 'main_hand', modelPath: 'items/shotgun_1.glb' },
+  pistol:  { id: 'pistol',  nameKey: 'item.pistol',  category: 'misc', weight: 1.0, stackable: false, maxStack: 1, equipSlot: 'main_hand', modelPath: 'items/pistol_1.glb', attach: hold(0.14) },
+  revolver:{ id: 'revolver',nameKey: 'item.revolver',category: 'misc', weight: 1.2, stackable: false, maxStack: 1, equipSlot: 'main_hand', modelPath: 'items/revolver_1.glb', attach: hold(0.14) },
+  shotgun: { id: 'shotgun', nameKey: 'item.shotgun', category: 'misc', weight: 3.5, stackable: false, maxStack: 1, equipSlot: 'main_hand', modelPath: 'items/shotgun_1.glb', attach: hold(0.18) },
   // ── Equipment ──
-  backpack:   { id: 'backpack',   nameKey: 'item.backpack',   category: 'misc', weight: 1.5, stackable: false, maxStack: 1, equipSlot: 'back', capacityBonus: 20, modelPath: 'items/backpack.glb' },
-  flashlight: { id: 'flashlight', nameKey: 'item.flashlight', category: 'misc', weight: 0.4, stackable: false, maxStack: 1, equipSlot: 'main_hand', modelPath: 'items/torch.glb' },
-  phone:      { id: 'phone',      nameKey: 'item.phone',      category: 'misc', weight: 0.2, stackable: false, maxStack: 1, modelPath: 'items/phone.glb' },
+  backpack:   { id: 'backpack',   nameKey: 'item.backpack',   category: 'misc', weight: 1.5, stackable: false, maxStack: 1, equipSlot: 'back', capacityBonus: 20, modelPath: 'items/backpack.glb', attach: hold(0.33) },
+  flashlight: { id: 'flashlight', nameKey: 'item.flashlight', category: 'misc', weight: 0.4, stackable: false, maxStack: 1, equipSlot: 'main_hand', modelPath: 'items/torch.glb', attach: hold(0.2) },
+  phone:      { id: 'phone',      nameKey: 'item.phone',      category: 'misc', weight: 0.2, stackable: false, maxStack: 1, modelPath: 'items/phone.glb', attach: hold(0.33) },
   // ── Consumables ──
-  medkit: { id: 'medkit', nameKey: 'item.medkit', category: 'consumable', weight: 0.8, stackable: true, maxStack: 5, heal: 40, modelPath: 'items/firstaidkit.glb' },
+  medkit: { id: 'medkit', nameKey: 'item.medkit', category: 'consumable', weight: 0.8, stackable: true, maxStack: 5, heal: 40, modelPath: 'items/firstaidkit.glb', attach: hold(0.32) },
   // ── Food (consumable — restores hunger; eaten with an in-hand prop) ──
-  burger:      { id: 'burger',      nameKey: 'item.burger',      category: 'consumable', weight: 0.4, stackable: true, maxStack: 5, hungerRestore: 40, heal: 5, modelPath: 'items/food/burger.glb' },
-  cheeseburger:{ id: 'cheeseburger',nameKey: 'item.cheeseburger',category: 'consumable', weight: 0.4, stackable: true, maxStack: 5, hungerRestore: 45, heal: 6, modelPath: 'items/food/cheeseburger.glb' },
-  hotdog:      { id: 'hotdog',      nameKey: 'item.hotdog',      category: 'consumable', weight: 0.3, stackable: true, maxStack: 5, hungerRestore: 30, modelPath: 'items/food/hotdog.glb' },
-  apple:       { id: 'apple',       nameKey: 'item.apple',       category: 'consumable', weight: 0.2, stackable: true, maxStack: 10, hungerRestore: 15, modelPath: 'items/food/apple.glb' },
-  banana:      { id: 'banana',      nameKey: 'item.banana',      category: 'consumable', weight: 0.2, stackable: true, maxStack: 10, hungerRestore: 12, modelPath: 'items/food/banana.glb' },
-  bread:       { id: 'bread',       nameKey: 'item.bread',       category: 'consumable', weight: 0.3, stackable: true, maxStack: 5, hungerRestore: 25, modelPath: 'items/food/bread.glb' },
-  donut:       { id: 'donut',       nameKey: 'item.donut',       category: 'consumable', weight: 0.2, stackable: true, maxStack: 8, hungerRestore: 18, modelPath: 'items/food/donut1.glb' },
-  sushi:       { id: 'sushi',       nameKey: 'item.sushi',       category: 'consumable', weight: 0.3, stackable: true, maxStack: 6, hungerRestore: 22, modelPath: 'items/food/sushi_roll1.glb' },
+  burger:      { id: 'burger',      nameKey: 'item.burger',      category: 'consumable', weight: 0.4, stackable: true, maxStack: 5, hungerRestore: 40, heal: 5, modelPath: 'items/food/burger.glb', attach: hold(0.08) },
+  cheeseburger:{ id: 'cheeseburger',nameKey: 'item.cheeseburger',category: 'consumable', weight: 0.4, stackable: true, maxStack: 5, hungerRestore: 45, heal: 6, modelPath: 'items/food/cheeseburger.glb', attach: hold(0.08) },
+  hotdog:      { id: 'hotdog',      nameKey: 'item.hotdog',      category: 'consumable', weight: 0.3, stackable: true, maxStack: 5, hungerRestore: 30, modelPath: 'items/food/hotdog.glb', attach: hold(0.1) },
+  apple:       { id: 'apple',       nameKey: 'item.apple',       category: 'consumable', weight: 0.2, stackable: true, maxStack: 10, hungerRestore: 15, modelPath: 'items/food/apple.glb', attach: hold(0.14) },
+  banana:      { id: 'banana',      nameKey: 'item.banana',      category: 'consumable', weight: 0.2, stackable: true, maxStack: 10, hungerRestore: 12, modelPath: 'items/food/banana.glb', attach: hold(0.13) },
+  bread:       { id: 'bread',       nameKey: 'item.bread',       category: 'consumable', weight: 0.3, stackable: true, maxStack: 5, hungerRestore: 25, modelPath: 'items/food/bread.glb', attach: hold(0.13) },
+  donut:       { id: 'donut',       nameKey: 'item.donut',       category: 'consumable', weight: 0.2, stackable: true, maxStack: 8, hungerRestore: 18, modelPath: 'items/food/donut1.glb', attach: hold(0.14) },
+  sushi:       { id: 'sushi',       nameKey: 'item.sushi',       category: 'consumable', weight: 0.3, stackable: true, maxStack: 6, hungerRestore: 22, modelPath: 'items/food/sushi_roll1.glb', attach: hold(0.27) },
   // ── Loot / misc (no mechanic yet — seeds future economy) ──
   scrap:  { id: 'scrap',  nameKey: 'item.scrap',  category: 'misc', weight: 0.3, stackable: true, maxStack: 20 },
   credstick: { id: 'credstick', nameKey: 'item.credstick', category: 'misc', weight: 0.1, stackable: true, maxStack: 50 },
