@@ -84,6 +84,16 @@ After the 1v1 played well in Electron, the owner asked to raise the aesthetics
   (bottom), over the lightened 3D scene — no log box.
 - **Strict one-at-a-time** turns preserved (enemy acts only on its own turn / after
   the player's End Turn; the enemy-first turn is pumped on open).
+- **Melee-only loadout (for now):** `CombatCapabilities {firearm, cover}` — the scene
+  uses `MELEE_ONLY_CAPS`, so Shoot/Reload (no firearm until inventory) and Take cover/
+  Hunker down (no scenery cover) are omitted from the menu and the NPC AI is forced
+  to melee. The engine still supports those actions for the future.
+- **Critical = a natural low roll** (d100 < 5), not "high hit chance" — so the poetic
+  Claude line stays rare; normal hits/misses show only the objective log line.
+- **Death + Game Over:** the killing blow plays the Death clip (held); the player's
+  death opens a **GameOverMenu** (Load Last Save / Return to Main Menu) instead of an
+  auto-return, freezing the world; the autosave is skipped on game over so the dead
+  state never overwrites the save. The closing of the melee-combat phase.
 
 ## Consequences
 
