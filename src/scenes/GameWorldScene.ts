@@ -72,6 +72,8 @@ export class GameWorldScene extends BaseScene {
   private chatMode: 'npc' | 'global' = 'npc';
   private pauseMenu: PauseMenu | null = null;
   private combat: CombatOverlay | null = null;
+  private combatFocus: TransformNode | null = null;
+  private static readonly COMBAT_CAMERA_RADIUS = 9;
   private hud: WorldHud | null = null;
   private npcMeshes: AbstractMesh[] = [];
   private npcVisuals: AssembledCharacter[] = [];
@@ -523,6 +525,15 @@ export class GameWorldScene extends BaseScene {
       onBeat: (entry) => this.animateCombatBeat(entry),
     });
     this.combat.start(controller);
+
+    // Cinematic framing: pull the camera onto the midpoint of the two fighters.
+    const enemyHolder = this.npcHolderById.get(enemyId);
+    if (this.cameraSystem && this.player && enemyHolder) {
+      const mid = Vector3.Center(this.player.getRoot().position, enemyHolder.position);
+      this.combatFocus = new TransformNode('combat-focus', this.babylonScene);
+      this.combatFocus.position.copyFrom(mid);
+      this.cameraSystem.enterConversationMode(this.combatFocus, GameWorldScene.COMBAT_CAMERA_RADIUS);
+    }
   }
 
   /** Play attack/hit/death animations on the world meshes for a resolved combat beat. */
@@ -567,6 +578,10 @@ export class GameWorldScene extends BaseScene {
       this.npcManager?.getAgent(enemyId)?.setDisposition('wary');
     }
     this.combat?.close();
+    // Restore the on-foot camera framing.
+    this.cameraSystem?.exitConversationMode();
+    this.combatFocus?.dispose();
+    this.combatFocus = null;
     // On a loss the player HP is now 0 → checkGameOver ends the run next frame.
   }
 
