@@ -1,4 +1,4 @@
-import { CombatController, playerActionOptions, isCriticalHit, CRITICAL_HIT_THRESHOLD, CombatLogEntry } from '@systems/combat/CombatController';
+import { CombatController, playerActionOptions, isCriticalHit, CRITICAL_HIT_THRESHOLD, objectiveLogLine, CombatLogEntry } from '@systems/combat/CombatController';
 import { CombatEncounter, CombatantInit } from '@systems/combat/CombatEncounter';
 import { DEFAULT_COMBAT_TUNING, MELEE_RANGE } from '@systems/combat/CombatMath';
 import { createDefaultStats, CharacterStats } from '@entities/CharacterStats';
@@ -74,7 +74,7 @@ describe('playerActionOptions', () => {
 
 describe('isCriticalHit', () => {
   const entry = (over: Partial<CombatLogEntry>): CombatLogEntry =>
-    ({ actorId: 'player', kind: 'hit', beat: 'x', isPlayerActor: true, ...over });
+    ({ actorId: 'player', actorName: 'Hero', kind: 'hit', beat: 'x', isPlayerActor: true, ...over });
   it('is true only for a landed hit/kill above the probability threshold', () => {
     expect(isCriticalHit(entry({ kind: 'hit', probability: 0.95 }))).toBe(true);
     expect(isCriticalHit(entry({ kind: 'death', probability: 0.99 }))).toBe(true);
@@ -85,13 +85,41 @@ describe('isCriticalHit', () => {
   });
 });
 
-describe('CombatController carries probability + attackKind on entries', () => {
-  it('a player hit entry exposes the probability and kind', () => {
+describe('CombatController carries probability + attackKind + names/damage on entries', () => {
+  it('a player hit entry exposes probability, kind, names and damage', () => {
     const { ctrl } = mkController({ rng: seq(0, 0) });
     const [entry] = ctrl.takePlayerAction({ type: 'attack', attackKind: 'ranged' });
     expect(entry!.attackOutcome).toBe('hit');
     expect(entry!.attackKind).toBe('ranged');
     expect(typeof entry!.probability).toBe('number');
+    expect(entry!.actorName).toBe('Hero');
+    expect(entry!.targetName).toBe('Zara');
+    expect(entry!.damage).toBeGreaterThan(0);
+  });
+});
+
+describe('objectiveLogLine', () => {
+  const entry = (over: Partial<CombatLogEntry>): CombatLogEntry =>
+    ({ actorId: 'player', actorName: 'Hero', kind: 'hit', beat: 'x', isPlayerActor: true, ...over });
+  it('builds an i18n key + params per event, with damage on hits', () => {
+    expect(objectiveLogLine(entry({ kind: 'hit', targetName: 'Zara', damage: 14 })))
+      .toEqual({ key: 'combat.logHit', params: { a: 'Hero', b: 'Zara', dmg: 14 } });
+    expect(objectiveLogLine(entry({ kind: 'death', targetName: 'Zara', damage: 9 })))
+      .toEqual({ key: 'combat.logKill', params: { a: 'Hero', b: 'Zara', dmg: 9 } });
+    expect(objectiveLogLine(entry({ kind: 'miss', targetName: 'Zara' })))
+      .toEqual({ key: 'combat.logMiss', params: { a: 'Hero', b: 'Zara' } });
+    expect(objectiveLogLine(entry({ kind: 'move' }))).toEqual({ key: 'combat.logMove', params: { a: 'Hero' } });
+    expect(objectiveLogLine(entry({ kind: 'cover' }))!.key).toBe('combat.logCover');
+    expect(objectiveLogLine(entry({ kind: 'hunker' }))!.key).toBe('combat.logHunker');
+    expect(objectiveLogLine(entry({ kind: 'reload' }))!.key).toBe('combat.logReload');
+    expect(objectiveLogLine(entry({ kind: 'flee' }))!.key).toBe('combat.logFlee');
+  });
+  it('returns null for mechanics-only events', () => {
+    expect(objectiveLogLine(entry({ kind: 'end_turn' }))).toBeNull();
+    expect(objectiveLogLine(entry({ kind: 'rejected' }))).toBeNull();
+  });
+  it('defaults damage to 0 and target to empty when absent', () => {
+    expect(objectiveLogLine(entry({ kind: 'hit' }))).toEqual({ key: 'combat.logHit', params: { a: 'Hero', b: '', dmg: 0 } });
   });
 });
 

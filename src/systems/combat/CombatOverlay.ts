@@ -1,9 +1,9 @@
 import { Scene, TransformNode, AbstractMesh } from '@babylonjs/core';
 import {
-  AdvancedDynamicTexture, Rectangle, TextBlock, Button, StackPanel, Control,
+  AdvancedDynamicTexture, Rectangle, TextBlock, Button, StackPanel, Control, ScrollViewer,
 } from '@babylonjs/gui';
 import { t } from '@systems/I18n';
-import { CombatController, CombatLogEntry, isCriticalHit } from './CombatController';
+import { CombatController, CombatLogEntry, isCriticalHit, objectiveLogLine } from './CombatController';
 import { CombatOutcome } from './CombatEncounter';
 import { CombatPortraits, PortraitEntry } from './CombatPortraits';
 
@@ -37,6 +37,7 @@ export class CombatOverlay {
   private panel: Rectangle | null = null;
   private statusText: TextBlock | null = null;
   private caption: TextBlock | null = null;
+  private logStack: StackPanel | null = null;
   private buttonsRow: StackPanel | null = null;
   private portraits: CombatPortraits;
 
@@ -84,6 +85,7 @@ export class CombatOverlay {
   private startBrowser(): void {
     if (this.panel) this.panel.isVisible = true;
     if (this.caption) this.caption.isVisible = false;
+    if (this.logStack) this.logStack.clearControls();
     this.buildPortraits();
     // If the enemy won initiative, play out its turn(s) before handing control over.
     this.pumpEnemyTurns();
@@ -160,12 +162,31 @@ export class CombatOverlay {
   /* istanbul ignore next — browser GUI only */
   private appendBeat(entry: CombatLogEntry): void {
     this.handlers.onBeat?.(entry); // scene plays the matching avatar animation
-    // Dramatize via Claude ONLY on a critical hit (landed blow with P>90%) → a
-    // transient caption. Everything else is told by the 3D action itself.
+    const ol = objectiveLogLine(entry);
+    if (!ol) return; // mechanics-only (end_turn) → nothing in the log
+    // Objective line: "A hits B — N dmg". On a critical hit, replace it with a
+    // poetic Claude line when it resolves.
+    const line = this.addLogLine(t(ol.key, ol.params), entry.isPlayerActor);
     if (isCriticalHit(entry) && this.handlers.narrate) {
-      void this.handlers.narrate(entry.beat).then((text) => this.showCaption(text || entry.beat))
-        .catch(() => { /* skip on CLI error */ });
+      void this.handlers.narrate(entry.beat).then((text) => {
+        if (text && line) { line.text = text; line.color = '#FFE48A'; }
+      }).catch(() => { /* keep the objective line */ });
     }
+  }
+
+  /* istanbul ignore next — browser GUI only */
+  private addLogLine(text: string, byPlayer: boolean): TextBlock | null {
+    if (!this.logStack) return null;
+    const tb = new TextBlock(`combat-log-${this.logStack.children.length}`, text);
+    tb.color = byPlayer ? '#9CFFE9' : '#FF9C9C';
+    tb.fontSize = 13;
+    tb.fontFamily = '"Courier New", monospace';
+    tb.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+    tb.textWrapping = true;
+    tb.resizeToFit = true;
+    tb.paddingTop = '3px';
+    this.logStack.addControl(tb);
+    return tb;
   }
 
   /* istanbul ignore next — browser GUI only */
@@ -212,6 +233,26 @@ export class CombatOverlay {
     gui.addControl(caption);
     this.caption = caption;
 
+    // Combat log — a column down the RIGHT edge so it never covers the fighters.
+    const logScroll = new ScrollViewer('combat-log-scroll');
+    logScroll.width = '300px';
+    logScroll.height = '52%';
+    logScroll.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+    logScroll.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+    logScroll.left = '-12px';
+    logScroll.thickness = 1;
+    logScroll.color = 'rgba(0,80,90,0.5)';
+    logScroll.barColor = '#0AA';
+    logScroll.background = 'rgba(2,10,14,0.45)';
+    gui.addControl(logScroll);
+    const log = new StackPanel('combat-log');
+    log.width = '280px';
+    log.isVertical = true;
+    log.paddingTop = '4px';
+    log.paddingLeft = '6px';
+    logScroll.addControl(log);
+    this.logStack = log;
+
     // Bottom panel: status line + action buttons (top of screen is left for portraits + action).
     const bottom = new StackPanel('combat-bottom');
     bottom.width = '980px';
@@ -247,6 +288,7 @@ export class CombatOverlay {
       this.panel = null;
       this.statusText = null;
       this.caption = null;
+      this.logStack = null;
       this.buttonsRow = null;
     }
   }

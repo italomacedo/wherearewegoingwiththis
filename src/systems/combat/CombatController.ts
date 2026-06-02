@@ -21,14 +21,41 @@ import {
 export interface CombatLogEntry {
   actorId: string;
   targetId?: string;
+  actorName: string;
+  targetName?: string;
   kind: CombatEvent['kind'];
   beat: string;
   isPlayerActor: boolean;
+  /** Damage dealt (hit/death). */
+  damage?: number;
   /** Set for attack events so the overlay can highlight hits/misses/kills. */
   attackOutcome?: 'hit' | 'miss' | 'death';
   /** To-hit probability (0..1) and kind for attack events (gates critical narration + animation). */
   probability?: number;
   attackKind?: 'melee' | 'ranged';
+}
+
+/**
+ * The objective combat-log line for an event: an i18n key + params (actor/target/
+ * damage). Returns null for mechanics-only events (end_turn/rejected). Pure — the
+ * overlay applies `I18n.t(key, params)`. Critical hits are shown poetically instead
+ * (the Claude narration), handled by the overlay.
+ */
+export function objectiveLogLine(entry: CombatLogEntry): { key: string; params: Record<string, string | number> } | null {
+  const a = entry.actorName;
+  const b = entry.targetName ?? '';
+  const dmg = entry.damage ?? 0;
+  switch (entry.kind) {
+    case 'hit': return { key: 'combat.logHit', params: { a, b, dmg } };
+    case 'death': return { key: 'combat.logKill', params: { a, b, dmg } };
+    case 'miss': return { key: 'combat.logMiss', params: { a, b } };
+    case 'move': return { key: 'combat.logMove', params: { a } };
+    case 'cover': return { key: 'combat.logCover', params: { a } };
+    case 'hunker': return { key: 'combat.logHunker', params: { a } };
+    case 'reload': return { key: 'combat.logReload', params: { a } };
+    case 'flee': return { key: 'combat.logFlee', params: { a } };
+    default: return null; // end_turn / rejected — nothing to log
+  }
 }
 
 /** A player button: the action to apply, an i18n label key, and whether it is affordable now. */
@@ -96,8 +123,10 @@ export class CombatController {
     const attackOutcome = ev.kind === 'hit' || ev.kind === 'miss' || ev.kind === 'death' ? ev.kind : undefined;
     return {
       actorId: ev.actorId, targetId: ev.targetId, kind: ev.kind, beat,
+      actorName: this.names[ev.actorId] ?? ev.actorId,
+      targetName: ev.targetId ? (this.names[ev.targetId] ?? ev.targetId) : undefined,
       isPlayerActor: ev.actorId === this.playerId, attackOutcome,
-      probability: ev.probability, attackKind: ev.attackKind,
+      damage: ev.damage, probability: ev.probability, attackKind: ev.attackKind,
     };
   }
 

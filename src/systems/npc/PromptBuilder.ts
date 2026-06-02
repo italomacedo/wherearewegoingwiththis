@@ -129,13 +129,14 @@ export class PromptBuilder {
   }
 
   /**
-   * Dramatize a single combat beat (one cinematic sentence, no mechanics). The
-   * `beat` is the pure factual summary from combatBeat(); Claude only adds flavour.
+   * Poetically dramatize a CRITICAL combat beat (one vivid sentence, no mechanics).
+   * The `beat` is the pure factual summary from combatBeat(); Claude only adds the
+   * poetry. Used solely for critical hits (the objective log line covers the rest).
    */
   static buildCombatNarrationPrompt(beat: string, language = 'English'): string {
     return [
-      `Narrate, in ${language}, in ONE short cinematic sentence, this beat of a gunfight/brawl`,
-      'on a rainy, neon-lit cyberpunk street. Keep it grounded and visceral.',
+      `Narrate, in ${language}, in ONE short, vivid, poetic sentence, this DECISIVE blow in a`,
+      'gunfight/brawl on a rainy, neon-lit cyberpunk street. Make it cinematic and visceral.',
       'Do NOT mention dice, numbers, hit points, action points, skills, or game mechanics.',
       'No quotation marks, no new named characters.',
       `Beat: ${beat}`,
