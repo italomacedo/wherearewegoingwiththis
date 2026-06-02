@@ -126,6 +126,7 @@ export const STRINGS: Record<string, Entry> = {
   'inventory.take': e('Take', 'Pegar'),
   'inventory.takeAll': e('Take all', 'Pegar tudo'),
   'inventory.adjust': e('Adjust', 'Ajustar'),
+  'hunger.growl': e('Your stomach growls — you should eat something.', 'Seu estômago ronca — você devia comer algo.'),
   // Item names
   'item.fists': e('fists', 'punhos'),
   'item.knife': e('Knife', 'Faca'),

@@ -11,6 +11,7 @@ import {
   SaveService, VehicleSaveState, DEFAULT_PLAYER_HEALTH, DEFAULT_VEHICLE_STATE,
 } from '@systems/SaveService';
 import { HealthState, describeCondition } from '@entities/Health';
+import { Hunger } from '@entities/Hunger';
 import { ZoneManager } from '@systems/ZoneManager';
 import { PauseMenu } from '@systems/PauseMenu';
 import { GameOverMenu } from '@systems/GameOverMenu';
@@ -184,6 +185,10 @@ export class GameWorldScene extends BaseScene {
   private saveId = '';
   private spawnOverride: Vector3 | null = null;
   private playerHealthState: HealthState = { ...DEFAULT_PLAYER_HEALTH };
+  /** Live hunger (slow HP regen battery; persisted). */
+  private playerHunger: Hunger = new Hunger();
+  /** Edge-trigger for the diegetic "stomach growling" line. */
+  private hungerWasLow = false;
   private vehicleState: VehicleSaveState = {
     health: { ...DEFAULT_VEHICLE_STATE.health }, destroyed: false,
   };
@@ -227,6 +232,7 @@ export class GameWorldScene extends BaseScene {
     this.npcMemory = session.npcMemory ?? {};
     this.gameTimeSeconds = session.gameTimeSeconds;
     this.playerHealthState = session.playerHealth ?? { ...DEFAULT_PLAYER_HEALTH };
+    this.playerHunger = Hunger.fromState(session.playerHunger);
     this.vehicleState = session.vehicle ?? {
       health: { ...DEFAULT_VEHICLE_STATE.health }, destroyed: false,
     };
@@ -258,9 +264,10 @@ export class GameWorldScene extends BaseScene {
 
     const character = { ...save.character, stats: this.playerStats };
     const inventory = this.playerInventory.toState();
+    const playerHunger = this.playerHunger.toState();
     SaveService.save({
       ...save, character, world, gameTimeSeconds: this.gameTimeSeconds, npcMemory: memory, playerHealth, vehicle, inventory,
-      heldAttach: this.heldAttach,
+      heldAttach: this.heldAttach, playerHunger,
     });
 
     const session = ServiceLocator.tryGet<GameSession>('gameSession');
@@ -273,6 +280,7 @@ export class GameWorldScene extends BaseScene {
       session.vehicle = vehicle;
       session.inventory = inventory;
       session.heldAttach = this.heldAttach;
+      session.playerHunger = playerHunger;
     }
   }
 
@@ -360,6 +368,7 @@ export class GameWorldScene extends BaseScene {
     this.inventoryOverlay.setHandlers({
       onChange: () => { this.persistSession(); void this.syncPlayerHeldItems(); },
       onHeal: (amount) => { this.player?.getHealth().heal(amount); },
+      onFeed: (itemId, amount) => this.eat(itemId, amount),
       // Looting a corpse framed the camera on it (conversation mode); restore the
       // normal follow camera when the overlay closes.
       onClose: () => this.cameraSystem?.exitConversationMode(),
@@ -675,9 +684,47 @@ export class GameWorldScene extends BaseScene {
       this.handleInteractInput();
       this.handleChatInput();
     }
+    this.tickHunger(dt);
     this.updateHud(dialogOpen);
     this.inputSystem?.endFrame();
     this.gameTimeSeconds += dt;
+  }
+
+  /**
+   * Hunger drives slow HP regen / starvation drain (pure math in Hunger.tick) and
+   * a diegetic "stomach growling" line when it first dips low. Per-frame browser
+   * glue; the model + thresholds are unit-tested in Hunger.
+   */
+  /* istanbul ignore next — per-frame browser glue; Hunger model is unit-tested */
+  private tickHunger(dt: number): void {
+    if (!this.player) return;
+    const health = this.player.getHealth();
+    const delta = this.playerHunger.tick(dt, health.current >= health.max);
+    if (delta > 0) health.heal(delta);
+    else if (delta < 0) health.applyDamage(-delta);
+    const low = this.playerHunger.isLow();
+    if (low && !this.hungerWasLow) this.recordGossipLine(t('hunger.growl'));
+    this.hungerWasLow = low;
+  }
+
+  /** Eat: restore hunger, play the eat animation, show the food in hand, then drop it. */
+  /* istanbul ignore next — browser-only eat animation + transient prop */
+  private eat(itemId: string, amount: number): void {
+    this.playerHunger.feed(amount);
+    void this.playerHeldRig?.showTransient(itemId);
+    const groups = this.player?.getAnimationGroups() ?? [];
+    const interact = groups.find((g) => g.name.toLowerCase() === 'interact');
+    const idle = groups.find((g) => g.name.toLowerCase() === 'idle') ?? null;
+    if (interact) {
+      groups.forEach((g) => g.stop());
+      interact.start(false);
+      interact.onAnimationEndObservable.addOnce(() => {
+        idle?.start(true);
+        void this.playerHeldRig?.showTransient(null); // food consumed → remove from hand
+      });
+    } else {
+      void this.playerHeldRig?.showTransient(null);
+    }
   }
 
   /** When the hero dies, freeze the run and show the Game Over menu (once). */

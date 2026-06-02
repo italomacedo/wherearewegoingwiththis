@@ -94,6 +94,19 @@ describe('InventoryOverlay (pure state + actions)', () => {
     expect(inv.count('medkit')).toBe(1);
   });
 
+  it('eating food fires onFeed (hunger) + onHeal and consumes one', () => {
+    const inv = new Inventory();
+    inv.add('burger', 2); // hungerRestore 40, heal 5
+    let fed = 0; let healed = 0; let fedId = '';
+    overlay.setHandlers({ onFeed: (id, a) => { fedId = id; fed += a; }, onHeal: (a) => { healed += a; } });
+    overlay.openManage(inv);
+    overlay.useItem('burger');
+    expect(fedId).toBe('burger');
+    expect(fed).toBe(40);
+    expect(healed).toBe(5);
+    expect(inv.count('burger')).toBe(1);
+  });
+
   it('useItem ignores non-consumables and missing items', () => {
     const inv = new Inventory();
     inv.add('knife', 1);

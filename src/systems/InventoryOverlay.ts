@@ -11,6 +11,8 @@ export interface InventoryOverlayHandlers {
   onChange?: () => void;
   /** Apply a consumable's heal to the player. */
   onHeal?: (amount: number) => void;
+  /** Eat food: restore hunger (and trigger the eat animation + in-hand prop). */
+  onFeed?: (itemId: string, amount: number) => void;
   /** Called when the overlay closes (unfreeze the world). */
   onClose?: () => void;
   /** Open the Adjust tool to calibrate an equipped prop's attach transform. */
@@ -110,11 +112,12 @@ export class InventoryOverlay {
     this.refresh();
   }
 
-  /** Use one consumable: a medkit heals the player and is consumed. */
+  /** Use one consumable: heals (medkit) and/or restores hunger (food); consumed. */
   useItem(id: string): void {
     const def = itemDef(id);
     if (!def || def.category !== 'consumable' || !this.player.has(id)) return;
     if (def.heal && def.heal > 0) this.handlers.onHeal?.(def.heal);
+    if (def.hungerRestore && def.hungerRestore > 0) this.handlers.onFeed?.(id, def.hungerRestore);
     this.player.remove(id, 1);
     this.handlers.onChange?.();
     this.refresh();
