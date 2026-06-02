@@ -783,13 +783,20 @@ export class GameWorldScene extends BaseScene {
     if (on) {
       if (!this.flashlightLight) {
         const light = new SpotLight(
-          'flashlight', new Vector3(0, 1.3, 0.2), new Vector3(0, -0.15, 1),
-          Math.PI / 2.2, 6, this.babylonScene,
+          'flashlight', new Vector3(0, 1.3, 0.2), new Vector3(0, -0.2, 1),
+          Math.PI / 2, 4, this.babylonScene,
         );
-        light.diffuse = new Color3(0.95, 0.97, 1);
-        light.intensity = 9;
-        light.range = 24;
+        light.diffuse = new Color3(1, 0.98, 0.9);
+        light.specular = new Color3(1, 0.98, 0.9);
+        light.intensity = 60;
+        light.range = 30;
         light.parent = this.player.getRoot(); // follows the hero's facing
+        // The street already runs several neon lights; raise every material's light
+        // cap so this 5th+ SpotLight actually contributes (Babylon default cap = 4).
+        for (const m of this.babylonScene.materials) {
+          const mat = m as unknown as { maxSimultaneousLights?: number };
+          if ((mat.maxSimultaneousLights ?? 4) < 8) mat.maxSimultaneousLights = 8;
+        }
         this.flashlightLight = light;
       }
       this.flashlightLight.setEnabled(true);
