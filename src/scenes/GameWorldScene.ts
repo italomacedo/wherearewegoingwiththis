@@ -844,12 +844,14 @@ export class GameWorldScene extends BaseScene {
       if (!this.flashlightLight) {
         const light = new SpotLight(
           'flashlight', new Vector3(0, 1.3, 0.2), new Vector3(0, -0.2, 1),
-          Math.PI / 2, 4, this.babylonScene,
+          Math.PI / 2.6, 1.2, this.babylonScene,
         );
         light.diffuse = new Color3(1, 0.98, 0.9);
-        light.specular = new Color3(1, 0.98, 0.9);
-        light.intensity = 60;
-        light.range = 30;
+        // No specular: flat untextured surfaces (the road) otherwise show a harsh
+        // blown-out hotspot. A soft, dimmer cone reads better everywhere.
+        light.specular = new Color3(0, 0, 0);
+        light.intensity = 18;
+        light.range = 16;
         light.parent = this.player.getRoot(); // follows the hero's facing
         // (Material light caps are raised once in onEnter — incl. async assets.)
         this.flashlightLight = light;
