@@ -524,10 +524,16 @@ export class GameWorldScene extends BaseScene {
       onEnd: (outcome) => this.endCombat(enemyId, outcome),
       onBeat: (entry) => this.animateCombatBeat(entry),
     });
+
+    // Supply the world meshes for the 3D portrait subprojections (initiative order).
+    const enemyHolder = this.npcHolderById.get(enemyId);
+    const sources: Record<string, TransformNode> = {};
+    if (this.player) sources.player = this.player.getRoot();
+    if (enemyHolder) sources[enemyId] = enemyHolder;
+    this.combat.setPortraitSources(sources);
     this.combat.start(controller);
 
     // Cinematic framing: pull the camera onto the midpoint of the two fighters.
-    const enemyHolder = this.npcHolderById.get(enemyId);
     if (this.cameraSystem && this.player && enemyHolder) {
       const mid = Vector3.Center(this.player.getRoot().position, enemyHolder.position);
       this.combatFocus = new TransformNode('combat-focus', this.babylonScene);

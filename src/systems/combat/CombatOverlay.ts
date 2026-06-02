@@ -1,45 +1,54 @@
-import { Scene } from '@babylonjs/core';
+import { Scene, TransformNode, AbstractMesh } from '@babylonjs/core';
 import {
-  AdvancedDynamicTexture, Rectangle, TextBlock, Button, StackPanel, Control, ScrollViewer,
+  AdvancedDynamicTexture, Rectangle, TextBlock, Button, StackPanel, Control,
 } from '@babylonjs/gui';
 import { t } from '@systems/I18n';
 import { CombatController, CombatLogEntry, isCriticalHit } from './CombatController';
 import { CombatOutcome } from './CombatEncounter';
+import { CombatPortraits, PortraitEntry } from './CombatPortraits';
 
 export interface CombatOverlayHandlers {
   /** Called once when the encounter resolves (won/lost/fled). */
   onEnd?: (outcome: CombatOutcome) => void;
-  /** Optional Claude dramatization of a factual beat; falls back to the beat. */
+  /** Optional Claude dramatization of a beat; only fired for critical hits. */
   narrate?: (beat: string) => Promise<string>;
   /** Fired for every applied combat event (the scene plays the matching animation). */
   onBeat?: (entry: CombatLogEntry) => void;
 }
 
 /**
- * Browser overlay that renders a CombatController: HP/AP/distance readouts, a
- * scrolling beat log, and the player's action buttons. The open/close flag is
- * pure (so the scene can gate the world on it like the pause menu); every Babylon
- * GUI path is browser-only and `istanbul ignore`d — all combat logic lives in the
- * pure CombatController/CombatEncounter (fully unit-tested).
+ * Baldur's-Gate-style combat overlay: a top strip of 3D portraits (initiative
+ * order + turn marker, via CombatPortraits), the player's action buttons at the
+ * bottom, and a transient caption that surfaces a Claude-narrated line ONLY on a
+ * critical hit. There is no chat-log box — the 3D action + animations carry it.
+ *
+ * The open/close flag is pure (the scene gates the world on it like pause); every
+ * Babylon GUI / camera path is browser-only and `istanbul ignore`d — all combat
+ * logic lives in the pure CombatController/CombatEncounter (fully unit-tested).
  */
 export class CombatOverlay {
   private scene: Scene;
   private open = false;
   private controller: CombatController | null = null;
   private handlers: CombatOverlayHandlers = {};
+  private portraitSources: Record<string, TransformNode | AbstractMesh> = {};
 
   private gui: AdvancedDynamicTexture | null = null;
   private panel: Rectangle | null = null;
   private statusText: TextBlock | null = null;
-  private logStack: StackPanel | null = null;
+  private caption: TextBlock | null = null;
   private buttonsRow: StackPanel | null = null;
+  private portraits: CombatPortraits;
 
   constructor(scene: Scene) {
     this.scene = scene;
+    this.portraits = new CombatPortraits(scene);
     this.buildUI();
   }
 
   setHandlers(handlers: CombatOverlayHandlers): void { this.handlers = handlers; }
+  /** The scene supplies the per-combatant world meshes to subproject as portraits. */
+  setPortraitSources(sources: Record<string, TransformNode | AbstractMesh>): void { this.portraitSources = sources; }
   isOpen(): boolean { return this.open; }
   getController(): CombatController | null { return this.controller; }
 
@@ -55,7 +64,7 @@ export class CombatOverlay {
     this.open = false;
     this.controller = null;
     /* istanbul ignore next — browser GUI only */
-    if (this.panel) this.panel.isVisible = false;
+    this.closeBrowser();
   }
 
   private buildUI(): void {
@@ -65,11 +74,32 @@ export class CombatOverlay {
   }
 
   /* istanbul ignore next — browser GUI only */
+  private closeBrowser(): void {
+    if (this.panel) this.panel.isVisible = false;
+    if (this.caption) this.caption.isVisible = false;
+    this.portraits.dispose();
+  }
+
+  /* istanbul ignore next — browser GUI only */
   private startBrowser(): void {
     if (this.panel) this.panel.isVisible = true;
-    if (this.logStack) this.logStack.clearControls();
+    if (this.caption) this.caption.isVisible = false;
+    this.buildPortraits();
     // If the enemy won initiative, play out its turn(s) before handing control over.
     this.pumpEnemyTurns();
+  }
+
+  /* istanbul ignore next — browser GUI only */
+  private buildPortraits(): void {
+    const c = this.controller;
+    if (!c || !this.gui) return;
+    const entries: PortraitEntry[] = c.getState().combatants
+      .map((cb) => {
+        const head = this.portraitSources[cb.id];
+        return head ? { id: cb.id, name: cb.name, head } : null;
+      })
+      .filter((e): e is PortraitEntry => e !== null);
+    this.portraits.build(entries, this.gui);
   }
 
   /** Run enemy turns until it's the player's turn (or the fight ends), then render. */
@@ -97,7 +127,9 @@ export class CombatOverlay {
       n ? `${n.name} ${Math.round((n.hp.current / n.hp.max) * 100)}%` : '';
     this.statusText.text =
       `${turn}   ·   ${t('combat.ap')} ${me?.ap ?? 0}/${me?.maxAp ?? 0}   ·   ` +
-      `${t('combat.distance')} ${Math.round(st.distance)}m\n${hp(me)}    vs    ${hp(foe)}`;
+      `${t('combat.distance')} ${Math.round(st.distance)}m   ·   ${hp(me)}  vs  ${hp(foe)}`;
+
+    this.portraits.setActive(c.getState().activeId);
 
     this.buttonsRow.clearControls();
     c.options().forEach((opt) => {
@@ -105,7 +137,7 @@ export class CombatOverlay {
       btn.width = '104px';
       btn.height = '38px';
       btn.color = opt.enabled ? '#00FFCC' : '#557';
-      btn.background = opt.enabled ? 'rgba(0,40,50,0.9)' : 'rgba(10,14,20,0.7)';
+      btn.background = opt.enabled ? 'rgba(0,40,50,0.92)' : 'rgba(10,14,20,0.8)';
       btn.fontSize = 12;
       btn.fontFamily = '"Courier New", monospace';
       btn.thickness = 1;
@@ -128,35 +160,26 @@ export class CombatOverlay {
   /* istanbul ignore next — browser GUI only */
   private appendBeat(entry: CombatLogEntry): void {
     this.handlers.onBeat?.(entry); // scene plays the matching avatar animation
-    const line = this.addLogLine(entry.beat, entry.isPlayerActor);
-    // Dramatize via Claude ONLY on a critical hit (landed blow with P>90%) — bounded
-    // cost + cinematic punch. Fall back to the factual beat silently.
+    // Dramatize via Claude ONLY on a critical hit (landed blow with P>90%) → a
+    // transient caption. Everything else is told by the 3D action itself.
     if (isCriticalHit(entry) && this.handlers.narrate) {
-      void this.handlers.narrate(entry.beat).then((text) => {
-        if (text && line) line.text = `• ${text}`;
-      }).catch(() => { /* keep the factual beat */ });
+      void this.handlers.narrate(entry.beat).then((text) => this.showCaption(text || entry.beat))
+        .catch(() => { /* skip on CLI error */ });
     }
   }
 
   /* istanbul ignore next — browser GUI only */
-  private addLogLine(text: string, byPlayer: boolean): TextBlock | null {
-    if (!this.logStack) return null;
-    const tb = new TextBlock(`combat-log-${this.logStack.children.length}`, `• ${text}`);
-    tb.color = byPlayer ? '#9CFFE9' : '#FF9C9C';
-    tb.fontSize = 14;
-    tb.fontFamily = '"Courier New", monospace';
-    tb.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-    tb.textWrapping = true;
-    tb.resizeToFit = true;
-    tb.paddingTop = '2px';
-    this.logStack.addControl(tb);
-    return tb;
+  private showCaption(text: string): void {
+    if (!this.caption) return;
+    this.caption.text = text;
+    this.caption.isVisible = true;
+    setTimeout(() => { if (this.caption) this.caption.isVisible = false; }, 4000);
   }
 
   /* istanbul ignore next — browser GUI only */
   private finish(outcome: CombatOutcome): void {
     const key = outcome === 'player_won' ? 'combat.won' : outcome === 'player_lost' ? 'combat.lost' : 'combat.fled';
-    this.addLogLine(t(key), true);
+    this.showCaption(t(key));
     if (this.buttonsRow) this.buttonsRow.clearControls();
     this.handlers.onEnd?.(outcome);
   }
@@ -166,70 +189,64 @@ export class CombatOverlay {
     const gui = AdvancedDynamicTexture.CreateFullscreenUI('combat-ui', true, this.scene);
     this.gui = gui;
 
+    // Light vignette so the 3D action stays visible (BG-style), not a dark scrim.
     const scrim = new Rectangle('combat-scrim');
     scrim.width = '100%';
     scrim.height = '100%';
-    scrim.background = 'rgba(2,0,4,0.72)';
+    scrim.background = 'rgba(2,0,4,0.22)';
     scrim.thickness = 0;
     scrim.isVisible = false;
     gui.addControl(scrim);
     this.panel = scrim;
 
-    const stack = new StackPanel('combat-stack');
-    stack.width = '980px';
-    stack.spacing = 10;
-    scrim.addControl(stack);
+    // Transient critical-hit caption (upper third).
+    const caption = new TextBlock('combat-caption', '');
+    caption.color = '#FFE48A';
+    caption.fontSize = 18;
+    caption.fontFamily = '"Courier New", monospace';
+    caption.textWrapping = true;
+    caption.width = '70%';
+    caption.height = '60px';
+    caption.top = '-26%';
+    caption.isVisible = false;
+    gui.addControl(caption);
+    this.caption = caption;
 
-    const title = new TextBlock('combat-title', t('combat.title'));
-    title.color = '#FF4466';
-    title.fontSize = 30;
-    title.fontFamily = '"Courier New", monospace';
-    title.fontStyle = 'bold';
-    title.height = '44px';
-    stack.addControl(title);
+    // Bottom panel: status line + action buttons (top of screen is left for portraits + action).
+    const bottom = new StackPanel('combat-bottom');
+    bottom.width = '980px';
+    bottom.spacing = 8;
+    bottom.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+    bottom.top = '-18px';
+    gui.addControl(bottom);
 
     const status = new TextBlock('combat-status', '');
     status.color = '#CFE';
-    status.fontSize = 16;
+    status.fontSize = 15;
     status.fontFamily = '"Courier New", monospace';
-    status.height = '52px';
-    stack.addControl(status);
+    status.height = '24px';
+    bottom.addControl(status);
     this.statusText = status;
-
-    const scroll = new ScrollViewer('combat-log-scroll');
-    scroll.width = '960px';
-    scroll.height = '220px';
-    scroll.thickness = 1;
-    scroll.color = '#234';
-    scroll.barColor = '#0AA';
-    stack.addControl(scroll);
-    const log = new StackPanel('combat-log');
-    log.width = '940px';
-    log.isVertical = true;
-    scroll.addControl(log);
-    this.logStack = log;
 
     const buttons = new StackPanel('combat-buttons');
     buttons.isVertical = false;
     buttons.height = '44px';
     buttons.width = '980px';
-    stack.addControl(buttons);
+    bottom.addControl(buttons);
     this.buttonsRow = buttons;
-
-    scrim.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
-    scrim.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
   }
 
   dispose(): void {
     this.handlers = {};
     this.controller = null;
+    this.portraits.dispose();
     /* istanbul ignore next — browser GUI only */
     if (this.gui) {
       this.gui.dispose();
       this.gui = null;
       this.panel = null;
       this.statusText = null;
-      this.logStack = null;
+      this.caption = null;
       this.buttonsRow = null;
     }
   }
