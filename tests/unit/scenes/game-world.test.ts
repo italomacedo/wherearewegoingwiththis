@@ -263,7 +263,7 @@ describe('GameWorldScene', () => {
       { id: 'player', name: 'Hero', isPlayer: true, stats: createDefaultStats(), health: { current: 100, max: 100 } },
       { id: 'zara', name: 'Zara', isPlayer: false, stats: enemyStats, health: { current: 100, max: 100 } },
     ], { rng: () => 0 });
-    scene.getCombat()!.start(new CombatController(enc, { player: 'Hero', zara: 'Zara' }, 'player', 'zara', enemyStats));
+    scene.getCombat()!.start(new CombatController(enc, { player: 'Hero', zara: 'Zara' }, 'player'));
     expect(scene.getCombat()!.isOpen()).toBe(true);
     const z = scene.getPlayer()!.getPosition().z;
     scene.getInputSystem()!.handleKeyDown('KeyW');

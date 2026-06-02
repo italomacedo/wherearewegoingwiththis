@@ -171,6 +171,7 @@ export class CombatEncounter {
   isAlive(id: string): boolean { return !(this.slots.get(id)?.health.isDead() ?? true); }
   posOf(id: string): Point2 { const p = this.slots.get(id)!.pos; return { ...p }; }
   sideOf(id: string): string | null { return this.slots.get(id)?.side ?? null; }
+  statsOf(id: string): CharacterStats | null { return this.slots.get(id)?.init.stats ?? null; }
   isRemoved(id: string): boolean { return this.slots.get(id)?.removed ?? false; }
 
   /** Still in the fight: known, alive, and not fled. */

@@ -34,7 +34,7 @@ function mkController(opts: { rng?: () => number; playerDex?: number; enemyDex?:
     health: { current: opts.enemyHp ?? 100, max: 100 },
   };
   const enc = new CombatEncounter([player, enemy], { rng: opts.rng ?? seq(0), initialDistance: opts.initialDistance ?? 6 });
-  return { enc, ctrl: new CombatController(enc, NAMES, 'player', 'zara', enemyStats) };
+  return { enc, ctrl: new CombatController(enc, NAMES, 'player') };
 }
 
 describe('playerActionOptions', () => {
@@ -146,43 +146,43 @@ describe('CombatController', () => {
     expect(ctrl.options().length).toBeGreaterThan(0);
   });
 
-  it('a player shot logs a hit and then the enemy takes its turn', () => {
-    // player Dex 20 → 2 AP → one shot exhausts it → enemy (Dex 10) acts.
+  it('a player shot logs a hit; the player keeps the turn (no auto AI)', () => {
     const { ctrl } = mkController({ playerDex: 20, enemyDex: 10, rng: seq(0, 0) }); // player hit + dmg
     const entries = ctrl.takePlayerAction({ type: 'attack', attackKind: 'ranged' });
     expect(entries[0]).toMatchObject({ isPlayerActor: true, attackOutcome: 'hit' });
-    // after the player spent both AP, the enemy should have acted (more entries or turn passed)
-    expect(entries.length).toBeGreaterThanOrEqual(1);
-    expect(ctrl.isPlayerTurn()).toBe(true); // back to the player after the enemy turn
+    expect(ctrl.isPlayerTurn()).toBe(true); // takePlayerAction does NOT auto-run the AI
   });
 
   it('ignores actions when it is not the player turn or the fight is over', () => {
     const { ctrl } = mkController({ initialDistance: 12 }); // far enough to flee
-    ctrl.takePlayerAction({ type: 'flee' });        // ends as fled
+    ctrl.takePlayerAction({ type: 'flee' });        // player leaves; lone enemy side → resolved
     expect(ctrl.isOver()).toBe(true);
     expect(ctrl.takePlayerAction({ type: 'attack' })).toEqual([]);
-    expect(ctrl.runEnemyTurn()).toEqual([]);
+    expect(ctrl.stepNextAiTurn()).toEqual([]);
+    expect(ctrl.runToCompletion()).toEqual([]);
   });
 
-  it('ending the player turn auto-runs the enemy turn', () => {
+  it('ending the player turn hands off to the AI via stepNextAiTurn', () => {
     const { ctrl } = mkController({ enemyDex: 40, rng: seq(0, 0) });
-    const entries = ctrl.takePlayerAction({ type: 'end_turn' });
-    expect(entries.some((e) => e.actorId === 'zara')).toBe(true);
+    expect(ctrl.takePlayerAction({ type: 'end_turn' })).toEqual([]); // end_turn logs nothing
+    expect(ctrl.isAiTurn()).toBe(true);
+    const ai = ctrl.stepNextAiTurn();
+    expect(ai.some((e) => e.actorId === 'zara')).toBe(true);
     expect(ctrl.isPlayerTurn()).toBe(true); // back to the player afterwards
   });
 
-  it('a lethal player shot ends the fight without an enemy turn', () => {
+  it('a lethal player shot ends the fight as player_won', () => {
     const { ctrl } = mkController({ enemyHp: 3, rng: seq(0, 0.99) });
     const entries = ctrl.takePlayerAction({ type: 'attack', attackKind: 'ranged' });
     expect(entries.some((e) => e.kind === 'death')).toBe(true);
     expect(ctrl.outcome()).toBe('player_won');
   });
 
-  it('runEnemyTurn drives a gunner enemy to shoot', () => {
+  it('stepNextAiTurn drives a gunner enemy to shoot', () => {
     const { ctrl, enc } = mkController({ enemyDex: 40, rng: seq(0, 0) });
     enc.apply({ type: 'end_turn' }); // pass to the enemy
     expect(ctrl.isPlayerTurn()).toBe(false);
-    const entries = ctrl.runEnemyTurn();
+    const entries = ctrl.stepNextAiTurn();
     expect(entries.some((e) => e.actorId === 'zara')).toBe(true);
     expect(ctrl.isPlayerTurn()).toBe(true); // enemy ended its turn
   });
@@ -193,10 +193,10 @@ describe('CombatController', () => {
     const enemyStats = stats({ destreza: 70, firearms: 80, melee: 10, perception: 20 });
     const enemy: CombatantInit = { id: 'zara', name: 'Zara', isPlayer: false, stats: enemyStats, health: { current: 100, max: 100 } };
     const enc = new CombatEncounter([player, enemy], { rng: seq(0, 0), initialDistance: 1 });
-    const ctrl = new CombatController(enc, NAMES, 'player', 'zara', enemyStats, MELEE_ONLY_CAPS);
+    const ctrl = new CombatController(enc, NAMES, 'player', MELEE_ONLY_CAPS);
     expect(ctrl.options().map((o) => o.labelKey)).not.toContain('combat.shoot');
     expect(ctrl.isPlayerTurn()).toBe(false); // enemy Dex 70 > 60 → acts first
-    const entries = ctrl.runEnemyTurn();
+    const entries = ctrl.stepNextAiTurn();
     expect(entries.some((e) => e.attackKind === 'ranged')).toBe(false);
     expect(entries.some((e) => e.attackKind === 'melee' || e.kind === 'move')).toBe(true);
   });
@@ -205,8 +205,20 @@ describe('CombatController', () => {
     const { ctrl, enc } = mkController({ enemyMelee: true, enemyDex: 60, initialDistance: 8 });
     enc.apply({ type: 'end_turn' });
     const before = enc.getDistance();
-    const entries = ctrl.runEnemyTurn();
+    const entries = ctrl.stepNextAiTurn();
     expect(entries.some((e) => e.kind === 'move')).toBe(true);
     expect(enc.getDistance()).toBeLessThan(before);
+  });
+
+  it('runToCompletion autopilots a player-absent fight to the end', () => {
+    // Two NPCs on opposite sides, no player → the controller resolves the whole fight.
+    const a: CombatantInit = { id: 'a', name: 'A', isPlayer: false, side: 'A', stats: stats({ destreza: 60, melee: 80 }), health: { current: 100, max: 100 }, pos: { x: 0, z: 0 } };
+    const b: CombatantInit = { id: 'b', name: 'B', isPlayer: false, side: 'B', stats: stats({ destreza: 40, perception: 10 }), health: { current: 6, max: 100 }, pos: { x: 0, z: 0 } };
+    const enc = new CombatEncounter([a, b], { rng: seq(0, 0.99) });
+    const ctrl = new CombatController(enc, { a: 'A', b: 'B' }, 'player'); // no 'player' combatant
+    const log = ctrl.runToCompletion();
+    expect(ctrl.isOver()).toBe(true);
+    expect(ctrl.outcome()).toBe('resolved');
+    expect(log.some((e) => e.kind === 'death')).toBe(true);
   });
 });

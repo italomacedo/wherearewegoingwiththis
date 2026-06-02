@@ -577,7 +577,7 @@ export class GameWorldScene extends BaseScene {
     // Melee-only for now: nobody has a firearm (inventory comes later) and there are
     // no cover props → Shoot/Reload/Cover/Hunker are omitted from the menu + AI.
     const controller = new CombatController(
-      enc, { player: this.playerName, [enemyId]: agent.getDisplayName() }, 'player', enemyId, enemyStats, MELEE_ONLY_CAPS,
+      enc, { player: this.playerName, [enemyId]: agent.getDisplayName() }, 'player', MELEE_ONLY_CAPS,
     );
 
     const language = languageName(getLocale());

@@ -119,10 +119,9 @@ export class CombatOverlay {
   private pumpEnemyTurns(): void {
     const c = this.controller;
     if (!c) return;
-    let guard = 0;
-    while (!c.isOver() && !c.isPlayerTurn() && guard++ < 20) {
-      c.runEnemyTurn().forEach((e) => this.appendBeat(e));
-    }
+    // NOTE: synchronous burst for now; Fase 8B.7 replaces this with timed stepping
+    // (one AI turn per tick) for the live multi-combatant / spectator presentation.
+    c.runToCompletion().forEach((e) => this.appendBeat(e));
     this.refresh();
     if (c.isOver()) this.finish(c.outcome());
   }
@@ -180,8 +179,12 @@ export class CombatOverlay {
   submitPlayerAction(action: import('./CombatController').PlayerActionOption['action']): void {
     const c = this.controller;
     if (!c || !c.isPlayerTurn() || c.isOver()) return;
-    const entries = c.takePlayerAction(action);
-    entries.forEach((e) => this.appendBeat(e));
+    c.takePlayerAction(action).forEach((e) => this.appendBeat(e));
+    // If the player's turn has ended (or the fight ended), let the AI take its turns.
+    if (!c.isOver() && !c.isPlayerTurn()) {
+      this.pumpEnemyTurns();
+      return;
+    }
     this.refresh();
     if (c.isOver()) this.finish(c.outcome());
   }
