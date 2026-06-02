@@ -215,12 +215,16 @@ export class CameraSystem {
    */
   panFree(forward: number, right: number): void {
     if (!this.freeMode) return;
-    const yaw = this.getYaw();
-    const fx = Math.sin(yaw);
-    const fz = Math.cos(yaw);
-    // Right vector = forward rotated −90°.
-    this.camera.target.x += forward * fx + right * fz;
-    this.camera.target.z += forward * fz - right * fx;
+    // Use the camera's ACTUAL look direction (projected on the ground), so panning is
+    // relative to wherever Z/C has orbited the view — not world axes.
+    const dir = this.camera.getForwardRay().direction;
+    const f = new Vector3(dir.x, 0, dir.z);
+    if (f.lengthSquared() < 1e-8) return;
+    f.normalize();
+    const rx = f.z; // screen-right = forward rotated +90° on the ground (left-handed: +x right when looking +z)
+    const rz = -f.x;
+    this.camera.target.x += forward * f.x + right * rx;
+    this.camera.target.z += forward * f.z + right * rz;
     this.followPoint.copyFrom(this.camera.target);
   }
 
