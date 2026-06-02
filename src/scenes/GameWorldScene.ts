@@ -26,6 +26,7 @@ import { CharacterAppearance, DEFAULT_APPEARANCE } from '@entities/CharacterData
 import { Inventory, defaultInventoryState } from '@entities/Inventory';
 import { weaponProfile, itemDef } from '@entities/items/ItemCatalog';
 import { InventoryOverlay } from '@systems/InventoryOverlay';
+import { HeldItemRig } from '@systems/HeldItems';
 import { NPCManager, NPCMemoryMap, AutonomyContext, AutonomyJob } from '@systems/NPCManager';
 import { ClaudeCallQueue, queueConfigFromSettings } from '@systems/ClaudeCallQueue';
 import { IntentCandidate } from '@systems/npc/Intent';
@@ -82,6 +83,10 @@ export class GameWorldScene extends BaseScene {
   private chatMode: 'npc' | 'global' = 'npc';
   private pauseMenu: PauseMenu | null = null;
   private inventoryOverlay: InventoryOverlay | null = null;
+  /** Visible held props on the hero (main-hand weapon/flashlight/firearm + backpack). */
+  private playerHeldRig: HeldItemRig | null = null;
+  /** Visible held weapon on each NPC avatar (keyed by NPC id). */
+  private npcHeldRigById = new Map<string, HeldItemRig>();
   private combat: CombatOverlay | null = null;
   private gameOverMenu: GameOverMenu | null = null;
   private combatFocus: TransformNode | null = null;
@@ -282,6 +287,13 @@ export class GameWorldScene extends BaseScene {
 
     this.player.setHealthState(this.playerHealthState);
 
+    // Show the hero's equipped props (weapon in hand, backpack on the back). The
+    // rig no-ops headless (no skeleton); re-synced on every inventory change.
+    this.playerHeldRig = new HeldItemRig(
+      this.babylonScene, this.player.getSkeleton(), this.player.getRenderParts()[0] ?? null,
+    );
+    void this.syncPlayerHeldItems();
+
     // Park a flying motorcycle near the spawn point.
     this.vehicle = new VehicleController(this.babylonScene);
     this.vehicle.spawn(zone.getSpawnPoint().add(new Vector3(4, 0, 0)));
@@ -304,7 +316,7 @@ export class GameWorldScene extends BaseScene {
     // Inventory overlay (I) — manage the pack; loot a corpse. Freezes the world.
     this.inventoryOverlay = new InventoryOverlay(this.babylonScene);
     this.inventoryOverlay.setHandlers({
-      onChange: () => this.persistSession(),
+      onChange: () => { this.persistSession(); void this.syncPlayerHeldItems(); },
       onHeal: (amount) => { this.player?.getHealth().heal(amount); },
       // Looting a corpse framed the camera on it (conversation mode); restore the
       // normal follow camera when the overlay closes.
@@ -484,6 +496,10 @@ export class GameWorldScene extends BaseScene {
     this.dialog?.dispose();
     this.pauseMenu?.dispose();
     this.inventoryOverlay?.dispose();
+    this.playerHeldRig?.dispose();
+    this.playerHeldRig = null;
+    this.npcHeldRigById.forEach((r) => r.dispose());
+    this.npcHeldRigById.clear();
     this.combat?.dispose();
     this.gameOverMenu?.dispose();
     this.hud?.dispose();
@@ -668,7 +684,20 @@ export class GameWorldScene extends BaseScene {
     this.npcHolders.push(holder);
     this.npcHolderById.set(npc.id, holder);
     this.npcGroupsById.set(npc.id, groups);
+
+    // Show the NPC's equipped weapon in its hand (consistency with combat).
+    const agent = this.npcManager?.getAgent(npc.id);
+    const rig = new HeldItemRig(
+      this.babylonScene, assembled.getSkeleton?.() ?? null, assembled.meshes[0] ?? null,
+    );
+    this.npcHeldRigById.set(npc.id, rig);
+    if (agent) void rig.sync(agent.getInventoryState().equipped);
     return assembled.rootMesh;
+  }
+
+  /** Re-attach the hero's visible props to match its current inventory slots. */
+  private async syncPlayerHeldItems(): Promise<void> {
+    await this.playerHeldRig?.sync(this.playerInventory.toState().equipped);
   }
 
   /** Builds a ClaudeNPCService when running in Electron; null otherwise. */

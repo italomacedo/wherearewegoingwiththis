@@ -1,5 +1,5 @@
 import {
-  Scene, Vector3, TransformNode, AbstractMesh, MeshBuilder, AnimationGroup,
+  Scene, Vector3, TransformNode, AbstractMesh, MeshBuilder, AnimationGroup, Skeleton,
   PhysicsCharacterController, CharacterSupportedState,
 } from '@babylonjs/core';
 import { InputSystem, MovementAxis } from '@systems/InputSystem';
@@ -281,6 +281,16 @@ export class PlayerController {
   /** The hero's avatar AnimationGroups (idle/walk/run/interact + combat clips). */
   getAnimationGroups(): AnimationGroup[] {
     return this.assembled?.getAnimationGroups?.() ?? [];
+  }
+
+  /** The avatar skeleton (for bone-attaching held props) — null until spawned/headless. */
+  getSkeleton(): Skeleton | null {
+    return this.assembled?.getSkeleton?.() ?? null;
+  }
+
+  /** The skinned avatar meshes (a held prop attaches relative to one of these). */
+  getRenderParts(): AbstractMesh[] {
+    return this.parts;
   }
 
   getPartCount(): number {
