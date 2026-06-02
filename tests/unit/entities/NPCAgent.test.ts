@@ -185,6 +185,32 @@ describe('NPCAgent', () => {
     });
   });
 
+  describe('witnessed events memory (C)', () => {
+    it('records events (deduped), exposes oldest-first + recent newest-first', () => {
+      const a = new NPCAgent({ ...def });
+      expect(a.getKnownEvents()).toEqual([]);
+      a.rememberEvent('You saw Zara killed in a fight.');
+      a.rememberEvent('You saw Zara killed in a fight.'); // dedup
+      a.rememberEvent('  '); // blank ignored
+      a.rememberEvent('Sirens passed.');
+      expect(a.getKnownEvents()).toEqual(['You saw Zara killed in a fight.', 'Sirens passed.']);
+      expect(a.getRecentEvents(1)).toEqual(['Sirens passed.']); // newest first
+    });
+
+    it('caps at 8 events (oldest dropped) and round-trips through restore', () => {
+      const a = new NPCAgent({ ...def });
+      for (let i = 0; i < 10; i++) a.rememberEvent(`e${i}`);
+      const saved = a.getKnownEvents();
+      expect(saved).toHaveLength(8);
+      expect(saved[0]).toBe('e2'); // e0/e1 dropped
+      const b = new NPCAgent({ ...def });
+      b.restoreEvents(saved);
+      expect(b.getKnownEvents()).toEqual(saved); // stable order
+      b.restoreEvents(undefined);
+      expect(b.getKnownEvents()).toEqual([]);
+    });
+  });
+
   it('setPosition moves the logical position (proximity/talk follow the NPC)', () => {
     const a = new NPCAgent({ ...def }); // copy so the shared def isn't mutated
     a.setPosition(new Vector3(12, 0, -3));

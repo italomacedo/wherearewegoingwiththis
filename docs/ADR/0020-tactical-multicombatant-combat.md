@@ -130,11 +130,17 @@ after a recruiter fix, and drove this polish (all browser-only / `istanbul ignor
   separate `stepNpcMovers` (gossip) and `walkAlongPath` tween (combat). `stepNpcWalks` is driven
   from the live loop and the combat branch.
 
-**Open (deferred) playtest bugs:**
-- **(B)** the attack hover ring is slightly offset from the NPC's real position (ground point
-  vs holder origin/feet).
-- **(C)** a surviving NPC is not told another NPC died (no combat-outcome memory injected) —
-  future "NPC knows who died".
-- **Flee continuation** (player flees → NPC↔NPC fight continues live) still needs an Electron
-  validation pass. Autonomous NPC↔NPC fights are validated. Friendly-fire defection is
-  deprioritized by the owner.
+**Playtest: ALL validated by the owner in Electron** — the facing pin (A), the movement tuning
+(1 AP = 2 m), the self-following NPC capsule + centralized locomotion, the attack hover ring (B,
+now aligned via the capsule/centralized positions), flee continuation and autonomous NPC↔NPC
+fights are all confirmed. Friendly-fire defection was deprioritized by the owner.
+
+**(C) surviving NPC learns who died — IMPLEMENTED.** `NPCAgent` now carries a persisted
+witnessed-events memory (`rememberEvent`/`getKnownEvents`/`getRecentEvents`/`restoreEvents`,
+deduped, capped at 8). On combat end, each surviving NPC records a line for every fallen
+combatant — attributed to the player when the player was on the opposing side ("You saw {player}
+kill {name} in a fight.") else a neutral "You saw {name} killed in a fight." These feed the
+prompt's existing `recentEvents` channel (`buildWorldSnapshot` now reads `agent.getRecentEvents()`)
+and persist in `npcMemory.events` (`SaveService.NPCMemory`), so the survivor brings it up in chat.
+
+**Fase 8 is feature-complete and validated**, merged to `main`.

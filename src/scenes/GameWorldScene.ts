@@ -606,6 +606,7 @@ export class GameWorldScene extends BaseScene {
       // Restore the NPC→NPC ledger only when persisted; otherwise keep the seeded one.
       const savedLedger = NPCManager.restoreRelationships(this.npcMemory, def.id);
       if (savedLedger) agent.restoreRelationships(savedLedger);
+      agent.restoreEvents(NPCManager.restoreEvents(this.npcMemory, def.id));
       const anchor = await this.buildNPCVisual(def);
       this.npcAnchors.push(anchor);
     }
@@ -1160,6 +1161,25 @@ export class GameWorldScene extends BaseScene {
           agent.setDisposition('wary');
         }
       }
+      // (C) Surviving NPCs learn who died — recorded in their memory so it surfaces in
+      // their prompt ("recent events you witnessed"); persisted across saves.
+      const dead = state.combatants.filter((c) => !c.isPlayer && !c.alive);
+      const playerInFight = state.combatants.some((c) => c.isPlayer);
+      if (dead.length > 0) {
+        for (const survivor of state.combatants) {
+          if (survivor.isPlayer || !survivor.alive) continue;
+          const sAgent = this.npcManager?.getAgent(survivor.id);
+          if (!sAgent) continue;
+          for (const d of dead) {
+            if (d.id === survivor.id) continue;
+            const dName = this.npcManager?.getAgent(d.id)?.definition.name ?? 'someone';
+            const byPlayer = playerInFight && !!this.combatPlayerSide && d.side !== this.combatPlayerSide;
+            sAgent.rememberEvent(byPlayer
+              ? `You saw ${this.playerName} kill ${dName} in a fight.`
+              : `You saw ${dName} killed in a fight.`);
+          }
+        }
+      }
     }
     this.combat?.close();
     // Tear down targeting + encounter state.
@@ -1385,7 +1405,7 @@ export class GameWorldScene extends BaseScene {
     // (and the NPC reacts); otherwise fall through to a normal NPC reply.
     if (await this.resolvePlayerAction(spoken, agent)) return;
 
-    const world = this.buildWorldSnapshot(agent.distanceTo(this.player.getPosition()));
+    const world = this.buildWorldSnapshot(agent, agent.distanceTo(this.player.getPosition()));
     await this.streamNpcReply(agent, world, spoken);
   }
 
@@ -1416,7 +1436,7 @@ export class GameWorldScene extends BaseScene {
 
     if (agent) {
       this.dialog.setNpcName(agent.getDisplayName());
-      await this.streamNpcReply(agent, this.buildWorldSnapshot(agent.distanceTo(this.player.getPosition())), spoken);
+      await this.streamNpcReply(agent, this.buildWorldSnapshot(agent, agent.distanceTo(this.player.getPosition())), spoken);
     } else {
       this.dialog.setThinking(true);
       const narration = await this.npcManager.narrateAmbient(spoken, this.formatGameTime(), GameWorldScene.SURROUNDINGS, languageName(getLocale()));
@@ -1502,7 +1522,7 @@ export class GameWorldScene extends BaseScene {
 
     // The addressed NPC reacts to the action.
     if (agent) {
-      await this.streamNpcReply(agent, this.buildWorldSnapshot(agent.distanceTo(this.player!.getPosition())), message);
+      await this.streamNpcReply(agent, this.buildWorldSnapshot(agent, agent.distanceTo(this.player!.getPosition())), message);
     }
     return true;
   }
@@ -1530,18 +1550,18 @@ export class GameWorldScene extends BaseScene {
       return true;
     }
     // Not yet hostile — the NPC reacts (its ultimatum) via a normal turn.
-    await this.streamNpcReply(agent, this.buildWorldSnapshot(agent.distanceTo(this.player.getPosition())), message);
+    await this.streamNpcReply(agent, this.buildWorldSnapshot(agent, agent.distanceTo(this.player.getPosition())), message);
     return true;
   }
 
-  private buildWorldSnapshot(distanceMeters: number): WorldSnapshot {
+  private buildWorldSnapshot(agent: NPCAgent, distanceMeters: number): WorldSnapshot {
     return {
       cityName: 'NeoBeiraRio',
       gameTime: this.formatGameTime(),
       playerName: this.playerName,
       distanceMeters,
       playerAction: this.derivePlayerAction(),
-      recentEvents: [],
+      recentEvents: agent.getRecentEvents(), // e.g. "X was killed" — so the NPC knows
       language: languageName(getLocale()),
     };
   }

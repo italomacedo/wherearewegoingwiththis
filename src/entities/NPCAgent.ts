@@ -191,6 +191,36 @@ export class NPCAgent {
   markDefeated(): void { this.defeated = true; }
   isDefeated(): boolean { return this.defeated; }
 
+  // ─── Witnessed events (e.g. "X was killed") — fed into the NPC's prompt ──────
+
+  private static readonly MAX_EVENTS = 8;
+  private knownEvents: string[] = [];
+
+  /** Record a world event this NPC witnessed/learned (deduped, newest kept; capped). */
+  rememberEvent(line: string): void {
+    const e = line.trim();
+    if (!e || this.knownEvents.includes(e)) return;
+    this.knownEvents.push(e);
+    if (this.knownEvents.length > NPCAgent.MAX_EVENTS) {
+      this.knownEvents = this.knownEvents.slice(-NPCAgent.MAX_EVENTS);
+    }
+  }
+
+  /** Events this NPC knows, oldest first (stable for persistence). */
+  getKnownEvents(): string[] {
+    return [...this.knownEvents];
+  }
+
+  /** The most recent `n` events, newest first (for the prompt's "recent events"). */
+  getRecentEvents(n = 3): string[] {
+    return [...this.knownEvents].slice(-n).reverse();
+  }
+
+  /** Replace the known-events memory from a persisted list (load). */
+  restoreEvents(events: string[] | undefined): void {
+    this.knownEvents = [...(events ?? [])];
+  }
+
   // ─── Current deliberated intent (set by the autonomy layer) ─────────────────
 
   getIntent(): NPCIntent {

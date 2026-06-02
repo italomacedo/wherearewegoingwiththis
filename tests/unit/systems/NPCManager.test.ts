@@ -215,6 +215,16 @@ describe('NPCManager', () => {
     expect(NPCManager.restoreRelationships(undefined, 'npc_a')).toBeUndefined();
   });
 
+  it('serializes + restores the witnessed-events memory (C)', () => {
+    const agent = manager.spawn({ ...def });
+    agent.rememberEvent('You saw Zara killed in a fight.');
+    const memory = manager.serializeMemory();
+    expect(memory['npc_a'].events).toEqual(['You saw Zara killed in a fight.']);
+    expect(NPCManager.restoreEvents(memory, 'npc_a')).toEqual(['You saw Zara killed in a fight.']);
+    expect(NPCManager.restoreEvents(memory, 'npc_z')).toBeUndefined();
+    expect(NPCManager.restoreEvents(undefined, 'npc_a')).toBeUndefined();
+  });
+
   it('dispose clears agents and cooldowns', () => {
     manager.spawn(def);
     manager.dispose();

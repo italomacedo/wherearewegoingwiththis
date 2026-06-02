@@ -12,6 +12,7 @@ import { NPCDisposition } from '@entities/NPCAgent';
 export type NPCMemory = Record<string, ConversationState & {
   disposition?: NPCDisposition;
   relationships?: Record<string, NPCDisposition>;
+  events?: string[];
 }>;
 
 export interface VehicleSaveState {

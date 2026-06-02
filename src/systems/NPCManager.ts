@@ -17,6 +17,8 @@ export const COOLDOWN_SECONDS = 3;
 export type NPCMemoryEntry = ConversationState & {
   disposition?: NPCDisposition;
   relationships?: Record<string, NPCDisposition>;
+  /** World events this NPC witnessed (e.g. "X was killed"), fed into its prompt. */
+  events?: string[];
 };
 export type NPCMemoryMap = Record<string, NPCMemoryEntry>;
 
@@ -274,6 +276,7 @@ export class NPCManager {
         ...agent.conversation.toState(),
         disposition: agent.getDisposition(),
         relationships: agent.relationshipsRecord(),
+        events: agent.getKnownEvents(),
       };
     });
     return map;
@@ -300,6 +303,14 @@ export class NPCManager {
     npcId: string,
   ): Record<string, NPCDisposition> | undefined {
     return memory?.[npcId]?.relationships;
+  }
+
+  /** The persisted witnessed-events memory for an NPC (undefined = none saved). */
+  static restoreEvents(
+    memory: NPCMemoryMap | undefined,
+    npcId: string,
+  ): string[] | undefined {
+    return memory?.[npcId]?.events;
   }
 
   dispose(): void {
