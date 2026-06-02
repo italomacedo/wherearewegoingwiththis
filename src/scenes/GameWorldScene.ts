@@ -576,6 +576,9 @@ export class GameWorldScene extends BaseScene {
     if (typeof document === 'undefined' || !this.combat || this.combat.isOpen()) return;
     const mgr = this.npcManager;
     if (!mgr) return;
+    // A defeated NPC never starts or is dragged into a new fight.
+    if (initiatorId !== 'player' && mgr.getAgent(initiatorId)?.isDefeated()) return;
+    if (targetId !== 'player' && mgr.getAgent(targetId)?.isDefeated()) return;
     this.dialog?.close();
 
     const playerInvolved = initiatorId === 'player' || targetId === 'player';
@@ -584,6 +587,7 @@ export class GameWorldScene extends BaseScene {
     const participants: RecruitParticipant[] = [];
     if (playerInvolved) participants.push({ id: 'player', relationTo: () => 'neutral' });
     for (const a of mgr.getAgents()) {
+      if (a.isDefeated()) continue; // the dead don't rejoin fights
       participants.push({
         id: a.definition.id,
         relationTo: (other) => (other === 'player' ? a.getDisposition() : a.getRelationship(other)),
@@ -610,7 +614,7 @@ export class GameWorldScene extends BaseScene {
       } else {
         const a = mgr.getAgent(id);
         const holder = this.npcHolderById.get(id);
-        if (!a) continue;
+        if (!a || a.isDefeated()) continue;
         const pos = holder?.position ?? a.getPosition();
         const hp = GameWorldScene.NPC_COMBAT_HP;
         combatants.push({ id, name: a.getDisplayName(), isPlayer: false, stats: this.enemyStatsFor(a), health: { current: hp, max: hp }, pos: { x: pos.x, z: pos.z }, side });
@@ -956,27 +960,37 @@ export class GameWorldScene extends BaseScene {
       ? (this.player?.getAnimationGroups() ?? [])
       : (this.npcGroupsById.get(actorId) ?? []);
     const y = node.position.y;
-    const keys: { frame: number; value: Vector3 }[] = [{ frame: 0, value: new Vector3(path[0]!.x, y, path[0]!.z) }];
-    let frame = 0;
     const fps = 60;
     const speed = 3.5; // metres/second, matches the walk cadence
+    const posKeys: { frame: number; value: Vector3 }[] = [{ frame: 0, value: new Vector3(path[0]!.x, y, path[0]!.z) }];
+    // Per-segment facing so the avatar turns toward where it's walking (no moonwalk on a
+    // routed/bent path). Angles are unwrapped to the nearest previous so the yaw turns the
+    // short way instead of spinning across ±π. Avatars face +Z at rotation.y = 0.
+    const rotKeys: { frame: number; value: number }[] = [];
+    let frame = 0;
+    let prevAngle = node.rotation.y;
     for (let i = 1; i < path.length; i++) {
+      let ang = Math.atan2(path[i]!.x - path[i - 1]!.x, path[i]!.z - path[i - 1]!.z);
+      while (ang - prevAngle > Math.PI) ang -= 2 * Math.PI;
+      while (prevAngle - ang > Math.PI) ang += 2 * Math.PI;
+      rotKeys.push({ frame, value: ang }); // face this segment from where the previous one ended
       const seg = distance2(path[i - 1]!, path[i]!);
       frame += Math.max(1, (seg / speed) * fps);
-      keys.push({ frame, value: new Vector3(path[i]!.x, y, path[i]!.z) });
+      posKeys.push({ frame, value: new Vector3(path[i]!.x, y, path[i]!.z) });
+      prevAngle = ang;
     }
-    // Face the final travel direction (avatars face +Z at rotation.y = 0).
-    const last = path[path.length - 1]!;
-    const prev = path[path.length - 2]!;
-    node.rotation.y = Math.atan2(last.x - prev.x, last.z - prev.z);
+    rotKeys.push({ frame, value: prevAngle }); // hold the final facing
+    node.rotation.y = rotKeys[0]!.value; // snap to the first heading immediately
 
-    const anim = new Animation('combat-walk', 'position', fps, Animation.ANIMATIONTYPE_VECTOR3, Animation.ANIMATIONLOOPMODE_CONSTANT);
-    anim.setKeys(keys);
+    const posAnim = new Animation('combat-walk', 'position', fps, Animation.ANIMATIONTYPE_VECTOR3, Animation.ANIMATIONLOOPMODE_CONSTANT);
+    posAnim.setKeys(posKeys);
+    const rotAnim = new Animation('combat-walk-rot', 'rotation.y', fps, Animation.ANIMATIONTYPE_FLOAT, Animation.ANIMATIONLOOPMODE_CONSTANT);
+    rotAnim.setKeys(rotKeys);
     const walk = groups.find((g) => g.name.toLowerCase() === 'walk') ?? null;
     const idle = groups.find((g) => g.name.toLowerCase() === 'idle') ?? null;
     groups.forEach((g) => g.stop());
     walk?.start(true);
-    this.babylonScene.beginDirectAnimation(node, [anim], 0, frame, false, 1, () => {
+    this.babylonScene.beginDirectAnimation(node, [posAnim, rotAnim], 0, frame, false, 1, () => {
       walk?.stop();
       idle?.start(true);
     });
@@ -991,11 +1005,19 @@ export class GameWorldScene extends BaseScene {
       this.playerHealthState = { current: me.hp.current, max: me.hp.max };
       this.player?.setHealthState(this.playerHealthState);
     }
-    // Relax every surviving enemy (a different side than the player) on a win/flee/resolve.
-    if (outcome !== 'player_lost' && state && this.combatPlayerSide) {
+    // Persist each combatant's fate so nobody "resurrects": the dead are marked
+    // defeated (stay down, excluded from recruitment/autonomy/triggers); surviving
+    // enemies relax to wary.
+    if (state) {
       for (const c of state.combatants) {
-        if (!c.isPlayer && c.side !== this.combatPlayerSide && c.alive) {
-          this.npcManager?.getAgent(c.id)?.setDisposition('wary');
+        if (c.isPlayer) continue;
+        const agent = this.npcManager?.getAgent(c.id);
+        if (!agent) continue;
+        if (!c.alive) {
+          agent.markDefeated();
+          this.playCombatClip(c.id, 'death', true); // hold the downed pose
+        } else if (outcome !== 'player_lost' && this.combatPlayerSide && c.side !== this.combatPlayerSide) {
+          agent.setDisposition('wary');
         }
       }
     }

@@ -140,6 +140,13 @@ describe('NPCAgent', () => {
     expect(a.onHostilePlayerAction()).toEqual({ ultimatum: false });
   });
 
+  it('defeated flag is false until marked, then sticks', () => {
+    const a = new NPCAgent({ ...def });
+    expect(a.isDefeated()).toBe(false);
+    a.markDefeated();
+    expect(a.isDefeated()).toBe(true);
+  });
+
   it('shouldInitiateCombat only when hostile and player present', () => {
     const a = new NPCAgent({ ...def, initialDisposition: 'hostile' });
     expect(a.shouldInitiateCombat(true)).toBe(true);

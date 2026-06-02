@@ -188,6 +188,7 @@ export class NPCManager {
 
     this.agents.forEach((agent) => {
       const id = agent.definition.id;
+      if (agent.isDefeated()) return; // the dead take no autonomous turns
       if (agent.shouldInitiateCombat(ctx.playerPresent)) {
         agent.setIntent({ kind: 'attack' });
         result.attackers.push(id);

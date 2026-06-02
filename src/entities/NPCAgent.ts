@@ -184,6 +184,13 @@ export class NPCAgent {
     return r === 'hostile' || r === 'wary';
   }
 
+  // ─── Defeat (killed in combat — persists for the rest of the scene) ──────────
+
+  private defeated = false;
+  /** Mark this NPC as defeated/killed: it stays down and takes no further part in the world. */
+  markDefeated(): void { this.defeated = true; }
+  isDefeated(): boolean { return this.defeated; }
+
   // ─── Current deliberated intent (set by the autonomy layer) ─────────────────
 
   getIntent(): NPCIntent {
