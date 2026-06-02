@@ -1183,11 +1183,12 @@ export class GameWorldScene extends BaseScene {
     this.npcRoutes.forEach((route, moverId) => {
       const holder = this.npcHolderById.get(moverId);
       const partner = this.npcHolderById.get(route.partnerId);
-      if (!holder || !partner) { this.npcRoutes.delete(moverId); return; }
+      if (!holder || !partner) { this.npcRoutes.delete(moverId); this.rebuildNpcCollider(moverId); return; }
 
       if (Vector3.Distance(holder.position, partner.position) <= GameWorldScene.ENGAGE_DIST) {
         this.npcRoutes.delete(moverId);
         this.npcManager?.getAgent(moverId)?.setPosition(holder.position);
+        this.rebuildNpcCollider(moverId); // the static box must follow to the gossip spot
         // Stop walking, turn to face the partner, back to idle, then gossip.
         const anim = this.npcAnimById.get(moverId);
         anim?.walk?.stop();
@@ -1197,7 +1198,7 @@ export class GameWorldScene extends BaseScene {
         return;
       }
       const target = route.path[route.i];
-      if (!target) { this.npcRoutes.delete(moverId); return; }
+      if (!target) { this.npcRoutes.delete(moverId); this.rebuildNpcCollider(moverId); return; }
       const to = target.subtract(holder.position);
       const dist = to.length();
       if (dist <= step) {

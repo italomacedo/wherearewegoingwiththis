@@ -120,7 +120,11 @@ after a recruiter fix, and drove this polish (all browser-only / `istanbul ignor
   mesh, so an NPC that walked into a fight left its collider behind (you'd bump an invisible box
   at its old spot, and pass through where it now stands). Per-NPC colliders are now keyed
   (`npcColliderById`) and **rebuilt at the new position** (dispose + recreate, like the hero
-  teleport) in the `endCombat` position sync (`rebuildNpcCollider`).
+  teleport) in the `endCombat` position sync (`rebuildNpcCollider`). The same rebuild fires when
+  an NPC walks to a **gossip** spot (on arrival in `stepNpcMovers`) — the agent's logical position
+  was already synced each step (so `[E]`/proximity/camera followed), the collider now follows too.
+  Note: the collider snaps to the **destination** (not continuously during the short walk); a
+  continuously-tracking static body (`disablePreStep=false`) is a possible future refinement.
 
 **Open (deferred) playtest bugs:**
 - **(B)** the attack hover ring is slightly offset from the NPC's real position (ground point
