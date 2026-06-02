@@ -109,19 +109,29 @@ export const STRINGS: Record<string, Entry> = {
   'hud.talkTo': e('[E] Interact with {name}', '[E] Interagir com {name}'),
   'hud.search': e('[E] Search the body', '[E] Revistar o corpo'),
   'hud.searchTo': e('[E] Search {name}', '[E] Revistar {name}'),
-  'interact.corpse': e(
-    "You search {name}'s body — nothing of use yet.",
-    'Você revista o corpo de {name} — nada de útil por enquanto.',
-  ),
-  'interact.corpseUnknown': e(
-    'You search the body — nothing of use yet.',
-    'Você revista o corpo — nada de útil por enquanto.',
-  ),
-  'dialog.corpseSilent': e('The body is silent.', 'O corpo está em silêncio.'),
   'hud.enterBike': e('[F] Enter bike', '[F] Entrar na nave'),
   'hud.exitBike': e('[F] Exit bike', '[F] Sair da nave'),
   'hud.naveStatus': e('NAVE {pct}%', 'NAVE {pct}%'),
   'hud.naveDestroyed': e('NAVE DESTROYED', 'NAVE DESTRUÍDA'),
+
+  // ─── Inventory (Phase 9) ─────────────────────────────────────────────────────
+  'inventory.title': e('Inventory', 'Inventário'),
+  'inventory.lootTitle': e('Search {name}', 'Revistar {name}'),
+  'inventory.corpseUnknown': e('the body', 'o corpo'),
+  'inventory.close': e('Close', 'Fechar'),
+  'inventory.equip': e('Equip', 'Equipar'),
+  'inventory.unequip': e('Unequip', 'Desequipar'),
+  'inventory.use': e('Use', 'Usar'),
+  'inventory.drop': e('Drop', 'Largar'),
+  'inventory.take': e('Take', 'Pegar'),
+  'inventory.takeAll': e('Take all', 'Pegar tudo'),
+  // Item names
+  'item.knife': e('Knife', 'Faca'),
+  'item.pipe': e('Lead Pipe', 'Cano de Chumbo'),
+  'item.bat': e('Baseball Bat', 'Taco de Beisebol'),
+  'item.medkit': e('Medkit', 'Kit Médico'),
+  'item.scrap': e('Scrap', 'Sucata'),
+  'item.credstick': e('Credstick', 'Cartão de Créditos'),
 
   // ─── Dialog ────────────────────────────────────────────────────────────────
   'dialog.openChannel': e('Open channel', 'Canal aberto'),
