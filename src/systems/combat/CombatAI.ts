@@ -29,6 +29,9 @@ export interface CombatAIView {
   cover: number;
   /** True if this fighter is better at melee than ranged. */
   prefersMelee: boolean;
+  /** Whether the fighter has a firearm (gates ranged) / nearby cover (gates cover). Default true. */
+  hasFirearm?: boolean;
+  hasCover?: boolean;
   tuning?: CombatTuning;
 }
 
@@ -41,13 +44,17 @@ export function prefersMelee(stats: CharacterStats): boolean {
 export function chooseCombatAction(view: CombatAIView): CombatAction {
   const tuning = view.tuning ?? DEFAULT_COMBAT_TUNING;
   const { ap, distance, hpFraction, cover } = view;
+  const hasFirearm = view.hasFirearm ?? true;
+  const hasCover = view.hasCover ?? true;
+  // No firearm → forced into melee (until inventory grants a gun).
+  const melee = view.prefersMelee || !hasFirearm;
 
-  // 1) Defensive: hurt and exposed → duck into cover (once; cover persists).
-  if (hpFraction <= AI_LOW_HP && cover < COVER_PARTIAL && ap >= tuning.secondaryCost) {
+  // 1) Defensive: hurt and exposed → duck into cover (only if cover is available).
+  if (hasCover && hpFraction <= AI_LOW_HP && cover < COVER_PARTIAL && ap >= tuning.secondaryCost) {
     return { type: 'cover' };
   }
 
-  if (view.prefersMelee) {
+  if (melee) {
     // 2a) Brawler: close the gap, reserving AP for the strike when affordable.
     if (distance > MELEE_RANGE) {
       const gap = Math.ceil(distance - MELEE_RANGE);
@@ -62,6 +69,6 @@ export function chooseCombatAction(view: CombatAIView): CombatAction {
 
   // 2b) Gunner: shoot while AP allows, then spend leftovers on cover.
   if (ap >= tuning.primaryCost) return { type: 'attack', attackKind: 'ranged' };
-  if (ap >= tuning.secondaryCost && cover < COVER_PARTIAL) return { type: 'cover' };
+  if (hasCover && ap >= tuning.secondaryCost && cover < COVER_PARTIAL) return { type: 'cover' };
   return { type: 'end_turn' };
 }

@@ -68,6 +68,20 @@ export interface PlayerActionOption {
   enabled: boolean;
 }
 
+/**
+ * What a combatant can do this fight. `firearm` gates Shoot/Reload (nobody has a
+ * gun until inventory lands); `cover` gates Take cover / Hunker down (those need a
+ * scenery prop nearby — not implemented). Default = everything (for tests); the
+ * scene opts into MELEE_ONLY for now.
+ */
+export interface CombatCapabilities {
+  firearm: boolean;
+  cover: boolean;
+}
+
+export const ALL_CAPABILITIES: CombatCapabilities = { firearm: true, cover: true };
+export const MELEE_ONLY_CAPS: CombatCapabilities = { firearm: false, cover: false };
+
 const MAX_ENEMY_ACTIONS = 50; // runaway guard
 
 /** A landed blow is "critical" (worth a Claude-narrated line) when its to-hit P cleared this. */
@@ -78,25 +92,33 @@ export function isCriticalHit(entry: CombatLogEntry): boolean {
   return (entry.kind === 'hit' || entry.kind === 'death') && (entry.probability ?? 0) > CRITICAL_HIT_THRESHOLD;
 }
 
-/** The player's action menu for the current state (move buttons step 1 metre). */
-export function playerActionOptions(state: CombatState, playerId: string, tuning: CombatTuning): PlayerActionOption[] {
+/**
+ * The player's action menu for the current state (move buttons step 1 metre).
+ * Firearm actions (Shoot/Reload) and cover actions (Take cover / Hunker down) are
+ * only offered when the loadout/scenery allows them (`caps`).
+ */
+export function playerActionOptions(
+  state: CombatState, playerId: string, tuning: CombatTuning, caps: CombatCapabilities = ALL_CAPABILITIES,
+): PlayerActionOption[] {
   const me = state.combatants.find((c) => c.id === playerId);
   const ap = me?.ap ?? 0;
   const inMelee = state.distance <= MELEE_RANGE;
   const canMove1 = maxMoveMeters(ap, tuning) >= 1;
   const canPrimary = ap >= tuning.primaryCost;
   const canSecondary = ap >= tuning.secondaryCost;
-  return [
-    { action: { type: 'attack', attackKind: 'ranged' }, labelKey: 'combat.shoot', enabled: canPrimary },
-    { action: { type: 'attack', attackKind: 'melee' }, labelKey: 'combat.strike', enabled: canPrimary && inMelee },
-    { action: { type: 'move', meters: 1, toward: true }, labelKey: 'combat.advance', enabled: canMove1 && state.distance > 0 },
-    { action: { type: 'move', meters: 1, toward: false }, labelKey: 'combat.retreat', enabled: canMove1 },
-    { action: { type: 'cover' }, labelKey: 'combat.cover', enabled: canSecondary },
-    { action: { type: 'hunker' }, labelKey: 'combat.hunker', enabled: canSecondary },
-    { action: { type: 'reload' }, labelKey: 'combat.reload', enabled: canSecondary },
-    { action: { type: 'flee' }, labelKey: 'combat.flee', enabled: true },
-    { action: { type: 'end_turn' }, labelKey: 'combat.endTurn', enabled: true },
-  ];
+  const opts: PlayerActionOption[] = [];
+  if (caps.firearm) opts.push({ action: { type: 'attack', attackKind: 'ranged' }, labelKey: 'combat.shoot', enabled: canPrimary });
+  opts.push({ action: { type: 'attack', attackKind: 'melee' }, labelKey: 'combat.strike', enabled: canPrimary && inMelee });
+  opts.push({ action: { type: 'move', meters: 1, toward: true }, labelKey: 'combat.advance', enabled: canMove1 && state.distance > 0 });
+  opts.push({ action: { type: 'move', meters: 1, toward: false }, labelKey: 'combat.retreat', enabled: canMove1 });
+  if (caps.cover) {
+    opts.push({ action: { type: 'cover' }, labelKey: 'combat.cover', enabled: canSecondary });
+    opts.push({ action: { type: 'hunker' }, labelKey: 'combat.hunker', enabled: canSecondary });
+  }
+  if (caps.firearm) opts.push({ action: { type: 'reload' }, labelKey: 'combat.reload', enabled: canSecondary });
+  opts.push({ action: { type: 'flee' }, labelKey: 'combat.flee', enabled: true });
+  opts.push({ action: { type: 'end_turn' }, labelKey: 'combat.endTurn', enabled: true });
+  return opts;
 }
 
 export class CombatController {
@@ -108,6 +130,7 @@ export class CombatController {
     private readonly playerId: string,
     private readonly enemyId: string,
     enemyStats: CharacterStats,
+    private readonly caps: CombatCapabilities = ALL_CAPABILITIES,
   ) {
     this.enemyPrefersMelee = prefersMelee(enemyStats);
   }
@@ -117,7 +140,7 @@ export class CombatController {
   isOver(): boolean { return this.enc.isOver(); }
   isPlayerTurn(): boolean { return this.enc.activeId() === this.playerId; }
   options(): PlayerActionOption[] {
-    return playerActionOptions(this.enc.getState(), this.playerId, this.enc.getTuning());
+    return playerActionOptions(this.enc.getState(), this.playerId, this.enc.getTuning(), this.caps);
   }
 
   private entryOf(ev: CombatEvent): CombatLogEntry | null {
@@ -147,6 +170,8 @@ export class CombatController {
         hpFraction: self.hp.max > 0 ? self.hp.current / self.hp.max : 0,
         cover: self.cover,
         prefersMelee: this.enemyPrefersMelee,
+        hasFirearm: this.caps.firearm,
+        hasCover: this.caps.cover,
         tuning: this.enc.getTuning(),
       });
       const ev = this.enc.apply(action);

@@ -43,7 +43,7 @@ import { resolveCheck } from '@systems/SkillCheck';
 import { t, getLocale, languageName } from '@systems/I18n';
 import { SettingsService } from '@systems/SettingsService';
 import { CombatOverlay } from '@systems/combat/CombatOverlay';
-import { CombatController, CombatLogEntry } from '@systems/combat/CombatController';
+import { CombatController, CombatLogEntry, MELEE_ONLY_CAPS } from '@systems/combat/CombatController';
 import { combatClipFor } from '@assets/AvatarMeshCatalog';
 import { CombatEncounter, CombatantInit } from '@systems/combat/CombatEncounter';
 import { combatTuningFromSettings } from '@systems/combat/CombatMath';
@@ -516,7 +516,11 @@ export class GameWorldScene extends BaseScene {
       tuning: combatTuningFromSettings(SettingsService.load()),
       initialDistance,
     });
-    const controller = new CombatController(enc, { player: this.playerName, [enemyId]: agent.getDisplayName() }, 'player', enemyId, enemyStats);
+    // Melee-only for now: nobody has a firearm (inventory comes later) and there are
+    // no cover props → Shoot/Reload/Cover/Hunker are omitted from the menu + AI.
+    const controller = new CombatController(
+      enc, { player: this.playerName, [enemyId]: agent.getDisplayName() }, 'player', enemyId, enemyStats, MELEE_ONLY_CAPS,
+    );
 
     const language = languageName(getLocale());
     this.combat.setHandlers({

@@ -70,6 +70,20 @@ describe('chooseCombatAction — brawler (melee)', () => {
     const a = chooseCombatAction(base({ prefersMelee: true, distance: 10, ap: 1 }));
     expect(a).toEqual({ type: 'move', meters: 1, toward: true });
   });
+  it('without a firearm, a gunner is forced into melee (close then strike)', () => {
+    // prefersMelee false but hasFirearm false → behaves as a brawler.
+    expect(chooseCombatAction(base({ prefersMelee: false, hasFirearm: false, distance: 1, ap: 6 })))
+      .toEqual({ type: 'attack', attackKind: 'melee' });
+    const far = chooseCombatAction(base({ prefersMelee: false, hasFirearm: false, distance: 6, ap: 6 }));
+    expect(far.type).toBe('move');
+  });
+
+  it('without cover available, a hurt fighter does not take cover', () => {
+    // hurt + exposed but hasCover false → no cover; melee-forced → strikes in range.
+    expect(chooseCombatAction(base({ hpFraction: 0.2, hasCover: false, hasFirearm: false, distance: 1, ap: 6 })))
+      .toEqual({ type: 'attack', attackKind: 'melee' });
+  });
+
   it('honours a custom tuning', () => {
     const a = chooseCombatAction(base({ prefersMelee: true, distance: 6, ap: 6, tuning: { ...DEFAULT_COMBAT_TUNING, moveApPerMeter: 2 } }));
     expect(a.type).toBe('move'); // 6 AP, reserve 2, (6-2)/2 = 2m

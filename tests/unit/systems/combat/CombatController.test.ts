@@ -1,4 +1,4 @@
-import { CombatController, playerActionOptions, isCriticalHit, CRITICAL_HIT_THRESHOLD, objectiveLogLine, CombatLogEntry } from '@systems/combat/CombatController';
+import { CombatController, playerActionOptions, isCriticalHit, CRITICAL_HIT_THRESHOLD, objectiveLogLine, MELEE_ONLY_CAPS, CombatLogEntry } from '@systems/combat/CombatController';
 import { CombatEncounter, CombatantInit } from '@systems/combat/CombatEncounter';
 import { DEFAULT_COMBAT_TUNING, MELEE_RANGE } from '@systems/combat/CombatMath';
 import { createDefaultStats, CharacterStats } from '@entities/CharacterStats';
@@ -69,6 +69,16 @@ describe('playerActionOptions', () => {
     const enc = mkController().enc;
     const opts = playerActionOptions(enc.getState(), 'ghost', DEFAULT_COMBAT_TUNING);
     expect(opts.find((o) => o.labelKey === 'combat.shoot')!.enabled).toBe(false);
+  });
+
+  it('melee-only caps omit Shoot/Reload/Cover/Hunker, keep Strike/move/flee/end', () => {
+    const enc = mkController({ initialDistance: 1 }).enc;
+    const keys = playerActionOptions(enc.getState(), 'player', DEFAULT_COMBAT_TUNING, MELEE_ONLY_CAPS).map((o) => o.labelKey);
+    expect(keys).toEqual(['combat.strike', 'combat.advance', 'combat.retreat', 'combat.flee', 'combat.endTurn']);
+    expect(keys).not.toContain('combat.shoot');
+    expect(keys).not.toContain('combat.cover');
+    expect(keys).not.toContain('combat.hunker');
+    expect(keys).not.toContain('combat.reload');
   });
 });
 
@@ -165,6 +175,20 @@ describe('CombatController', () => {
     const entries = ctrl.runEnemyTurn();
     expect(entries.some((e) => e.actorId === 'zara')).toBe(true);
     expect(ctrl.isPlayerTurn()).toBe(true); // enemy ended its turn
+  });
+
+  it('melee-only caps: options omit Shoot, and a gun-statted enemy melees anyway', () => {
+    // Enemy statted for firearms, but melee-only caps force melee + drop Shoot.
+    const player: CombatantInit = { id: 'player', name: 'Hero', isPlayer: true, stats: stats({ destreza: 60, melee: 80 }), health: { current: 100, max: 100 } };
+    const enemyStats = stats({ destreza: 70, firearms: 80, melee: 10, perception: 20 });
+    const enemy: CombatantInit = { id: 'zara', name: 'Zara', isPlayer: false, stats: enemyStats, health: { current: 100, max: 100 } };
+    const enc = new CombatEncounter([player, enemy], { rng: seq(0, 0), initialDistance: 1 });
+    const ctrl = new CombatController(enc, NAMES, 'player', 'zara', enemyStats, MELEE_ONLY_CAPS);
+    expect(ctrl.options().map((o) => o.labelKey)).not.toContain('combat.shoot');
+    expect(ctrl.isPlayerTurn()).toBe(false); // enemy Dex 70 > 60 → acts first
+    const entries = ctrl.runEnemyTurn();
+    expect(entries.some((e) => e.attackKind === 'ranged')).toBe(false);
+    expect(entries.some((e) => e.attackKind === 'melee' || e.kind === 'move')).toBe(true);
   });
 
   it('a melee enemy advances toward the player on its turn', () => {
