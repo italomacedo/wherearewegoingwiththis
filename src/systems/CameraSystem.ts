@@ -274,7 +274,10 @@ export class CameraSystem {
       if (e.button === 1) e.preventDefault(); // suppress middle-click autoscroll
     };
     const onWheel = (e: WheelEvent): void => {
-      this.zoom(Math.sign(e.deltaY) * 2); // wheel zoom (tactical combat + on-foot)
+      // Wheel zoom ONLY in the free tactical-combat camera. On foot, zooming out would
+      // let the player metagame areas their character can't see in-character.
+      if (!this.freeMode) return;
+      this.zoom(Math.sign(e.deltaY) * 2);
       e.preventDefault();
     };
 
