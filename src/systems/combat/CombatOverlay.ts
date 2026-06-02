@@ -236,9 +236,10 @@ export class CombatOverlay {
     // Combat log — a column down the RIGHT edge so it never covers the fighters.
     const logScroll = new ScrollViewer('combat-log-scroll');
     logScroll.width = '300px';
-    logScroll.height = '52%';
+    logScroll.height = '58%';
     logScroll.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
-    logScroll.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+    logScroll.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+    logScroll.top = '25%'; // below the top portrait strip (~22%) so it never overlaps
     logScroll.left = '-12px';
     logScroll.thickness = 1;
     logScroll.color = 'rgba(0,80,90,0.5)';
