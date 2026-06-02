@@ -49,9 +49,10 @@ describe('actionPointsFor', () => {
 });
 
 describe('movement cost', () => {
-  it('costs moveApPerMeter AP per metre (rounded up)', () => {
-    expect(moveApCost(3)).toBe(3);
-    expect(moveApCost(2.4)).toBe(3); // partial metre rounds up
+  it('costs moveApPerMeter AP per metre (rounded up; default 0.5 = 1 AP per 2 m)', () => {
+    expect(moveApCost(3)).toBe(2); // ceil(3 * 0.5) = 2
+    expect(moveApCost(2.4)).toBe(2); // ceil(1.2) = 2
+    expect(moveApCost(4)).toBe(2); // ceil(2) = 2 → 1 AP moves 2 m
     expect(moveApCost(0)).toBe(0);
     expect(moveApCost(-5)).toBe(0);
   });
@@ -60,7 +61,7 @@ describe('movement cost', () => {
     expect(moveApCost(3, t)).toBe(6);
   });
   it('maxMoveMeters is the whole metres affordable with the AP', () => {
-    expect(maxMoveMeters(6)).toBe(6);
+    expect(maxMoveMeters(6)).toBe(12); // 6 AP / 0.5 AP per m = 12 m
     const t: CombatTuning = { ...DEFAULT_COMBAT_TUNING, moveApPerMeter: 2 };
     expect(maxMoveMeters(5, t)).toBe(2);
   });

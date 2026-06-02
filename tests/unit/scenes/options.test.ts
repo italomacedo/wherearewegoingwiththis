@@ -94,7 +94,7 @@ describe('OptionsScene', () => {
     expect(DEFAULT_SETTINGS.combatApPerDexterity).toBe(10);
     expect(DEFAULT_SETTINGS.combatPrimaryCost).toBe(2);
     expect(DEFAULT_SETTINGS.combatSecondaryCost).toBe(1);
-    expect(DEFAULT_SETTINGS.combatMoveApPerMeter).toBe(1);
+    expect(DEFAULT_SETTINGS.combatMoveApPerMeter).toBe(0.5); // 1 AP moves 2 m
   });
 
   it('cycleCombatApPerDexterity steps 10 → 20 → 5 → 10 and persists', () => {
@@ -117,10 +117,16 @@ describe('OptionsScene', () => {
     expect(SettingsService.get('combatSecondaryCost')).toBe(1);
   });
 
-  it('cycleCombatMoveApPerMeter toggles 1 → 2 → 1 and persists', () => {
-    expect(scene.cycleCombatMoveApPerMeter()).toBe(2);
+  it('cycleCombatMoveApPerMeter toggles 0.5 → 1 → 0.5 and persists', () => {
     expect(scene.cycleCombatMoveApPerMeter()).toBe(1);
-    expect(SettingsService.get('combatMoveApPerMeter')).toBe(1);
+    expect(scene.cycleCombatMoveApPerMeter()).toBe(0.5);
+    expect(SettingsService.get('combatMoveApPerMeter')).toBe(0.5);
+  });
+
+  it('metresPerApLabel shows whole metres per AP', () => {
+    expect(OptionsScene.metresPerApLabel(0.5)).toBe('2 m/AP');
+    expect(OptionsScene.metresPerApLabel(1)).toBe('1 m/AP');
+    expect(OptionsScene.metresPerApLabel(0)).toBe('0 m/AP');
   });
 
   it('selectTab changes active tab', () => {

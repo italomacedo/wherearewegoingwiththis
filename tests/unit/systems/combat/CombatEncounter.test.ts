@@ -85,9 +85,10 @@ describe('CombatEncounter — distance & targeting helpers', () => {
     const enc = new CombatEncounter(makeCombatants()); // dist 6, player 6 AP
     const reach = enc.reachableToward('player', 'zara');
     expect(reach).not.toBeNull();
-    // budget = min(maxMoveMeters(6)=6, 6 - MELEE_RANGE) = 5 → ends at x=5, cost 5
+    // budget = min(maxMoveMeters(6 AP)=12, 6 - MELEE_RANGE=5) = 5 → ends at x=5,
+    // cost = ceil(5 * 0.5 AP/m) = 3
     expect(reach!.to).toEqual({ x: 5, z: 0 });
-    expect(reach!.cost).toBe(5);
+    expect(reach!.cost).toBe(3);
   });
 
   it('reachableToward returns null when already within melee range or unknown ids', () => {
@@ -98,10 +99,10 @@ describe('CombatEncounter — distance & targeting helpers', () => {
 
   it('reachableToward reserves AP for a follow-up strike', () => {
     const enc = new CombatEncounter(makeCombatants()); // 6 AP
-    const reach = enc.reachableToward('player', 'zara', 2); // reserve 2 AP
-    // budget = min(maxMoveMeters(4)=4, 5) = 4 → ends at x=4, cost 4
-    expect(reach!.to).toEqual({ x: 4, z: 0 });
-    expect(reach!.cost).toBe(4);
+    const reach = enc.reachableToward('player', 'zara', 5); // reserve 5 AP → only 1 AP to move
+    // budget = min(maxMoveMeters(1 AP)=2, 5) = 2 → ends at x=2, cost = ceil(2 * 0.5) = 1
+    expect(reach!.to).toEqual({ x: 2, z: 0 });
+    expect(reach!.cost).toBe(1);
   });
 });
 
@@ -140,7 +141,7 @@ describe('CombatEncounter — AP economy', () => {
 });
 
 describe('CombatEncounter — movement & cover', () => {
-  it('moving to a point updates the position and costs 1 AP/m of the routed path', () => {
+  it('moving to a point updates the position and costs 0.5 AP/m of the routed path', () => {
     const enc = new CombatEncounter(makeCombatants());
     const ev = enc.apply({ type: 'move', to: { x: 4, z: 0 } });
     expect(ev.kind).toBe('move');
@@ -148,7 +149,7 @@ describe('CombatEncounter — movement & cover', () => {
     expect(ev.path).toEqual([{ x: 0, z: 0 }, { x: 4, z: 0 }]);
     expect(enc.posOf('player')).toEqual({ x: 4, z: 0 });
     expect(enc.getDistance()).toBe(2); // to zara at x=6
-    expect(enc.apOf('player')).toBe(6 - 4);
+    expect(enc.apOf('player')).toBe(6 - 2); // ceil(4 m * 0.5 AP/m) = 2 AP
   });
 
   it('rejects a move with no destination or zero length', () => {
@@ -159,7 +160,7 @@ describe('CombatEncounter — movement & cover', () => {
 
   it('rejects a move that costs more AP than available', () => {
     const enc = new CombatEncounter(makeCombatants()); // 6 AP
-    const ev = enc.apply({ type: 'move', to: { x: 9, z: 0 } }); // 9 m > 6 AP
+    const ev = enc.apply({ type: 'move', to: { x: 15, z: 0 } }); // 15 m → ceil(7.5)=8 AP > 6
     expect(ev.kind).toBe('rejected');
     expect(ev.reason).toBe('out_of_ap');
   });

@@ -104,13 +104,24 @@ after a recruiter fix, and drove this polish (all browser-only / `istanbul ignor
 - **Post-combat position sync**: `PlayerController.teleport` (recreates the Havok capsule) +
   moving each NPC holder/agent so `[E]`/proximity/camera follow a repositioned fighter.
 
+**Fixed since the first playtest:**
+- **(A) facing-revert at end of move — FIXED.** The single holder-rotation pin in the walk
+  completion callback didn't hold (the idle clip re-evaluates the avatar's modelled forward
+  every frame). The robust fix re-asserts each standing combatant's intended yaw **every combat
+  frame** (`pinCombatFacings`, called in the combat branch of `update()`), skipping any combatant
+  mid-walk (so the walk's own per-segment rotation still wins). A per-combatant `combatFacing`
+  map is set when a fighter walks (final heading), attacks/gets-hit (toward the foe), and at
+  fight start (each combatant seeded facing its `nearestFoeId`). `combatWalking` suspends the pin
+  during a walk. Browser-only / `istanbul ignore`d.
+- **Movement tuning — APPLIED.** `moveApPerMeter` default 1 → **0.5 (1 AP moves 2 m)** so
+  low-Dex allies close distance in fewer turns. Options now cycles 0.5 ↔ 1 AP/m, displayed as
+  **m/AP** ("2 m/AP" / "1 m/AP"); `SettingsService.combatMoveApPerMeter: 0.5 | 1`.
+
 **Open (deferred) playtest bugs:**
-- **(A)** an NPC snaps back to its *original* facing at the END of a combat move — the
-  holder-rotation pin doesn't hold; likely the embedded **Idle clip resets the avatar
-  `__root__` rotation**. Fix on the avatar node, not the holder.
 - **(B)** the attack hover ring is slightly offset from the NPC's real position (ground point
   vs holder origin/feet).
 - **(C)** a surviving NPC is not told another NPC died (no combat-outcome memory injected) —
   future "NPC knows who died".
-- **Tuning:** move cost (1 AP/m) vs turn length — low-Dex allies take many turns to close
-  distance; revisit AP/turn or metres/AP.
+- **Flee continuation** (player flees → NPC↔NPC fight continues live) still needs an Electron
+  validation pass. Autonomous NPC↔NPC fights are validated. Friendly-fire defection is
+  deprioritized by the owner.

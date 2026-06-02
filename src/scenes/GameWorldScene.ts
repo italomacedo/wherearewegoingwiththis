@@ -105,6 +105,14 @@ export class GameWorldScene extends BaseScene {
   /** True for a player-absent fight (cinematic centroid camera); else free RTS camera. */
   private combatSpectator = false;
   private static readonly COMBAT_PAN_SPEED = 14; // metres/second for free-camera panning
+  /**
+   * Desired facing yaw per combatant during combat, re-asserted every combat frame
+   * so an idle clip can't snap the avatar back to its modelled forward (Bug A).
+   */
+  private combatFacing = new Map<string, number>();
+  /** Combatants currently mid-walk — excluded from the per-frame facing pin so the
+   *  walk's own per-segment rotation isn't fought. */
+  private combatWalking = new Set<string>();
   private hud: WorldHud | null = null;
   private npcMeshes: AbstractMesh[] = [];
   private npcVisuals: AssembledCharacter[] = [];
@@ -388,6 +396,7 @@ export class GameWorldScene extends BaseScene {
     if (this.combat?.isOpen()) {
       this.handleCombatCameraKeys(dt);
       this.tickCombat(dt);
+      this.pinCombatFacings();
       this.cameraSystem?.update();
       this.inputSystem?.endFrame();
       return;
@@ -643,6 +652,17 @@ export class GameWorldScene extends BaseScene {
     });
     this.combat.setPortraitSources(sources);
     this.combat.start(controller);
+    // Seed each combatant facing its nearest foe so the fight opens looking engaged,
+    // and the per-frame pin keeps it (Bug A).
+    this.combatFacing.clear();
+    this.combatWalking.clear();
+    for (const c of enc.getState().combatants) {
+      const foeId = enc.nearestFoeId(c.id);
+      const foe = foeId ? enc.getState().combatants.find((x) => x.id === foeId) : null;
+      if (foe) {
+        this.pinCombatFacing(c.id, new Vector3(c.pos.x, 0, c.pos.z), new Vector3(foe.pos.x, 0, foe.pos.z));
+      }
+    }
     // Camera: the player gets a FREE tactical camera (pan/orbit/zoom, so they can pull
     // back to flee); a player-absent fight keeps the cinematic centroid framing.
     this.combatSpectator = !playerInvolved;
@@ -739,8 +759,8 @@ export class GameWorldScene extends BaseScene {
     const attackerNode = this.combatNode(entry.actorId);
     const targetNode = entry.targetId ? this.combatNode(entry.targetId) : null;
     if (attackerNode && targetNode) {
-      this.faceToward(attackerNode, targetNode.position);
-      if (landed) this.faceToward(targetNode, attackerNode.position);
+      this.pinCombatFacing(entry.actorId, attackerNode.position, targetNode.position);
+      if (landed && entry.targetId) this.pinCombatFacing(entry.targetId, targetNode.position, attackerNode.position);
     }
     // Target reacts ONLY when actually hit (HitRecieve / Death). Misses: no reaction.
     if (landed && entry.targetId) {
@@ -754,13 +774,34 @@ export class GameWorldScene extends BaseScene {
     }
   }
 
-  /** Yaw `node` to face `targetPos` on the ground (avatars face +Z at rotation.y = 0). */
+  /**
+   * Pin a combatant's facing yaw: applies it now AND remembers it so the per-frame
+   * combat pin keeps re-asserting it (an idle clip otherwise snaps the avatar back to
+   * its modelled forward — Bug A). No-op if the two points coincide.
+   */
   /* istanbul ignore next — browser-only */
-  private faceToward(node: TransformNode, targetPos: Vector3): void {
-    const dx = targetPos.x - node.position.x;
-    const dz = targetPos.z - node.position.z;
+  private pinCombatFacing(actorId: string, fromPos: Vector3, targetPos: Vector3): void {
+    const dx = targetPos.x - fromPos.x;
+    const dz = targetPos.z - fromPos.z;
     if (Math.abs(dx) < 1e-4 && Math.abs(dz) < 1e-4) return;
-    node.rotation.y = Math.atan2(dx, dz);
+    const yaw = Math.atan2(dx, dz);
+    this.combatFacing.set(actorId, yaw);
+    const node = this.combatNode(actorId);
+    if (node) node.rotation.y = yaw;
+  }
+
+  /**
+   * Re-assert every standing combatant's remembered facing each combat frame, except
+   * those mid-walk (whose own per-segment rotation must win). This defeats the idle
+   * clip resetting the avatar's yaw at the end of a move (Bug A).
+   */
+  /* istanbul ignore next — browser-only */
+  private pinCombatFacings(): void {
+    this.combatFacing.forEach((yaw, id) => {
+      if (this.combatWalking.has(id)) return;
+      const node = this.combatNode(id);
+      if (node) node.rotation.y = yaw;
+    });
   }
 
   /** The world node for a combatant id (player root or NPC holder). */
@@ -981,6 +1022,7 @@ export class GameWorldScene extends BaseScene {
     }
     rotKeys.push({ frame, value: prevAngle }); // hold the final facing
     node.rotation.y = rotKeys[0]!.value; // snap to the first heading immediately
+    this.combatWalking.add(actorId); // suspend the per-frame facing pin while walking
 
     const posAnim = new Animation('combat-walk', 'position', fps, Animation.ANIMATIONTYPE_VECTOR3, Animation.ANIMATIONLOOPMODE_CONSTANT);
     posAnim.setKeys(posKeys);
@@ -992,6 +1034,8 @@ export class GameWorldScene extends BaseScene {
     walk?.start(true);
     this.babylonScene.beginDirectAnimation(node, [posAnim, rotAnim], 0, frame, false, 1, () => {
       node.rotation.y = prevAngle; // pin the final heading so idle doesn't snap it back
+      this.combatFacing.set(actorId, prevAngle); // remember it for the per-frame re-assert
+      this.combatWalking.delete(actorId);
       walk?.stop();
       idle?.start(true);
     });
@@ -1038,6 +1082,8 @@ export class GameWorldScene extends BaseScene {
     this.combatEnc = null;
     this.combatPlayerSide = null;
     this.combatTurnAccum = 0;
+    this.combatFacing.clear();
+    this.combatWalking.clear();
     // Restore the on-foot camera framing (whichever combat mode was active).
     this.cameraSystem?.exitFreeMode();
     this.cameraSystem?.exitConversationMode();

@@ -79,7 +79,7 @@ export const DEFAULT_COMBAT_TUNING: Readonly<CombatTuning> = {
   apMax: 10,
   primaryCost: 2,
   secondaryCost: 1,
-  moveApPerMeter: 1,
+  moveApPerMeter: 0.5, // 1 AP moves 2 metres (owner tuning)
 };
 
 /** Distance (m) at or under which a melee strike is allowed. */
