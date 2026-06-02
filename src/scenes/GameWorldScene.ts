@@ -729,6 +729,14 @@ export class GameWorldScene extends BaseScene {
     if (!entry.attackKind || !(entry.kind === 'hit' || entry.kind === 'miss' || entry.kind === 'death')) return;
     const dead = entry.kind === 'death';
     const landed = entry.kind === 'hit' || dead;
+    // Turn the fighters to face each other before the blow (attacker → target; the
+    // struck one turns back toward the attacker so HitRecieve/Death reads right).
+    const attackerNode = this.combatNode(entry.actorId);
+    const targetNode = entry.targetId ? this.combatNode(entry.targetId) : null;
+    if (attackerNode && targetNode) {
+      this.faceToward(attackerNode, targetNode.position);
+      if (landed) this.faceToward(targetNode, attackerNode.position);
+    }
     // Target reacts ONLY when actually hit (HitRecieve / Death). Misses: no reaction.
     if (landed && entry.targetId) {
       this.playCombatClip(entry.targetId, dead ? 'death' : 'hit', dead);
@@ -739,6 +747,15 @@ export class GameWorldScene extends BaseScene {
     } else {
       this.playCombatClip(entry.actorId, combatClipFor(entry.attackKind), false);
     }
+  }
+
+  /** Yaw `node` to face `targetPos` on the ground (avatars face +Z at rotation.y = 0). */
+  /* istanbul ignore next — browser-only */
+  private faceToward(node: TransformNode, targetPos: Vector3): void {
+    const dx = targetPos.x - node.position.x;
+    const dz = targetPos.z - node.position.z;
+    if (Math.abs(dx) < 1e-4 && Math.abs(dz) < 1e-4) return;
+    node.rotation.y = Math.atan2(dx, dz);
   }
 
   /** The world node for a combatant id (player root or NPC holder). */
