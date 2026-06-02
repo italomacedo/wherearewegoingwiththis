@@ -1,6 +1,7 @@
 import { Vector3 } from '@babylonjs/core';
 import {
   NPCAgent, NPCDefinition, worsenedDisposition, dispositionMagnitude, DISPOSITION_SCALE,
+  friendlyFireDefection,
 } from '../../../src/entities/NPCAgent';
 
 describe('disposition scale helpers (pure)', () => {
@@ -16,6 +17,15 @@ describe('disposition scale helpers (pure)', () => {
     expect(dispositionMagnitude('friendly')).toBe(1);
     expect(dispositionMagnitude('hostile')).toBe(2);
     expect(DISPOSITION_SCALE).toHaveLength(4);
+  });
+
+  it('friendlyFireDefection worsens one step and defects at wary (~2 hits for a friendly ally)', () => {
+    const first = friendlyFireDefection('friendly');
+    expect(first).toEqual({ disposition: 'neutral', defects: false });
+    const second = friendlyFireDefection(first.disposition);
+    expect(second).toEqual({ disposition: 'wary', defects: true });
+    expect(friendlyFireDefection('neutral')).toEqual({ disposition: 'wary', defects: true });
+    expect(friendlyFireDefection('wary')).toEqual({ disposition: 'hostile', defects: true });
   });
 });
 

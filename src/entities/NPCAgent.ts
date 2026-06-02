@@ -35,6 +35,17 @@ export function dispositionMagnitude(d: NPCDisposition): number {
   return Math.abs(DISPOSITION_SCALE.indexOf(d) - DISPOSITION_SCALE.indexOf('neutral'));
 }
 
+/**
+ * The outcome of intentionally striking an ally (8B friendly fire): their
+ * disposition toward the attacker worsens one step, and once it reaches `wary`
+ * (or worse) they DEFECT to the opposing side. A `friendly` ally therefore absorbs
+ * ~two betrayals (friendly→neutral→wary) before turning on you.
+ */
+export function friendlyFireDefection(current: NPCDisposition): { disposition: NPCDisposition; defects: boolean } {
+  const next = worsenedDisposition(current);
+  return { disposition: next, defects: next === 'wary' || next === 'hostile' };
+}
+
 export interface NPCDefinition {
   id: string;
   name: string;
