@@ -46,6 +46,8 @@ export class CameraSystem {
   private convSavedRadius = 0;
   private convSavedTarget: TransformNode | null = null;
   private freeMode = false;
+  /** When true, wheel zoom is allowed on foot (Adjust tool only). */
+  private wheelZoomOverride = false;
   private freeSavedRadius = 0;
   private freeSavedTarget: TransformNode | null = null;
   private detachPointer: (() => void) | null = null;
@@ -174,6 +176,9 @@ export class CameraSystem {
     this.convSavedTarget = null;
   }
 
+  /** Allow/deny mouse-wheel zoom on foot (used by the Adjust tool). */
+  setWheelZoomEnabled(on: boolean): void { this.wheelZoomOverride = on; }
+
   isConversationMode(): boolean {
     return this.conversationMode;
   }
@@ -278,9 +283,9 @@ export class CameraSystem {
       if (e.button === 1) e.preventDefault(); // suppress middle-click autoscroll
     };
     const onWheel = (e: WheelEvent): void => {
-      // Wheel zoom ONLY in the free tactical-combat camera. On foot, zooming out would
-      // let the player metagame areas their character can't see in-character.
-      if (!this.freeMode) return;
+      // Wheel zoom in the free tactical-combat camera OR while the Adjust tool is open
+      // (to inspect a held prop). On foot otherwise it's blocked (anti-metagaming).
+      if (!this.freeMode && !this.wheelZoomOverride) return;
       this.zoom(Math.sign(e.deltaY) * 2);
       e.preventDefault();
     };

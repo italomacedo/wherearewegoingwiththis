@@ -362,7 +362,10 @@ export class GameWorldScene extends BaseScene {
         this.persistSession();
         void this.syncPlayerHeldItems();
       },
-      onClose: () => this.cameraSystem?.exitConversationMode(),
+      onClose: () => {
+        this.cameraSystem?.setWheelZoomEnabled(false);
+        this.cameraSystem?.exitConversationMode();
+      },
     });
 
     // Turn-based combat overlay (triggered by a hostile NPC's attack intent).
@@ -1812,6 +1815,7 @@ export class GameWorldScene extends BaseScene {
     base.bone = boneFor(itemId, slot, this.heldAttach);
     const bones = (this.player?.getSkeleton()?.bones ?? []).map((b) => b.name);
     if (this.player) this.cameraSystem?.enterConversationMode(this.player.getRoot(), 4);
+    this.cameraSystem?.setWheelZoomEnabled(true); // free wheel zoom while tuning
     this.adjustOverlay.open(itemId, slot, base, bones);
   }
 
