@@ -19,7 +19,7 @@ export type ItemCategory = 'melee' | 'consumable' | 'misc';
 /** Body slots of the paper-doll (Phase 10). main_hand = held; back = backpack. */
 export type EquipSlot = 'main_hand' | 'back';
 
-/** Transform of a held item relative to the hand bone (tuned in Electron). */
+/** Transform of a held item relative to its attach bone (tuned in-game / Electron). */
 export interface ItemAttach {
   /** Local position offset [x,y,z]. */
   pos: [number, number, number];
@@ -27,6 +27,8 @@ export interface ItemAttach {
   rot: [number, number, number];
   /** Uniform scale. */
   scale: number;
+  /** Optional bone-name override (else the slot's default bone, e.g. Wrist.R). */
+  bone?: string;
 }
 
 export interface ItemDef {

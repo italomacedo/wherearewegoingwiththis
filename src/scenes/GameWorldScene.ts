@@ -26,7 +26,9 @@ import { CharacterAppearance, DEFAULT_APPEARANCE } from '@entities/CharacterData
 import { Inventory, defaultInventoryState } from '@entities/Inventory';
 import { weaponProfile, itemDef } from '@entities/items/ItemCatalog';
 import { InventoryOverlay } from '@systems/InventoryOverlay';
-import { HeldItemRig } from '@systems/HeldItems';
+import { HeldItemRig, resolveAttachWith, boneFor, AttachOverrides } from '@systems/HeldItems';
+import { AdjustOverlay } from '@systems/AdjustOverlay';
+import { EquipSlot } from '@entities/items/ItemCatalog';
 import { NPCManager, NPCMemoryMap, AutonomyContext, AutonomyJob } from '@systems/NPCManager';
 import { ClaudeCallQueue, queueConfigFromSettings } from '@systems/ClaudeCallQueue';
 import { IntentCandidate } from '@systems/npc/Intent';
@@ -93,6 +95,10 @@ export class GameWorldScene extends BaseScene {
   private playerHeldRig: HeldItemRig | null = null;
   /** Visible held weapon on each NPC avatar (keyed by NPC id). */
   private npcHeldRigById = new Map<string, HeldItemRig>();
+  /** Per-item held-prop transform overrides (Adjust tool), persisted in the save. */
+  private heldAttach: AttachOverrides = {};
+  /** Held-prop calibration overlay (Adjust tool). */
+  private adjustOverlay: AdjustOverlay | null = null;
   private combat: CombatOverlay | null = null;
   private gameOverMenu: GameOverMenu | null = null;
   private combatFocus: TransformNode | null = null;
@@ -212,6 +218,7 @@ export class GameWorldScene extends BaseScene {
       this.playerInventory.equipToSlot('main_hand', 'knife');
       this.playerInventory.equipToSlot('back', 'backpack');
     }
+    this.heldAttach = session.heldAttach ?? {};
     this.npcMemory = session.npcMemory ?? {};
     this.gameTimeSeconds = session.gameTimeSeconds;
     this.playerHealthState = session.playerHealth ?? { ...DEFAULT_PLAYER_HEALTH };
@@ -248,6 +255,7 @@ export class GameWorldScene extends BaseScene {
     const inventory = this.playerInventory.toState();
     SaveService.save({
       ...save, character, world, gameTimeSeconds: this.gameTimeSeconds, npcMemory: memory, playerHealth, vehicle, inventory,
+      heldAttach: this.heldAttach,
     });
 
     const session = ServiceLocator.tryGet<GameSession>('gameSession');
@@ -259,6 +267,7 @@ export class GameWorldScene extends BaseScene {
       session.playerHealth = playerHealth;
       session.vehicle = vehicle;
       session.inventory = inventory;
+      session.heldAttach = this.heldAttach;
     }
   }
 
@@ -335,6 +344,22 @@ export class GameWorldScene extends BaseScene {
       onHeal: (amount) => { this.player?.getHealth().heal(amount); },
       // Looting a corpse framed the camera on it (conversation mode); restore the
       // normal follow camera when the overlay closes.
+      onClose: () => this.cameraSystem?.exitConversationMode(),
+    });
+
+    // Adjust tool (Phase 10.4b): live-calibrate a held prop's attach transform.
+    this.adjustOverlay = new AdjustOverlay(this.babylonScene);
+    this.adjustOverlay.setHandlers({
+      onApply: (slot, attach) => {
+        // Live preview: re-position the already-mounted prop without reloading.
+        const bone = attach.bone ?? boneFor(this.playerInventory.equippedIn(slot) ?? '', slot, this.heldAttach);
+        void this.playerHeldRig?.applyLiveTransform(slot, attach, bone);
+      },
+      onSave: (itemId, _slot, attach) => {
+        this.heldAttach = { ...this.heldAttach, [itemId]: attach };
+        this.persistSession();
+        void this.syncPlayerHeldItems();
+      },
       onClose: () => this.cameraSystem?.exitConversationMode(),
     });
 
@@ -511,6 +536,8 @@ export class GameWorldScene extends BaseScene {
     this.dialog?.dispose();
     this.pauseMenu?.dispose();
     this.inventoryOverlay?.dispose();
+    this.adjustOverlay?.dispose();
+    this.adjustOverlay = null;
     this.playerHeldRig?.dispose();
     this.playerHeldRig = null;
     this.npcHeldRigById.forEach((r) => r.dispose());
@@ -592,6 +619,16 @@ export class GameWorldScene extends BaseScene {
     // Inventory overlay (I) — freezes the world like pause; ESC/I closes it.
     this.handleInventoryInput();
     if (this.inventoryOverlay?.isOpen()) {
+      this.cameraSystem?.update();
+      this.inputSystem?.endFrame();
+      return;
+    }
+
+    // Adjust tool (O) — freezes movement but keeps camera orbit/zoom so you can
+    // inspect the held prop from any angle while tuning it.
+    this.handleAdjustInput();
+    if (this.adjustOverlay?.isOpen()) {
+      this.handleCameraKeys(dt);
       this.cameraSystem?.update();
       this.inputSystem?.endFrame();
       return;
@@ -712,7 +749,7 @@ export class GameWorldScene extends BaseScene {
 
   /** Re-attach the hero's visible props to match its current inventory slots. */
   private async syncPlayerHeldItems(): Promise<void> {
-    await this.playerHeldRig?.sync(this.playerInventory.toState().equipped);
+    await this.playerHeldRig?.sync(this.playerInventory.toState().equipped, this.heldAttach);
   }
 
   /** Builds a ClaudeNPCService when running in Electron; null otherwise. */
@@ -1744,6 +1781,30 @@ export class GameWorldScene extends BaseScene {
     // Don't open over another modal or while typing in the dialog.
     if (this.dialog?.isOpen() || this.pauseMenu?.isOpen() || this.gameOverMenu?.isOpen()) return;
     if (this.inputSystem.wasJustPressed('inventory.open')) overlay.openManage(this.playerInventory);
+  }
+
+  /** `O` toggles the Adjust tool for the currently equipped held prop. */
+  /* istanbul ignore next — browser-only camera/overlay wiring */
+  private handleAdjustInput(): void {
+    if (!this.inputSystem || !this.adjustOverlay) return;
+    const overlay = this.adjustOverlay;
+    if (overlay.isOpen()) {
+      if (this.inputSystem.wasJustPressed('adjust.toggle')) overlay.close();
+      return;
+    }
+    if (this.dialog?.isOpen() || this.pauseMenu?.isOpen() || this.gameOverMenu?.isOpen()
+      || this.inventoryOverlay?.isOpen()) return;
+    if (!this.inputSystem.wasJustPressed('adjust.toggle')) return;
+    // Tune the main-hand prop if present, else the back prop.
+    const equip = this.playerInventory.toState().equipped ?? {};
+    const slot: EquipSlot = equip.main_hand ? 'main_hand' : 'back';
+    const itemId = equip[slot];
+    if (!itemId) return; // nothing equipped to adjust
+    const base = resolveAttachWith(itemId, slot, this.heldAttach);
+    base.bone = boneFor(itemId, slot, this.heldAttach);
+    const bones = (this.player?.getSkeleton()?.bones ?? []).map((b) => b.name);
+    if (this.player) this.cameraSystem?.enterConversationMode(this.player.getRoot(), 4);
+    overlay.open(itemId, slot, base, bones);
   }
 
   private wirePauseMenu(): void {

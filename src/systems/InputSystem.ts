@@ -9,6 +9,7 @@ export type GameAction =
   | 'interact'
   | 'chat.open'
   | 'inventory.open'
+  | 'adjust.toggle'
   | 'vehicle.enter'
   | 'camera.rotateLeft'
   | 'camera.rotateRight'
@@ -32,6 +33,7 @@ export const DEFAULT_BINDINGS: Record<string, GameAction> = {
   KeyE: 'interact',
   KeyT: 'chat.open', // open the chat anywhere (react to the world / hail an NPC)
   KeyI: 'inventory.open', // open the inventory overlay
+  KeyO: 'adjust.toggle',  // open the held-prop Adjust tool (calibrate attach)
   KeyF: 'vehicle.enter',
   Escape: 'pause',
   // Camera orbit: hold Z / C to rotate left / right (also middle-mouse drag).

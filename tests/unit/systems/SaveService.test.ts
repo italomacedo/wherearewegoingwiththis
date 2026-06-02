@@ -67,6 +67,27 @@ describe('SaveService', () => {
     expect(() => SaveService.updateHunger('nope', { current: 1, max: 100 })).not.toThrow();
   });
 
+  it('createNewSave starts with empty held-attach overrides', () => {
+    expect(SaveService.createNewSave(testCharacter).heldAttach).toEqual({});
+  });
+
+  it('load migrates a legacy save missing heldAttach', () => {
+    const save = SaveService.createNewSave(testCharacter);
+    delete (save as Partial<SaveGame>).heldAttach;
+    SaveService.save(save);
+    expect(SaveService.load(save.saveId)!.heldAttach).toEqual({});
+  });
+
+  it('updateHeldAttach persists per-item attach overrides', () => {
+    const save = SaveService.createNewSave(testCharacter);
+    SaveService.save(save);
+    SaveService.updateHeldAttach(save.saveId, { knife: { pos: [0.1, 0, 0], rot: [0, 0, 0], scale: 0.4, bone: 'Wrist.R' } });
+    const loaded = SaveService.load(save.saveId)!;
+    expect(loaded.heldAttach.knife.scale).toBe(0.4);
+    expect(loaded.heldAttach.knife.bone).toBe('Wrist.R');
+    expect(() => SaveService.updateHeldAttach('nope', {})).not.toThrow();
+  });
+
   it('createNewSave includes an empty inventory', () => {
     const save = SaveService.createNewSave(testCharacter);
     expect(save.inventory).toEqual({ items: [], equipped: {}, equippedWeaponId: null, capacityWeight: 30 });

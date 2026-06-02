@@ -31,6 +31,24 @@ export function resolveAttach(itemId: string, slot: EquipSlot): ItemAttach {
   return itemAttach(itemId) ?? DEFAULT_ATTACH[slot];
 }
 
+/**
+ * Per-item attach overrides tuned in-game (the Adjust tool, persisted in the save).
+ * Keyed by item id; may carry a `bone` override too.
+ */
+export type AttachOverrides = Record<string, ItemAttach>;
+
+/** Attach transform honouring a save's tuned override, else item/slot defaults. */
+export function resolveAttachWith(
+  itemId: string, slot: EquipSlot, overrides?: AttachOverrides,
+): ItemAttach {
+  return overrides?.[itemId] ?? resolveAttach(itemId, slot);
+}
+
+/** The bone an item attaches to: override → item attach → slot default. */
+export function boneFor(itemId: string, slot: EquipSlot, overrides?: AttachOverrides): string {
+  return overrides?.[itemId]?.bone ?? itemAttach(itemId)?.bone ?? attachBoneNameFor(slot);
+}
+
 /** A prop to render on the avatar: which slot/bone, the GLB, and the transform. */
 export interface HeldProp {
   slot: EquipSlot;
@@ -47,7 +65,10 @@ export const VISIBLE_SLOTS: readonly EquipSlot[] = ['main_hand', 'back'];
  * Pure: which props to render for an equipped-slot map. Skips empty slots and
  * model-less items (e.g. legacy pipe/bat that have no pack GLB show nothing).
  */
-export function heldPropsFor(equipped: Partial<Record<EquipSlot, string>> | undefined): HeldProp[] {
+export function heldPropsFor(
+  equipped: Partial<Record<EquipSlot, string>> | undefined,
+  overrides?: AttachOverrides,
+): HeldProp[] {
   const out: HeldProp[] = [];
   if (!equipped) return out;
   for (const slot of VISIBLE_SLOTS) {
@@ -55,7 +76,11 @@ export function heldPropsFor(equipped: Partial<Record<EquipSlot, string>> | unde
     if (!id) continue;
     const modelPath = itemModelPath(id);
     if (!modelPath) continue;
-    out.push({ slot, itemId: id, modelPath, attach: resolveAttach(id, slot), bone: attachBoneNameFor(slot) });
+    out.push({
+      slot, itemId: id, modelPath,
+      attach: resolveAttachWith(id, slot, overrides),
+      bone: boneFor(id, slot, overrides),
+    });
   }
   return out;
 }
@@ -87,10 +112,13 @@ export class HeldItemRig {
     return this.skeleton?.bones.find((b) => b.name === name) ?? null;
   }
 
-  /** Sync all visible slots to the given equipped map (diffing by item id). */
-  async sync(equipped: Partial<Record<EquipSlot, string>> | undefined): Promise<void> {
+  /** Sync all visible slots to the equipped map (diffing by item id), honouring overrides. */
+  async sync(
+    equipped: Partial<Record<EquipSlot, string>> | undefined,
+    overrides?: AttachOverrides,
+  ): Promise<void> {
     if (typeof document === 'undefined' || !this.skeleton || !this.sourceMesh) return;
-    const want = new Map(heldPropsFor(equipped).map((p) => [p.slot, p]));
+    const want = new Map(heldPropsFor(equipped, overrides).map((p) => [p.slot, p]));
     // Remove slots no longer wanted, or whose item changed.
     for (const [slot, entry] of [...this.attached]) {
       const w = want.get(slot);
@@ -126,6 +154,21 @@ export class HeldItemRig {
     root.rotation = new Vector3(p.attach.rot[0], p.attach.rot[1], p.attach.rot[2]);
     root.scaling = new Vector3(p.attach.scale, p.attach.scale, p.attach.scale);
     this.attached.set(p.slot, { itemId: p.itemId, root });
+  }
+
+  /**
+   * Live-update an already-mounted slot's transform/bone (the Adjust tool preview),
+   * without reloading the GLB. No-op if that slot isn't currently mounted.
+   */
+  async applyLiveTransform(slot: EquipSlot, attach: ItemAttach, boneName: string): Promise<void> {
+    const entry = this.attached.get(slot);
+    if (!entry) return;
+    const bone = this.boneByName(boneName);
+    const { Vector3 } = await import('@babylonjs/core');
+    if (bone) entry.root.attachToBone(bone as never, this.sourceMesh as never);
+    entry.root.position = new Vector3(attach.pos[0], attach.pos[1], attach.pos[2]);
+    entry.root.rotation = new Vector3(attach.rot[0], attach.rot[1], attach.rot[2]);
+    entry.root.scaling = new Vector3(attach.scale, attach.scale, attach.scale);
   }
 
   /**

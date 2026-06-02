@@ -1,5 +1,6 @@
 import {
-  attachBoneNameFor, resolveAttach, heldPropsFor, DEFAULT_ATTACH, VISIBLE_SLOTS,
+  attachBoneNameFor, resolveAttach, resolveAttachWith, boneFor, heldPropsFor,
+  DEFAULT_ATTACH, VISIBLE_SLOTS, AttachOverrides,
 } from '../../../src/systems/HeldItems';
 
 describe('HeldItems (pure decision logic)', () => {
@@ -43,5 +44,29 @@ describe('HeldItems (pure decision logic)', () => {
     expect(props).toHaveLength(1);
     expect(props[0].modelPath).toBe('items/pistol_1.glb');
     expect(props[0].bone).toBe('Wrist.R');
+  });
+
+  describe('save overrides (Adjust tool)', () => {
+    const overrides: AttachOverrides = {
+      knife: { pos: [0.1, 0.2, 0], rot: [0, 1, 0], scale: 0.5, bone: 'Index1.R' },
+    };
+
+    it('resolveAttachWith prefers the save override', () => {
+      expect(resolveAttachWith('knife', 'main_hand', overrides).scale).toBe(0.5);
+      // no override → catalog/default
+      expect(resolveAttachWith('axe', 'main_hand', overrides).scale).toBeCloseTo(0.03, 5);
+    });
+
+    it('boneFor: override bone → catalog bone → slot default', () => {
+      expect(boneFor('knife', 'main_hand', overrides)).toBe('Index1.R'); // override
+      expect(boneFor('knife', 'main_hand')).toBe('Wrist.R');             // slot default (knife has no catalog bone)
+      expect(boneFor('backpack', 'back')).toBe('Chest');
+    });
+
+    it('heldPropsFor applies overrides to attach + bone', () => {
+      const props = heldPropsFor({ main_hand: 'knife' }, overrides);
+      expect(props[0].attach.scale).toBe(0.5);
+      expect(props[0].bone).toBe('Index1.R');
+    });
   });
 });

@@ -5,6 +5,7 @@ import { HungerState } from '@entities/Hunger';
 import { createDefaultStats } from '@entities/CharacterStats';
 import { NPCDisposition } from '@entities/NPCAgent';
 import { InventoryState, defaultInventoryState } from '@entities/Inventory';
+import type { AttachOverrides } from '@systems/HeldItems';
 
 /**
  * Per-NPC persisted memory: conversation state, the dynamic disposition toward the
@@ -46,6 +47,8 @@ export interface SaveGame {
   playerHunger: HungerState;
   vehicle: VehicleSaveState;
   inventory: InventoryState;
+  /** Per-item held-prop transform overrides tuned in-game (Adjust tool). */
+  heldAttach: AttachOverrides;
   flags: Record<string, boolean | number | string>;
   npcMemory: NPCMemory;
 }
@@ -85,6 +88,7 @@ export class SaveService {
       playerHunger: { ...DEFAULT_PLAYER_HUNGER },
       vehicle: { health: { ...DEFAULT_VEHICLE_STATE.health }, destroyed: false },
       inventory: defaultInventoryState(),
+      heldAttach: {},
       flags: {},
       npcMemory: {},
     };
@@ -106,6 +110,12 @@ export class SaveService {
     const save = SaveService.load(saveId);
     if (!save) return;
     SaveService.save({ ...save, playerHunger });
+  }
+
+  static updateHeldAttach(saveId: string, heldAttach: AttachOverrides): void {
+    const save = SaveService.load(saveId);
+    if (!save) return;
+    SaveService.save({ ...save, heldAttach });
   }
 
   static save(saveGame: SaveGame): void {
@@ -214,6 +224,7 @@ export class SaveService {
       save.character.stats = createDefaultStats();
     }
     if (!save.inventory) save.inventory = defaultInventoryState();
+    if (!save.heldAttach) save.heldAttach = {};
     return save;
   }
 
