@@ -176,7 +176,7 @@ describe('GameWorldScene', () => {
     expect(scene.getDialog()!.isOpen()).toBe(true);
   });
 
-  it('a defeated NPC shows a Search prompt and opens a corpse interaction (no live chat)', async () => {
+  it('a defeated NPC shows a Search prompt and opens the loot overlay (no live chat)', async () => {
     await scene.onEnter();
     scene.getNpcManager()!.getAgent('npc_zara_vendor_01')!.markDefeated();
     scene.getPlayer()!.getRoot().position.set(3, 0, 5);
@@ -185,7 +185,27 @@ describe('GameWorldScene', () => {
     expect(scene.getHud()!.getActionPrompt()).toBe('[E] Search the body');
     scene.getInputSystem()!.handleKeyDown('KeyE');
     scene.update();
-    expect(scene.getDialog()!.isOpen()).toBe(true);
+    // Searching a corpse opens the loot overlay (not a chat dialog).
+    expect(scene.getDialog()!.isOpen()).toBe(false);
+    const overlay = scene.getInventoryOverlay()!;
+    expect(overlay.isOpen()).toBe(true);
+    expect(overlay.getMode()).toBe('loot');
+    // Zara's loadout (pipe + medkit + scrap) is lootable.
+    expect(overlay.sourceRows().map((r) => r.id).sort()).toEqual(['medkit', 'pipe', 'scrap']);
+  });
+
+  it('I opens the inventory overlay (manage) and freezes the world; ESC closes it', async () => {
+    await scene.onEnter();
+    const input = scene.getInputSystem()!;
+    const overlay = scene.getInventoryOverlay()!;
+    input.handleKeyDown('KeyI');
+    scene.update();
+    expect(overlay.isOpen()).toBe(true);
+    expect(overlay.getMode()).toBe('manage');
+    input.handleKeyUp('KeyI');
+    input.handleKeyDown('Escape');
+    scene.update();
+    expect(overlay.isOpen()).toBe(false);
   });
 
   it('pressing interact while dialog open closes it', async () => {
