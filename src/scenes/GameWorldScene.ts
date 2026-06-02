@@ -545,6 +545,11 @@ export class GameWorldScene extends BaseScene {
   /** Play attack/hit/dodge/death animations on the world meshes for a resolved combat beat. */
   /* istanbul ignore next — browser-only animation playback */
   private animateCombatBeat(entry: CombatLogEntry): void {
+    // Take cover / hunker down → a quick Roll (the closest "get low" motion the rig has).
+    if (entry.kind === 'cover' || entry.kind === 'hunker') {
+      this.playCombatClip(entry.actorId, 'dodge', false);
+      return;
+    }
     if (!entry.attackKind || !(entry.kind === 'hit' || entry.kind === 'miss' || entry.kind === 'death')) return;
     const dead = entry.kind === 'death';
     const landed = entry.kind === 'hit' || dead;
