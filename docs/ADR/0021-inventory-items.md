@@ -1,6 +1,7 @@
 # ADR-0021 — Inventory + items (melee weapons, consumables, corpse loot)
 
-**Status:** Accepted (Fase 9). Builds on the tactical combat of
+**Status:** Accepted (Fase 9) — **merged to `main`, owner-validated in Electron**
+(1053 tests, ~98/90 coverage). Builds on the tactical combat of
 [ADR-0020](0020-tactical-multicombatant-combat.md) and the RPG foundation of
 [ADR-0016](0016-rpg-stats-power-ratio-checks.md).
 
@@ -61,6 +62,11 @@ Decisions locked with the owner:
 - A knife/pipe out-damages a fist; an NPC carrying a weapon hits harder; killing
   an NPC and looting its weapon is a real progression loop. Unarmed combat is
   byte-for-byte unchanged (fist profile = old constants).
+- **Playtest fixes (Electron):** the combat log now names the weapon ("… HITS …
+  with Knife" / "with fists") — the attacker's `weaponName` rides on the attack
+  event (`CombatEncounter` → `CombatController` → `objectiveLogLine` → i18n), not
+  re-derived at render. Closing the loot overlay restores the follow camera
+  (`onClose` → `exitConversationMode`), since looting framed the corpse.
 - **Deferred:** firearms + ammo + Shoot/Reload, scenery cover, the Zara shop /
   credit economy (credsticks are inert loot for now), implants, item rarity/tiers.
 - i18n: EN/pt-BR strings for the overlay + item names. Coverage stays at the gate
