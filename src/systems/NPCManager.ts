@@ -7,6 +7,7 @@ import { ActionClassification } from '@systems/npc/EmoteIntent';
 import { NPCDisposition } from '@entities/NPCAgent';
 import { IntentCandidate, NPCIntent, parseIntent } from '@systems/npc/Intent';
 import { ClaudeCallQueue } from '@systems/ClaudeCallQueue';
+import { InventoryState } from '@entities/Inventory';
 
 export const COOLDOWN_SECONDS = 3;
 
@@ -19,6 +20,8 @@ export type NPCMemoryEntry = ConversationState & {
   relationships?: Record<string, NPCDisposition>;
   /** World events this NPC witnessed (e.g. "X was killed"), fed into its prompt. */
   events?: string[];
+  /** Persisted inventory (Phase 9), so a looted corpse stays looted across reloads. */
+  inventory?: InventoryState;
 };
 export type NPCMemoryMap = Record<string, NPCMemoryEntry>;
 
@@ -277,6 +280,7 @@ export class NPCManager {
         disposition: agent.getDisposition(),
         relationships: agent.relationshipsRecord(),
         events: agent.getKnownEvents(),
+        inventory: agent.getInventoryState(),
       };
     });
     return map;
@@ -311,6 +315,14 @@ export class NPCManager {
     npcId: string,
   ): string[] | undefined {
     return memory?.[npcId]?.events;
+  }
+
+  /** The persisted inventory for an NPC (undefined = none saved → rebuild from loadout). */
+  static restoreInventory(
+    memory: NPCMemoryMap | undefined,
+    npcId: string,
+  ): InventoryState | undefined {
+    return memory?.[npcId]?.inventory;
   }
 
   dispose(): void {

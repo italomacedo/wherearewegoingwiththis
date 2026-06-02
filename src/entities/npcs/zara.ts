@@ -54,6 +54,12 @@ export const ZARA_DEFINITION: NPCDefinition = {
   initialDisposition: 'wary',
   // Loathes the corporate fixer — sides against him in a multi-combatant fight (8B).
   npcRelationships: { npc_mback_fence_01: 'wary' },
+  // Keeps a length of pipe for self-defence and a medkit (lootable from her corpse).
+  loadout: [
+    { id: 'pipe', qty: 1 },
+    { id: 'medkit', qty: 1 },
+    { id: 'scrap', qty: 2 },
+  ],
 };
 
 export function createZara(): NPCDefinition {

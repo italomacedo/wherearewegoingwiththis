@@ -14,6 +14,7 @@ export type NPCMemory = Record<string, ConversationState & {
   disposition?: NPCDisposition;
   relationships?: Record<string, NPCDisposition>;
   events?: string[];
+  inventory?: InventoryState;
 }>;
 
 export interface VehicleSaveState {

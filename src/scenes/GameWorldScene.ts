@@ -613,6 +613,7 @@ export class GameWorldScene extends BaseScene {
       const savedLedger = NPCManager.restoreRelationships(this.npcMemory, def.id);
       if (savedLedger) agent.restoreRelationships(savedLedger);
       agent.restoreEvents(NPCManager.restoreEvents(this.npcMemory, def.id));
+      agent.restoreInventory(NPCManager.restoreInventory(this.npcMemory, def.id));
       const anchor = await this.buildNPCVisual(def);
       this.npcAnchors.push(anchor);
     }
@@ -766,7 +767,7 @@ export class GameWorldScene extends BaseScene {
         if (!a || a.isDefeated()) continue;
         const pos = holder?.position ?? a.getPosition();
         const hp = GameWorldScene.NPC_COMBAT_HP;
-        combatants.push({ id, name: a.getDisplayName(), isPlayer: false, stats: this.enemyStatsFor(a), health: { current: hp, max: hp }, pos: { x: pos.x, z: pos.z }, side });
+        combatants.push({ id, name: a.getDisplayName(), isPlayer: false, stats: this.enemyStatsFor(a), health: { current: hp, max: hp }, pos: { x: pos.x, z: pos.z }, side, weapon: weaponProfile(a.getCombatWeaponId()) });
         names[id] = a.getDisplayName();
         if (holder) sources[id] = holder;
       }

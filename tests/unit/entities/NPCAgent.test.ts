@@ -53,6 +53,34 @@ describe('NPCAgent', () => {
     expect(agent.getMood()).toBe('suspicious');
   });
 
+  it('has an empty inventory and fights with fists when no loadout is given', () => {
+    expect(agent.getInventory().isEmpty()).toBe(true);
+    expect(agent.getCombatWeaponId()).toBeNull();
+  });
+
+  it('builds an inventory from the loadout and auto-equips the first weapon', () => {
+    const armed = new NPCAgent({ ...def, loadout: [{ id: 'pipe', qty: 1 }, { id: 'medkit', qty: 2 }] });
+    expect(armed.getInventory().count('pipe')).toBe(1);
+    expect(armed.getInventory().count('medkit')).toBe(2);
+    expect(armed.getCombatWeaponId()).toBe('pipe'); // auto-equipped weapon
+  });
+
+  it('a loadout with no weapon leaves the NPC unarmed', () => {
+    const medic = new NPCAgent({ ...def, loadout: [{ id: 'medkit', qty: 1 }] });
+    expect(medic.getCombatWeaponId()).toBeNull();
+  });
+
+  it('restoreInventory loads a persisted inventory, or rebuilds from the loadout when absent', () => {
+    const armed = new NPCAgent({ ...def, loadout: [{ id: 'knife', qty: 1 }] });
+    armed.getInventory().remove('knife', 1); // someone looted it
+    const looted = armed.getInventoryState();
+    const reloaded = new NPCAgent({ ...def, loadout: [{ id: 'knife', qty: 1 }] });
+    reloaded.restoreInventory(looted);
+    expect(reloaded.getInventory().count('knife')).toBe(0); // stays looted
+    reloaded.restoreInventory(undefined);
+    expect(reloaded.getInventory().count('knife')).toBe(1); // rebuilt from loadout
+  });
+
   it('getPosition returns the definition position', () => {
     expect(agent.getPosition()).toEqual(new Vector3(0, 0, 0));
   });

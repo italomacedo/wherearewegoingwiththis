@@ -2,6 +2,8 @@ import { Vector3 } from '@babylonjs/core';
 import { ConversationContext } from '@systems/npc/ConversationContext';
 import { CharacterAppearance } from '@entities/CharacterData';
 import type { NPCIntent } from '@systems/npc/Intent';
+import { Inventory, InventoryStack, InventoryState } from '@entities/Inventory';
+import { isWeapon } from '@entities/items/ItemCatalog';
 
 export type NPCMood = 'neutral' | 'friendly' | 'suspicious' | 'hostile' | 'scared';
 
@@ -78,6 +80,11 @@ export interface NPCDefinition {
   npcRelationships?: Record<string, NPCDisposition>;
   /** Initial disposition toward the player (dynamic transitions: Phase 5). */
   initialDisposition?: NPCDisposition;
+  /**
+   * What the NPC carries (Phase 9). Drives the weapon it fights with and what the
+   * player can loot from its corpse. The first weapon is auto-equipped.
+   */
+  loadout?: InventoryStack[];
 }
 
 /**
@@ -97,6 +104,9 @@ export class NPCAgent {
   private readonly relationships = new Map<string, NPCDisposition>();
   private intent: NPCIntent = { kind: 'stay' };
 
+  /** What the NPC carries (built from the loadout; mutated by looting). */
+  private inventory: Inventory;
+
   constructor(definition: NPCDefinition, conversation?: ConversationContext) {
     this.definition = definition;
     this.mood = definition.defaultMood;
@@ -105,6 +115,16 @@ export class NPCAgent {
     for (const [id, level] of Object.entries(definition.npcRelationships ?? {})) {
       this.relationships.set(id, level);
     }
+    this.inventory = NPCAgent.buildLoadout(definition.loadout);
+  }
+
+  /** Build an inventory from a loadout list, auto-equipping the first weapon. */
+  private static buildLoadout(loadout?: InventoryStack[]): Inventory {
+    const inv = new Inventory();
+    for (const s of loadout ?? []) inv.add(s.id, s.qty);
+    const weapon = (loadout ?? []).find((s) => isWeapon(s.id));
+    if (weapon) inv.equip(weapon.id);
+    return inv;
   }
 
   // ─── Disposition toward the player (dynamic, persisted via npcMemory) ────────
@@ -219,6 +239,22 @@ export class NPCAgent {
   /** Replace the known-events memory from a persisted list (load). */
   restoreEvents(events: string[] | undefined): void {
     this.knownEvents = [...(events ?? [])];
+  }
+
+  // ─── Inventory / loadout (Phase 9: combat weapon + corpse loot) ──────────────
+
+  /** The NPC's live inventory (mutated by looting). */
+  getInventory(): Inventory { return this.inventory; }
+
+  /** The weapon the NPC fights with (its equipped loadout weapon), or null for fists. */
+  getCombatWeaponId(): string | null { return this.inventory.equippedWeaponId; }
+
+  /** Serialize the inventory for persistence (so a looted corpse stays looted). */
+  getInventoryState(): InventoryState { return this.inventory.toState(); }
+
+  /** Replace the inventory from a persisted state (load); falls back to the loadout. */
+  restoreInventory(state: InventoryState | undefined): void {
+    this.inventory = state ? Inventory.fromState(state) : NPCAgent.buildLoadout(this.definition.loadout);
   }
 
   // ─── Current deliberated intent (set by the autonomy layer) ─────────────────
