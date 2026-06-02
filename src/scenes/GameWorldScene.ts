@@ -137,6 +137,9 @@ export class GameWorldScene extends BaseScene {
   private static readonly ENGAGE_DIST = 1.8;       // arrival threshold for gossip
   private entityColliders: AbstractMesh[] = [];
   private entityAggregates: PhysicsAggregate[] = [];
+  /** Per-NPC static collider, keyed so it can follow a combat reposition (Bug: Zara's
+   *  box stayed put when she walked into a fight). */
+  private npcColliderById = new Map<string, { box: AbstractMesh; agg: PhysicsAggregate }>();
   private detachInput: (() => void) | null = null;
   private startZoneId = 'mercado_sombras';
   private appearance: CharacterAppearance = DEFAULT_APPEARANCE;
@@ -302,22 +305,47 @@ export class GameWorldScene extends BaseScene {
 
   /* istanbul ignore next — physics colliders are browser/Electron only */
   private buildEntityColliders(): void {
-    const targets: Array<AbstractMesh | undefined> = [
-      this.vehicle?.getRoot() as unknown as AbstractMesh,
-      ...this.npcAnchors,
-    ];
-    for (const t of targets) {
-      if (!t) continue;
-      const { min, max } = t.getHierarchyBoundingVectors(true);
-      const size = max.subtract(min);
-      if (size.x < 0.05 || size.y < 0.05 || size.z < 0.05) continue;
-      const box = MeshBuilder.CreateBox(`col-entity-${t.name}`, { width: size.x, height: size.y, depth: size.z }, this.babylonScene);
-      box.position.copyFrom(min.add(max).scale(0.5));
-      box.isVisible = false;
-      const agg = new PhysicsAggregate(box, PhysicsShapeType.BOX, { mass: 0 }, this.babylonScene);
-      this.entityColliders.push(box);
-      this.entityAggregates.push(agg);
+    // The vehicle never repositions → flat arrays. NPCs are keyed so their box can
+    // follow a combat reposition (rebuildNpcCollider).
+    const veh = this.vehicle?.getRoot() as unknown as AbstractMesh | undefined;
+    if (veh) {
+      const c = this.makeStaticCollider(veh, 'col-entity-nave');
+      if (c) { this.entityColliders.push(c.box); this.entityAggregates.push(c.agg); }
     }
+    this.npcHolderById.forEach((holder, id) => {
+      const c = this.makeStaticCollider(holder, `col-npc-${id}`);
+      if (c) this.npcColliderById.set(id, c);
+    });
+  }
+
+  /** Build an invisible static box collider sized to a node's world bounds. */
+  /* istanbul ignore next — physics colliders are browser/Electron only */
+  private makeStaticCollider(node: AbstractMesh | TransformNode, name: string): { box: AbstractMesh; agg: PhysicsAggregate } | null {
+    const { min, max } = node.getHierarchyBoundingVectors(true);
+    const size = max.subtract(min);
+    if (size.x < 0.05 || size.y < 0.05 || size.z < 0.05) return null;
+    const box = MeshBuilder.CreateBox(name, { width: size.x, height: size.y, depth: size.z }, this.babylonScene);
+    box.position.copyFrom(min.add(max).scale(0.5));
+    box.isVisible = false;
+    const agg = new PhysicsAggregate(box, PhysicsShapeType.BOX, { mass: 0 }, this.babylonScene);
+    return { box, agg };
+  }
+
+  /**
+   * Rebuild an NPC's static collider at its current position (a static Havok body
+   * doesn't follow the mesh, so dispose + recreate — same pattern as the hero's
+   * teleport). Called after a combat reposition so the box follows the avatar.
+   */
+  /* istanbul ignore next — physics colliders are browser/Electron only */
+  private rebuildNpcCollider(id: string): void {
+    if (!this.babylonScene.isPhysicsEnabled()) return;
+    const holder = this.npcHolderById.get(id);
+    if (!holder) return;
+    const old = this.npcColliderById.get(id);
+    if (old) { old.agg.dispose(); old.box.dispose(); this.npcColliderById.delete(id); }
+    holder.computeWorldMatrix(true); // bounds must reflect the just-moved position
+    const c = this.makeStaticCollider(holder, `col-npc-${id}`);
+    if (c) this.npcColliderById.set(id, c);
   }
 
   async onExit(): Promise<void> {
@@ -340,6 +368,8 @@ export class GameWorldScene extends BaseScene {
     this.entityAggregates = [];
     this.entityColliders.forEach((c) => c.dispose());
     this.entityColliders = [];
+    this.npcColliderById.forEach(({ box, agg }) => { agg.dispose(); box.dispose(); });
+    this.npcColliderById.clear();
     this.npcMeshes.forEach((m) => m.dispose());
     this.npcMeshes = [];
     this.npcVisuals.forEach((v) => v.dispose());
@@ -1065,6 +1095,7 @@ export class GameWorldScene extends BaseScene {
         const y = holder?.position.y ?? 0;
         holder?.position.set(c.pos.x, y, c.pos.z);
         agent?.setPosition(new Vector3(c.pos.x, y, c.pos.z));
+        this.rebuildNpcCollider(c.id); // the static box must follow the avatar
         if (!agent) continue;
         if (!c.alive) {
           agent.markDefeated();

@@ -116,6 +116,11 @@ after a recruiter fix, and drove this polish (all browser-only / `istanbul ignor
 - **Movement tuning — APPLIED.** `moveApPerMeter` default 1 → **0.5 (1 AP moves 2 m)** so
   low-Dex allies close distance in fewer turns. Options now cycles 0.5 ↔ 1 AP/m, displayed as
   **m/AP** ("2 m/AP" / "1 m/AP"); `SettingsService.combatMoveApPerMeter: 0.5 | 1`.
+- **NPC collider follows a combat reposition — FIXED.** A static Havok box doesn't track its
+  mesh, so an NPC that walked into a fight left its collider behind (you'd bump an invisible box
+  at its old spot, and pass through where it now stands). Per-NPC colliders are now keyed
+  (`npcColliderById`) and **rebuilt at the new position** (dispose + recreate, like the hero
+  teleport) in the `endCombat` position sync (`rebuildNpcCollider`).
 
 **Open (deferred) playtest bugs:**
 - **(B)** the attack hover ring is slightly offset from the NPC's real position (ground point
