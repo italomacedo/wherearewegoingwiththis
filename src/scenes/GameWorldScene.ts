@@ -809,7 +809,10 @@ export class GameWorldScene extends BaseScene {
   /** Ground-plane (y=0) point under the cursor, or null if the ray is parallel. */
   /* istanbul ignore next — browser-only picking */
   private groundPointFromPointer(): Point2 | null {
-    const cam = this.babylonScene.activeCamera;
+    // Use the pointer camera (the main combat camera), NOT scene.activeCamera: rendering
+    // the portrait strip via scene.activeCameras leaves activeCamera on the last portrait
+    // camera, which would cast the ground ray from the wrong POV.
+    const cam = this.babylonScene.cameraToUseForPointers ?? this.babylonScene.activeCamera;
     if (!cam) return null;
     const ray = this.babylonScene.createPickingRay(this.babylonScene.pointerX, this.babylonScene.pointerY, Matrix.Identity(), cam);
     if (Math.abs(ray.direction.y) < 1e-6) return null;
