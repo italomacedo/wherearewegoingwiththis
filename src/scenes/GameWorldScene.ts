@@ -501,6 +501,8 @@ export class GameWorldScene extends BaseScene {
     if (typeof document === 'undefined' || !this.combat) return;
     const agent = this.npcManager?.getAgent(enemyId);
     if (!agent) return;
+    // Combat takes over the screen — close any open chat (T/E) first.
+    this.dialog?.close();
 
     const enemyStats = this.enemyStatsFor(agent);
     const player: CombatantInit = {
