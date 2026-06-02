@@ -612,7 +612,8 @@ export class GameWorldScene extends BaseScene {
         const holder = this.npcHolderById.get(id);
         if (!a) continue;
         const pos = holder?.position ?? a.getPosition();
-        combatants.push({ id, name: a.getDisplayName(), isPlayer: false, stats: this.enemyStatsFor(a), health: { current: 100, max: 100 }, pos: { x: pos.x, z: pos.z }, side });
+        const hp = GameWorldScene.NPC_COMBAT_HP;
+        combatants.push({ id, name: a.getDisplayName(), isPlayer: false, stats: this.enemyStatsFor(a), health: { current: hp, max: hp }, pos: { x: pos.x, z: pos.z }, side });
         names[id] = a.getDisplayName();
         if (holder) sources[id] = holder;
       }
@@ -1015,17 +1016,26 @@ export class GameWorldScene extends BaseScene {
     // On a loss the player HP is now 0 → checkGameOver ends the run next frame.
   }
 
-  /** A credible combat sheet for an NPC (no per-NPC stats yet — a street-tough block). */
+  /**
+   * A combat sheet for an NPC (no per-NPC stats yet — a shared, deliberately beatable
+   * block). Tuned down from the original street-tough so the player can win: fewer AP
+   * (Dex 30 → 3 AP ≈ one strike/turn), softer blows (Força 25), lower accuracy
+   * (Combate 25) and easier to land hits on (Percepção 20). Raise these once per-NPC
+   * stat blocks land.
+   */
   /* istanbul ignore next — browser-only combat wiring */
   private enemyStatsFor(_agent: NPCAgent): CharacterStats {
     const s = createDefaultStats();
-    s.attributes.destreza = 45;
-    s.attributes.forca = 40;
-    s.skills.armas_de_fogo = 45;
-    s.skills.combate_corpo_a_corpo = 40;
-    s.skills.percepcao = 35;
+    s.attributes.destreza = 30;
+    s.attributes.forca = 25;
+    s.skills.armas_de_fogo = 25;
+    s.skills.combate_corpo_a_corpo = 25;
+    s.skills.percepcao = 20;
     return s;
   }
+
+  /** Starting HP for a recruited NPC combatant (lower than the player so fights resolve). */
+  private static readonly NPC_COMBAT_HP = 70;
 
   /** Other known NPCs near the given agent (within ~20m) it could engage. */
   /* istanbul ignore next — browser-only helper */
