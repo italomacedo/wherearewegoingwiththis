@@ -1,10 +1,12 @@
 /**
- * Turn-based combat encounter — a pure state machine for a duel (player vs one
- * hostile NPC). Drives initiative, the per-turn AP pool, the real 2-D ground
- * positions of the fighters, cover, and win/lose/flee end conditions. Every
- * decision is deterministic given the injected RNG; no Babylon/DOM dependency,
- * so it is fully unit-tested. The browser overlay renders this state and the NPC
- * AI policy chooses the enemy's actions.
+ * Turn-based combat encounter — a pure state machine for an N-way fight grouped by
+ * `side` (8B; a 1v1 is just player-side vs enemy-side). Drives initiative, the
+ * per-turn AP pool, the real 2-D ground positions, cover, and side-based win/lose
+ * (the fight ends when ≤1 side has standing combatants). A foe is anyone on a
+ * different side. Fleeing removes a combatant but the rest fight on; the player can
+ * win/lose/flee, and a player-absent fight ends as `resolved`. Every decision is
+ * deterministic given the injected RNG; no Babylon/DOM dependency, so it is fully
+ * unit-tested. The browser overlay renders this state and the NPC AI picks actions.
  *
  * Model recap (see CombatMath): AP = round(Dexterity / divisor); a primary action
  * (attack) costs `primaryCost`, a secondary (cover/hunker/reload) `secondaryCost`,
@@ -32,6 +34,12 @@ export interface CombatantInit {
   health: HealthState;
   /** Starting ground position (m). Defaults to a line spaced by the initial distance. */
   pos?: Point2;
+  /**
+   * The combatant's side (8B). A foe is anyone on a DIFFERENT side. Not a faction —
+   * just a grouping the recruiter assigns per-encounter. Defaults to 'player' for the
+   * player combatant and 'enemy' for everyone else (so a 1v1 needs no side).
+   */
+  side?: string;
 }
 
 export type CombatActionType = 'attack' | 'move' | 'cover' | 'hunker' | 'reload' | 'flee' | 'end_turn';
@@ -46,7 +54,13 @@ export interface CombatAction {
   to?: Point2;
 }
 
-export type CombatOutcome = 'ongoing' | 'player_won' | 'player_lost' | 'fled';
+export type CombatOutcome =
+  | 'ongoing'
+  | 'player_won'
+  | 'player_lost'
+  | 'fled'
+  /** A player-absent fight (autonomous NPC↔NPC, or the remainder after the player fled). */
+  | 'resolved';
 
 export type CombatEventKind =
   | 'hit' | 'miss' | 'move' | 'cover' | 'hunker' | 'reload'
@@ -70,6 +84,8 @@ export interface CombatEvent {
   probability?: number;
   roll?: number;
   attackKind?: AttackKind;
+  /** For attack events: true when the actor struck a combatant on its OWN side. */
+  friendlyFire?: boolean;
 }
 
 export interface CombatantView {
@@ -83,6 +99,10 @@ export interface CombatantView {
   alive: boolean;
   /** Current ground position (m). */
   pos: Point2;
+  /** The combatant's side (a foe is anyone on a different side). */
+  side: string;
+  /** True once the combatant has fled the encounter (no longer participates). */
+  removed: boolean;
 }
 
 export interface CombatState {
@@ -99,6 +119,8 @@ interface Slot {
   ap: number;
   cover: number;
   pos: Point2;
+  side: string;
+  removed: boolean;
 }
 
 function clamp(v: number, lo: number, hi: number): number {
@@ -131,6 +153,8 @@ export class CombatEncounter {
     combatants.forEach((c, i) => this.slots.set(c.id, {
       init: c, health: Health.fromState(c.health), ap: 0, cover: COVER_NONE,
       pos: c.pos ? { ...c.pos } : { x: i * spacing, z: 0 },
+      side: c.side ?? (c.isPlayer ? 'player' : 'enemy'),
+      removed: false,
     }));
     this.order = initiativeOrder(combatants.map((c) => ({ id: c.id, dexterity: c.stats.attributes.destreza })));
     this.beginTurn(this.order[this.activeIdx]!);
@@ -146,45 +170,80 @@ export class CombatEncounter {
   coverOf(id: string): number { return this.slots.get(id)?.cover ?? COVER_NONE; }
   isAlive(id: string): boolean { return !(this.slots.get(id)?.health.isDead() ?? true); }
   posOf(id: string): Point2 { const p = this.slots.get(id)!.pos; return { ...p }; }
+  sideOf(id: string): string | null { return this.slots.get(id)?.side ?? null; }
+  isRemoved(id: string): boolean { return this.slots.get(id)?.removed ?? false; }
 
-  /** Distance from the active combatant to its nearest living foe (∞ if none). */
+  /** Still in the fight: known, alive, and not fled. */
+  private standing(id: string): boolean {
+    const s = this.slots.get(id);
+    return !!s && !s.removed && !s.health.isDead();
+  }
+
+  /** Distance from the active combatant to its nearest standing foe (∞ if none). */
   getDistance(): number { return this.distanceToNearestFoe(this.activeId()); }
 
   /**
-   * Distance (m) from `id` to the nearest LIVING foe. In a 1v1 (or until sides are
-   * introduced in 8B) every other combatant is a foe. Returns Infinity if none live.
+   * Distance (m) from `id` to the nearest STANDING foe (a combatant on a different
+   * side). Returns Infinity if none. (8B: foes are by side, not "everyone else".)
    */
   distanceToNearestFoe(id: string): number {
     const me = this.slots.get(id);
     if (!me) return Infinity;
     let best = Infinity;
     this.order.forEach((other) => {
-      if (other === id) return;
-      const s = this.slots.get(other)!;
-      if (s.health.isDead()) return;
-      best = Math.min(best, distance2(me.pos, s.pos));
+      if (other === id || !this.standing(other)) return;
+      if (this.slots.get(other)!.side === me.side) return;
+      best = Math.min(best, distance2(me.pos, this.slots.get(other)!.pos));
     });
     return best;
   }
 
-  /** Id of the nearest LIVING foe to `id`, or null if none live. */
+  /** Id of the nearest STANDING foe (different side) to `id`, or null if none. */
   nearestFoeId(id: string): string | null {
     const me = this.slots.get(id);
     if (!me) return null;
     let bestId: string | null = null;
     let best = Infinity;
     this.order.forEach((other) => {
-      if (other === id) return;
-      const s = this.slots.get(other)!;
-      if (s.health.isDead()) return;
-      const d = distance2(me.pos, s.pos);
+      if (other === id || !this.standing(other)) return;
+      if (this.slots.get(other)!.side === me.side) return;
+      const d = distance2(me.pos, this.slots.get(other)!.pos);
       if (d < best) { best = d; bestId = other; }
     });
     return bestId;
   }
 
-  private opponentOf(id: string): string {
-    return this.order.find((x) => x !== id)!;
+  /** Sides that still have at least one standing combatant. */
+  private aliveSides(): Set<string> {
+    const set = new Set<string>();
+    this.slots.forEach((s, id) => { if (this.standing(id)) set.add(s.side); });
+    return set;
+  }
+
+  private playerSlot(): Slot | undefined {
+    return [...this.slots.values()].find((s) => s.init.isPlayer);
+  }
+
+  /**
+   * End the encounter once ≤1 side has standing combatants. Outcome is player-centric:
+   * `player_won` (player standing on the lone side), `player_lost` (player down),
+   * `fled` (player left before it resolved), or `resolved` (no player participant).
+   */
+  private resolve(): void {
+    if (this.isOver()) return;
+    if (this.aliveSides().size >= 2) return;
+    const player = this.playerSlot();
+    if (!player) { this.outcome = 'resolved'; return; }
+    if (player.removed) { this.outcome = 'fled'; return; }
+    this.outcome = !player.health.isDead() && this.standing(player.init.id) ? 'player_won' : 'player_lost';
+  }
+
+  /** Move a combatant to another side (8B friendly-fire defection). Re-checks the end condition. */
+  setSide(id: string, side: string): void {
+    const s = this.slots.get(id);
+    if (!s) return;
+    s.side = side;
+    this.resolve();
   }
 
   private maxApOf(id: string): number {
@@ -223,6 +282,7 @@ export class CombatEncounter {
           id, name: s.init.name, isPlayer: s.init.isPlayer,
           ap: s.ap, maxAp: this.maxApOf(id), cover: s.cover,
           hp: s.health.toState(), alive: !s.health.isDead(), pos: { ...s.pos },
+          side: s.side, removed: s.removed,
         };
       }),
     };
@@ -236,11 +296,15 @@ export class CombatEncounter {
     s.cover = COVER_NONE; // re-take cover each turn (and moving breaks it)
   }
 
-  /** Advance to the next living combatant and refill their AP. No-op if over. */
+  /** Advance to the next STANDING combatant and refill their AP. No-op if over. */
   private advance(): void {
     /* istanbul ignore next — apply() already rejects actions once over */
     if (this.isOver()) return;
-    this.activeIdx = (this.activeIdx + 1) % this.order.length;
+    let guard = 0;
+    do {
+      this.activeIdx = (this.activeIdx + 1) % this.order.length;
+      guard += 1;
+    } while (!this.standing(this.activeId()) && guard <= this.order.length);
     this.beginTurn(this.activeId());
   }
 
@@ -261,7 +325,11 @@ export class CombatEncounter {
         if (this.distanceToNearestFoe(actorId) <= FLEE_MIN_DISTANCE) {
           return { kind: 'rejected', actorId, reason: 'too_close', ap: actor.ap };
         }
-        this.outcome = 'fled';
+        // The fleer leaves the fight; the rest may keep fighting (8B). Resolve, then
+        // hand the turn to the next standing combatant if the fight goes on.
+        actor.removed = true;
+        this.resolve();
+        if (!this.isOver()) this.advance();
         return { kind: 'flee', actorId };
       }
       case 'cover': {
@@ -296,10 +364,10 @@ export class CombatEncounter {
         };
       }
       case 'attack': {
-        const targetId = action.targetId ?? this.opponentOf(actorId);
-        const target = this.slots.get(targetId);
-        if (!target || target.health.isDead()) {
-          return { kind: 'rejected', actorId, targetId, reason: 'invalid', ap: actor.ap };
+        const targetId = action.targetId ?? this.nearestFoeId(actorId);
+        const target = targetId ? this.slots.get(targetId) : undefined;
+        if (!targetId || !target || target.removed || target.health.isDead()) {
+          return { kind: 'rejected', actorId, targetId: targetId ?? undefined, reason: 'invalid', ap: actor.ap };
         }
         const kind: AttackKind = action.attackKind ?? 'ranged';
         const dist = distance2(actor.pos, target.pos);
@@ -310,6 +378,7 @@ export class CombatEncounter {
           return { kind: 'rejected', actorId, targetId, reason: 'out_of_ap', ap: actor.ap };
         }
         actor.ap -= this.tuning.primaryCost;
+        const friendlyFire = actor.side === target.side;
         const hit = resolveAttack(
           { attacker: actor.init.stats, defender: target.init.stats, kind, coverMod: target.cover },
           this.rng,
@@ -317,15 +386,13 @@ export class CombatEncounter {
         const probability = hit.probability;
         const roll = hit.roll;
         if (!hit.success) {
-          return { kind: 'miss', actorId, targetId, distance: dist, ap: actor.ap, probability, roll, attackKind: kind };
+          return { kind: 'miss', actorId, targetId, distance: dist, ap: actor.ap, probability, roll, attackKind: kind, friendlyFire };
         }
         const damage = rollDamage(actor.init.stats, kind, this.rng);
         target.health.applyDamage(damage);
-        if (target.health.isDead()) {
-          this.outcome = target.init.isPlayer ? 'player_lost' : 'player_won';
-          return { kind: 'death', actorId, targetId, damage, distance: dist, ap: actor.ap, probability, roll, attackKind: kind };
-        }
-        return { kind: 'hit', actorId, targetId, damage, distance: dist, ap: actor.ap, probability, roll, attackKind: kind };
+        const dead = target.health.isDead();
+        if (dead) this.resolve(); // side-based win/lose (N-way)
+        return { kind: dead ? 'death' : 'hit', actorId, targetId, damage, distance: dist, ap: actor.ap, probability, roll, attackKind: kind, friendlyFire };
       }
       /* istanbul ignore next — exhaustive switch guard */
       default:

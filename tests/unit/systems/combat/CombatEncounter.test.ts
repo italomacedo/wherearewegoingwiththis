@@ -308,3 +308,104 @@ describe('CombatEncounter — flee & guards', () => {
     expect(enc.getOutcome()).toBe('fled');
   });
 });
+
+describe('CombatEncounter — sides & N-way (8B)', () => {
+  function mk(id: string, isPlayer: boolean, side: string, over: { dex?: number; hp?: number; pos?: { x: number; z: number } } = {}): CombatantInit {
+    return {
+      id, name: id, isPlayer, side,
+      stats: stats({ destreza: over.dex ?? 50, firearms: 80, melee: 80, perception: 20 }),
+      health: { current: over.hp ?? 100, max: 100 },
+      pos: over.pos ?? { x: 0, z: 0 },
+    };
+  }
+
+  it('a foe is anyone on a DIFFERENT side (same-side allies are skipped)', () => {
+    const enc = new CombatEncounter([
+      mk('player', true, 'A', { dex: 60, pos: { x: 0, z: 0 } }),
+      mk('ally', false, 'A', { pos: { x: 1, z: 0 } }),
+      mk('enemy', false, 'B', { pos: { x: 5, z: 0 } }),
+    ]);
+    expect(enc.nearestFoeId('player')).toBe('enemy'); // ally is same side
+    expect(enc.distanceToNearestFoe('player')).toBe(5);
+    expect(enc.sideOf('ally')).toBe('A');
+  });
+
+  it('player + ally beat a lone enemy → player_won when its side is wiped', () => {
+    const enc = new CombatEncounter([
+      mk('player', true, 'A', { dex: 60 }),
+      mk('ally', false, 'A', { dex: 50 }),
+      mk('enemy', false, 'B', { dex: 10, hp: 1 }),
+    ], { rng: seq(0, 0) }); // player acts first, hit
+    const ev = enc.apply({ type: 'attack', attackKind: 'ranged', targetId: 'enemy' });
+    expect(ev.kind).toBe('death');
+    expect(enc.getOutcome()).toBe('player_won');
+  });
+
+  it('the player going down with no allies → player_lost', () => {
+    const enc = new CombatEncounter([
+      mk('player', true, 'A', { dex: 20, hp: 1 }),
+      mk('enemy', false, 'B', { dex: 90 }),
+    ], { rng: seq(0, 0.99) });
+    expect(enc.activeId()).toBe('enemy');
+    const ev = enc.apply({ type: 'attack', attackKind: 'ranged', targetId: 'player' });
+    expect(ev.kind).toBe('death');
+    expect(enc.getOutcome()).toBe('player_lost');
+  });
+
+  it('a player flee removes them but the rest fight on (ongoing)', () => {
+    const enc = new CombatEncounter([
+      mk('player', true, 'A', { dex: 60, pos: { x: 0, z: 0 } }),
+      mk('ally', false, 'A', { dex: 50, pos: { x: 1, z: 0 } }),
+      mk('enemy', false, 'B', { dex: 40, pos: { x: 20, z: 0 } }), // >10 m from player
+    ]);
+    const ev = enc.apply({ type: 'flee' }); // player's turn
+    expect(ev.kind).toBe('flee');
+    expect(enc.isRemoved('player')).toBe(true);
+    expect(enc.isOver()).toBe(false);              // ally vs enemy continues
+    expect(enc.getOutcome()).toBe('ongoing');
+    expect(['ally', 'enemy']).toContain(enc.activeId()); // turn passed to a standing fighter
+  });
+
+  it('a player-absent fight ends as resolved', () => {
+    const enc = new CombatEncounter([
+      mk('a', false, 'A', { dex: 60 }),
+      mk('b', false, 'B', { dex: 10, hp: 1 }),
+    ], { rng: seq(0, 0) });
+    const ev = enc.apply({ type: 'attack', attackKind: 'ranged', targetId: 'b' });
+    expect(ev.kind).toBe('death');
+    expect(enc.getOutcome()).toBe('resolved');
+  });
+
+  it('marks friendly fire when striking your own side', () => {
+    const enc = new CombatEncounter([
+      mk('player', true, 'A', { dex: 60, pos: { x: 0, z: 0 } }),
+      mk('ally', false, 'A', { pos: { x: 1, z: 0 } }),
+      mk('enemy', false, 'B', { pos: { x: 1, z: 0 } }),
+    ], { rng: seq(0.99) }); // miss (no death) so we can read the flag cleanly
+    const ff = enc.apply({ type: 'attack', attackKind: 'melee', targetId: 'ally' });
+    expect(ff.friendlyFire).toBe(true);
+    const foe = enc.apply({ type: 'attack', attackKind: 'melee', targetId: 'enemy' });
+    expect(foe.friendlyFire).toBe(false);
+  });
+
+  it('an attack with no foe on another side is rejected', () => {
+    const enc = new CombatEncounter([
+      mk('player', true, 'A', { dex: 60 }),
+      mk('ally', false, 'A'),
+    ]);
+    const ev = enc.apply({ type: 'attack', attackKind: 'ranged' }); // only same-side ally exists
+    expect(ev.kind).toBe('rejected');
+    expect(ev.reason).toBe('invalid');
+  });
+
+  it('setSide flips a combatant; an unknown id is a no-op', () => {
+    const enc = new CombatEncounter([
+      mk('player', true, 'A'),
+      mk('ally', false, 'A'),
+      mk('enemy', false, 'B'),
+    ]);
+    enc.setSide('ally', 'B');
+    expect(enc.sideOf('ally')).toBe('B');
+    expect(() => enc.setSide('ghost', 'B')).not.toThrow();
+  });
+});

@@ -800,7 +800,7 @@ export class GameWorldScene extends BaseScene {
 
   /** Apply a resolved combat outcome to the world (player HP, defeat, disposition). */
   /* istanbul ignore next — browser-only combat wiring */
-  private endCombat(enemyId: string, outcome: 'player_won' | 'player_lost' | 'fled' | 'ongoing'): void {
+  private endCombat(enemyId: string, outcome: CombatOutcome): void {
     const state = this.combat?.getController()?.getState();
     const me = state?.combatants.find((c) => c.isPlayer);
     if (me) {
