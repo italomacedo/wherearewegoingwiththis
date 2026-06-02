@@ -33,9 +33,9 @@ describe('I18n', () => {
   });
 
   it('interpolates {params}', () => {
-    expect(t('hud.talkTo', { name: 'Zara' })).toBe('[E] Talk to Zara');
+    expect(t('hud.talkTo', { name: 'Zara' })).toBe('[E] Interact with Zara');
     setLocale('pt-BR');
-    expect(t('hud.talkTo', { name: 'Zara' })).toBe('[E] Falar com Zara');
+    expect(t('hud.talkTo', { name: 'Zara' })).toBe('[E] Interagir com Zara');
   });
 
   it('unknown key falls back to the key itself', () => {

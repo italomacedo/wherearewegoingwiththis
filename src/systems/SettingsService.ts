@@ -21,8 +21,8 @@ export interface GameSettings {
   combatPrimaryCost: 1 | 2 | 3;
   /** AP cost of a secondary combat action (take cover / hunker / reload / item). */
   combatSecondaryCost: 1 | 2;
-  /** AP spent per metre of combat movement. */
-  combatMoveApPerMeter: 1 | 2;
+  /** AP spent per metre of combat movement (0.5 = 1 AP moves 2 m). */
+  combatMoveApPerMeter: 0.5 | 1;
 
   // Display
   resolution: '1280x720' | '1920x1080' | '2560x1440' | '3840x2160';
@@ -57,7 +57,7 @@ export const DEFAULT_SETTINGS: Readonly<GameSettings> = {
   combatApPerDexterity: 10,
   combatPrimaryCost: 2,
   combatSecondaryCost: 1,
-  combatMoveApPerMeter: 1,
+  combatMoveApPerMeter: 0.5,
 
   resolution: '1920x1080',
   windowMode: 'windowed',

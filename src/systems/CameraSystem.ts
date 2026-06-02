@@ -45,6 +45,9 @@ export class CameraSystem {
   private conversationMode = false;
   private convSavedRadius = 0;
   private convSavedTarget: TransformNode | null = null;
+  private freeMode = false;
+  private freeSavedRadius = 0;
+  private freeSavedTarget: TransformNode | null = null;
   private detachPointer: (() => void) | null = null;
 
   constructor(scene: Scene, config?: Partial<CameraConfig>) {
@@ -175,6 +178,56 @@ export class CameraSystem {
     return this.conversationMode;
   }
 
+  /**
+   * Free "RTS" camera for tactical combat: detach from the follow target so the
+   * view stays where the player pans/orbits/zooms it (instead of re-centring on a
+   * fighter each turn). Frames `focus` initially. Pan with panFree(), orbit with
+   * rotate()/orbit(), zoom with zoom(). Idempotent; restored by exitFreeMode().
+   */
+  enterFreeMode(focus: Vector3, radius?: number): void {
+    if (this.freeMode) return;
+    this.freeMode = true;
+    this.freeSavedRadius = this.camera.radius;
+    this.freeSavedTarget = this.target;
+    this.target = null; // detach follow — update() becomes a no-op
+    this.followPoint.copyFrom(focus);
+    this.camera.target.copyFrom(focus);
+    if (radius !== undefined) this.camera.radius = Scalar.Clamp(radius, this.config.zoomMin, this.config.zoomMax);
+  }
+
+  /** Restore the previous follow target + radius. Idempotent. */
+  exitFreeMode(): void {
+    if (!this.freeMode) return;
+    this.freeMode = false;
+    this.camera.radius = this.freeSavedRadius;
+    this.target = this.freeSavedTarget;
+    this.freeSavedTarget = null;
+  }
+
+  isFreeMode(): boolean {
+    return this.freeMode;
+  }
+
+  /**
+   * Pan the free camera over the ground, camera-relative: `forward` slides the
+   * view the way the camera faces, `right` to its right (both in metres). No-op
+   * unless in free mode.
+   */
+  panFree(forward: number, right: number): void {
+    if (!this.freeMode) return;
+    // Use the camera's ACTUAL look direction (projected on the ground), so panning is
+    // relative to wherever Z/C has orbited the view — not world axes.
+    const dir = this.camera.getForwardRay().direction;
+    const f = new Vector3(dir.x, 0, dir.z);
+    if (f.lengthSquared() < 1e-8) return;
+    f.normalize();
+    const rx = f.z; // screen-right = forward rotated +90° on the ground (left-handed: +x right when looking +z)
+    const rz = -f.x;
+    this.camera.target.x += forward * f.x + right * rx;
+    this.camera.target.z += forward * f.z + right * rz;
+    this.followPoint.copyFrom(this.camera.target);
+  }
+
   /** Called each frame — smoothly follow the target. */
   update(): void {
     if (!this.target) return;
@@ -224,14 +277,23 @@ export class CameraSystem {
     const onAux = (e: MouseEvent): void => {
       if (e.button === 1) e.preventDefault(); // suppress middle-click autoscroll
     };
+    const onWheel = (e: WheelEvent): void => {
+      // Wheel zoom ONLY in the free tactical-combat camera. On foot, zooming out would
+      // let the player metagame areas their character can't see in-character.
+      if (!this.freeMode) return;
+      this.zoom(Math.sign(e.deltaY) * 2);
+      e.preventDefault();
+    };
 
     canvas.addEventListener('mousedown', onDown);
     canvas.addEventListener('auxclick', onAux);
+    canvas.addEventListener('wheel', onWheel, { passive: false });
     window.addEventListener('mouseup', onUp);
     window.addEventListener('mousemove', onMove);
     this.detachPointer = () => {
       canvas.removeEventListener('mousedown', onDown);
       canvas.removeEventListener('auxclick', onAux);
+      canvas.removeEventListener('wheel', onWheel);
       window.removeEventListener('mouseup', onUp);
       window.removeEventListener('mousemove', onMove);
     };

@@ -14,6 +14,20 @@ export interface CombatOverlayHandlers {
   narrate?: (beat: string) => Promise<string>;
   /** Fired for every applied combat event (the scene plays the matching animation). */
   onBeat?: (entry: CombatLogEntry) => void;
+  /**
+   * Player clicked Attack: the scene enters 3-D target-picking and, once the player
+   * clicks a combatant in range, calls back submitPlayerAction({attack, targetId}).
+   */
+  onRequestTarget?: (attackKind: 'melee' | 'ranged' | undefined) => void;
+  /**
+   * Player clicked Move: the scene enters ground-targeting (the on-ground trail)
+   * and, once the player clicks a reachable point, calls submitPlayerAction({move,to}).
+   */
+  onRequestMove?: () => void;
+  /** Pointer moved over the battlefield (scrim) — the scene previews the move trail. */
+  onTargetMove?: () => void;
+  /** Pointer released over the battlefield (scrim) — the scene commits the targeted action. */
+  onTargetCommit?: () => void;
 }
 
 /**
@@ -31,6 +45,7 @@ export class CombatOverlay {
   private open = false;
   private controller: CombatController | null = null;
   private handlers: CombatOverlayHandlers = {};
+  private finished = false;
   private portraitSources: Record<string, TransformNode | AbstractMesh> = {};
 
   private gui: AdvancedDynamicTexture | null = null;
@@ -86,9 +101,11 @@ export class CombatOverlay {
     if (this.panel) this.panel.isVisible = true;
     if (this.caption) this.caption.isVisible = false;
     if (this.logStack) this.logStack.clearControls();
+    this.finished = false;
     this.buildPortraits();
-    // If the enemy won initiative, play out its turn(s) before handing control over.
-    this.pumpEnemyTurns();
+    // Turn pacing (AI/spectator stepping) is driven by the scene's tick — just render
+    // the opening state; if an NPC won initiative the scene steps it on the next tick.
+    this.refresh();
   }
 
   /* istanbul ignore next — browser GUI only */
@@ -104,17 +121,17 @@ export class CombatOverlay {
     this.portraits.build(entries, this.gui);
   }
 
-  /** Run enemy turns until it's the player's turn (or the fight ends), then render. */
+  /**
+   * Render a batch of resulting log entries (player's action or one AI turn the
+   * scene stepped): play each beat, refresh the HUD, and finish once if the fight
+   * has resolved. Public so the scene's timed turn driver can feed AI entries.
+   */
   /* istanbul ignore next — browser GUI only */
-  private pumpEnemyTurns(): void {
-    const c = this.controller;
-    if (!c) return;
-    let guard = 0;
-    while (!c.isOver() && !c.isPlayerTurn() && guard++ < 20) {
-      c.runEnemyTurn().forEach((e) => this.appendBeat(e));
-    }
+  renderEntries(entries: CombatLogEntry[]): void {
+    entries.forEach((e) => this.appendBeat(e));
     this.refresh();
-    if (c.isOver()) this.finish(c.outcome());
+    const c = this.controller;
+    if (c && c.isOver()) this.finish(c.outcome());
   }
 
   /* istanbul ignore next — browser GUI only */
@@ -122,18 +139,22 @@ export class CombatOverlay {
     const c = this.controller;
     if (!c || !this.statusText || !this.buttonsRow) return;
     const st = c.getState();
-    const me = st.combatants.find((x) => x.isPlayer);
-    const foe = st.combatants.find((x) => !x.isPlayer);
+    const me = st.combatants.find((x) => x.isPlayer && !x.removed);
+    const playerStanding = !!me && me.alive;
     const turn = c.isPlayerTurn() ? t('combat.yourTurn') : t('combat.enemyTurn');
-    const hp = (n: { name: string; hp: { current: number; max: number } } | undefined) =>
-      n ? `${n.name} ${Math.round((n.hp.current / n.hp.max) * 100)}%` : '';
-    this.statusText.text =
-      `${turn}   ·   ${t('combat.ap')} ${me?.ap ?? 0}/${me?.maxAp ?? 0}   ·   ` +
-      `${t('combat.distance')} ${Math.round(st.distance)}m   ·   ${hp(me)}  vs  ${hp(foe)}`;
+    // N-way HP roster: every still-standing combatant as "Name hp%".
+    const roster = st.combatants
+      .filter((x) => x.alive && !x.removed)
+      .map((x) => `${x.name} ${Math.round((x.hp.current / x.hp.max) * 100)}%`)
+      .join('   ');
+    const apPart = playerStanding ? `${t('combat.ap')} ${me!.ap}/${me!.maxAp}   ·   ` : '';
+    this.statusText.text = `${turn}   ·   ${apPart}${roster}`;
 
-    this.portraits.setActive(c.getState().activeId);
+    this.portraits.setActive(st.activeId);
 
+    // Buttons only on the player's own turn; spectator / AI turns show none.
     this.buttonsRow.clearControls();
+    if (!playerStanding || !c.isPlayerTurn()) return;
     c.options().forEach((opt) => {
       const btn = Button.CreateSimpleButton(`combat-${opt.labelKey}`, t(opt.labelKey));
       btn.width = '104px';
@@ -143,7 +164,7 @@ export class CombatOverlay {
       btn.fontSize = 12;
       btn.fontFamily = '"Courier New", monospace';
       btn.thickness = 1;
-      btn.isEnabled = opt.enabled && c.isPlayerTurn();
+      btn.isEnabled = opt.enabled;
       btn.onPointerUpObservable.add(() => this.onPlayerAction(opt));
       this.buttonsRow!.addControl(btn);
     });
@@ -153,10 +174,25 @@ export class CombatOverlay {
   private onPlayerAction(opt: { action: import('./CombatController').PlayerActionOption['action'] }): void {
     const c = this.controller;
     if (!c || !c.isPlayerTurn() || c.isOver()) return;
-    const entries = c.takePlayerAction(opt.action);
-    entries.forEach((e) => this.appendBeat(e));
-    this.refresh();
-    if (c.isOver()) this.finish(c.outcome());
+    // Attack/Move need a 3-D target/destination → hand off to the scene's targeting
+    // mode, which calls submitPlayerAction() once the player clicks. Everything else
+    // (cover/hunker/reload/flee/end_turn) applies immediately.
+    if (opt.action.type === 'attack') { this.handlers.onRequestTarget?.(opt.action.attackKind); return; }
+    if (opt.action.type === 'move') { this.handlers.onRequestMove?.(); return; }
+    this.submitPlayerAction(opt.action);
+  }
+
+  /**
+   * Apply a fully-resolved player action (target/destination filled in by the
+   * scene's targeting), append its beats, and advance. Called by the overlay for
+   * instant actions and by the scene after a 3-D pick.
+   */
+  /* istanbul ignore next — browser GUI only */
+  submitPlayerAction(action: import('./CombatController').PlayerActionOption['action']): void {
+    const c = this.controller;
+    if (!c || !c.isPlayerTurn() || c.isOver()) return;
+    // Apply only the player's action; AI turns are stepped by the scene's timed driver.
+    this.renderEntries(c.takePlayerAction(action));
   }
 
   /* istanbul ignore next — browser GUI only */
@@ -199,7 +235,12 @@ export class CombatOverlay {
 
   /* istanbul ignore next — browser GUI only */
   private finish(outcome: CombatOutcome): void {
-    const key = outcome === 'player_won' ? 'combat.won' : outcome === 'player_lost' ? 'combat.lost' : 'combat.fled';
+    if (this.finished) return;
+    this.finished = true;
+    const key = outcome === 'player_won' ? 'combat.won'
+      : outcome === 'player_lost' ? 'combat.lost'
+        : outcome === 'fled' ? 'combat.fled'
+          : 'combat.over'; // 'resolved' — a player-absent fight ended
     this.showCaption(t(key));
     if (this.buttonsRow) this.buttonsRow.clearControls();
     this.handlers.onEnd?.(outcome);
@@ -217,6 +258,13 @@ export class CombatOverlay {
     scrim.background = 'rgba(2,0,4,0.22)';
     scrim.thickness = 0;
     scrim.isVisible = false;
+    // The scrim is the full-screen pointer surface for 3-D targeting (Move trail +
+    // click-to-attack). It blocks pointers so its observables fire reliably over the
+    // whole battlefield; the action buttons (pointer-blockers, added on top) consume
+    // their own clicks, so selecting a mode never leaks a world "confirm" click.
+    scrim.isPointerBlocker = true;
+    scrim.onPointerMoveObservable.add(() => this.handlers.onTargetMove?.());
+    scrim.onPointerUpObservable.add(() => this.handlers.onTargetCommit?.());
     gui.addControl(scrim);
     this.panel = scrim;
 

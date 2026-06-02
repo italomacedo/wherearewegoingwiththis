@@ -13,13 +13,52 @@
  *   - Damage on a hit scales with the governing attribute plus small variance.
  *   - Initiative is ordered by Dexterity (deterministic id tie-break).
  *
- * Distance is a single scalar (metres between the two combatants) — not a 2-D grid.
- * Everything here is a pure function; the encounter state machine (CombatEncounter)
- * and the browser overlay consume it.
+ * Positions are real 2-D ground points (metres); distance between two fighters is
+ * the Euclidean distance of their `pos`. Movement is routed (around obstacles) by
+ * an injected pathfinder (see CombatMovement) — the default here is a straight line.
+ * Everything in this file is a pure function; the encounter state machine
+ * (CombatEncounter) and the browser overlay consume it.
  */
 
 import { CharacterStats, checkValue } from '@entities/CharacterStats';
 import { resolveCheck, CheckResult, RollFn, defaultRoll } from '../SkillCheck';
+
+// ─── Ground-plane geometry ─────────────────────────────────────────────────────
+
+/** A point on the ground plane, in world metres (y is implicit/flat). */
+export interface Point2 {
+  x: number;
+  z: number;
+}
+
+/** Euclidean distance between two ground points (metres). */
+export function distance2(a: Point2, b: Point2): number {
+  return Math.hypot(a.x - b.x, a.z - b.z);
+}
+
+/** A routed path between two points: the polyline waypoints and its total length (m). */
+export interface PathResult {
+  points: Point2[];
+  meters: number;
+}
+
+/** Routes a move between two ground points, or null if unreachable. */
+export type Pathfinder = (from: Point2, to: Point2) => PathResult | null;
+
+/** The trivial pathfinder: a straight segment (ignores obstacles). Default for tests. */
+export const straightLinePath: Pathfinder = (from, to) => ({
+  points: [{ ...from }, { ...to }],
+  meters: distance2(from, to),
+});
+
+/** Average of ground points (the combat camera frames this). Returns origin if empty. */
+export function centroidOf(points: readonly Point2[]): Point2 {
+  if (points.length === 0) return { x: 0, z: 0 };
+  let sx = 0;
+  let sz = 0;
+  for (const p of points) { sx += p.x; sz += p.z; }
+  return { x: sx / points.length, z: sz / points.length };
+}
 
 // ─── Tuning (mirrors the Options settings; defaults match the owner's model) ──
 
@@ -40,11 +79,14 @@ export const DEFAULT_COMBAT_TUNING: Readonly<CombatTuning> = {
   apMax: 10,
   primaryCost: 2,
   secondaryCost: 1,
-  moveApPerMeter: 1,
+  moveApPerMeter: 0.5, // 1 AP moves 2 metres (owner tuning)
 };
 
-/** Distance (m) at or under which a melee strike is allowed (covers the 2 m start gap). */
-export const MELEE_RANGE = 2;
+/** Distance (m) at or under which a melee strike is allowed. */
+export const MELEE_RANGE = 1;
+
+/** A combatant may only flee when the nearest living foe is farther than this (m). */
+export const FLEE_MIN_DISTANCE = 10;
 
 /** Cover defence bonuses (defender +N), matching SkillCheck's cover convention. */
 export const COVER_NONE = 0;
@@ -87,6 +129,33 @@ export function moveApCost(meters: number, tuning: CombatTuning = DEFAULT_COMBAT
 export function maxMoveMeters(ap: number, tuning: CombatTuning = DEFAULT_COMBAT_TUNING): number {
   if (tuning.moveApPerMeter <= 0) return 0;
   return Math.floor(Math.max(0, ap) / tuning.moveApPerMeter);
+}
+
+/**
+ * Walk along a polyline path up to `maxMeters`, returning the farthest reachable
+ * point and the distance travelled to it. If the whole path fits, returns its end.
+ * `maxMeters <= 0` (or an empty path) yields the start point at zero distance.
+ */
+export function truncatePath(path: Point2[], maxMeters: number): { point: Point2; meters: number } {
+  if (path.length === 0) return { point: { x: 0, z: 0 }, meters: 0 };
+  const start = path[0]!;
+  if (maxMeters <= 0 || path.length === 1) return { point: { ...start }, meters: 0 };
+  let travelled = 0;
+  for (let i = 1; i < path.length; i++) {
+    const a = path[i - 1]!;
+    const b = path[i]!;
+    const seg = distance2(a, b);
+    if (travelled + seg <= maxMeters || seg === 0) {
+      travelled += seg;
+      continue;
+    }
+    // Stop partway along this segment.
+    const remain = maxMeters - travelled;
+    const t = remain / seg;
+    return { point: { x: a.x + (b.x - a.x) * t, z: a.z + (b.z - a.z) * t }, meters: maxMeters };
+  }
+  const end = path[path.length - 1]!;
+  return { point: { ...end }, meters: travelled };
 }
 
 // ─── Attack resolution (to-hit) ───────────────────────────────────────────────

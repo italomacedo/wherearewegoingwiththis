@@ -1,5 +1,33 @@
 import { Vector3 } from '@babylonjs/core';
-import { NPCAgent, NPCDefinition } from '../../../src/entities/NPCAgent';
+import {
+  NPCAgent, NPCDefinition, worsenedDisposition, dispositionMagnitude, DISPOSITION_SCALE,
+  friendlyFireDefection,
+} from '../../../src/entities/NPCAgent';
+
+describe('disposition scale helpers (pure)', () => {
+  it('worsenedDisposition steps toward hostile and clamps', () => {
+    expect(worsenedDisposition('friendly')).toBe('neutral');
+    expect(worsenedDisposition('neutral')).toBe('wary');
+    expect(worsenedDisposition('wary')).toBe('hostile');
+    expect(worsenedDisposition('hostile')).toBe('hostile');
+  });
+  it('dispositionMagnitude is the distance from neutral', () => {
+    expect(dispositionMagnitude('neutral')).toBe(0);
+    expect(dispositionMagnitude('wary')).toBe(1);
+    expect(dispositionMagnitude('friendly')).toBe(1);
+    expect(dispositionMagnitude('hostile')).toBe(2);
+    expect(DISPOSITION_SCALE).toHaveLength(4);
+  });
+
+  it('friendlyFireDefection worsens one step and defects at wary (~2 hits for a friendly ally)', () => {
+    const first = friendlyFireDefection('friendly');
+    expect(first).toEqual({ disposition: 'neutral', defects: false });
+    const second = friendlyFireDefection(first.disposition);
+    expect(second).toEqual({ disposition: 'wary', defects: true });
+    expect(friendlyFireDefection('neutral')).toEqual({ disposition: 'wary', defects: true });
+    expect(friendlyFireDefection('wary')).toEqual({ disposition: 'hostile', defects: true });
+  });
+});
 
 const def: NPCDefinition = {
   id: 'npc_test',
@@ -112,12 +140,75 @@ describe('NPCAgent', () => {
     expect(a.onHostilePlayerAction()).toEqual({ ultimatum: false });
   });
 
+  it('defeated flag is false until marked, then sticks', () => {
+    const a = new NPCAgent({ ...def });
+    expect(a.isDefeated()).toBe(false);
+    a.markDefeated();
+    expect(a.isDefeated()).toBe(true);
+  });
+
   it('shouldInitiateCombat only when hostile and player present', () => {
     const a = new NPCAgent({ ...def, initialDisposition: 'hostile' });
     expect(a.shouldInitiateCombat(true)).toBe(true);
     expect(a.shouldInitiateCombat(false)).toBe(false);
     a.setDisposition('wary');
     expect(a.shouldInitiateCombat(true)).toBe(false);
+  });
+
+  describe('NPC→NPC relationship ledger (8B)', () => {
+    it('defaults to neutral and seeds from the definition', () => {
+      const a = new NPCAgent({ ...def, npcRelationships: { npc_mback: 'wary' } });
+      expect(a.getRelationship('npc_mback')).toBe('wary');
+      expect(a.getRelationship('stranger')).toBe('neutral');
+    });
+
+    it('set / worsen (clamped) and antagonism predicate', () => {
+      const a = new NPCAgent({ ...def });
+      a.setRelationship('x', 'friendly');
+      expect(a.isAntagonisticToward('x')).toBe(false);
+      expect(a.worsenRelationship('x')).toBe('neutral');
+      expect(a.worsenRelationship('x')).toBe('wary');
+      expect(a.isAntagonisticToward('x')).toBe(true); // wary counts
+      expect(a.worsenRelationship('x')).toBe('hostile');
+      expect(a.worsenRelationship('x')).toBe('hostile'); // clamped
+      expect(a.isAntagonisticToward('x')).toBe(true);
+    });
+
+    it('serialises and restores the ledger as a record', () => {
+      const a = new NPCAgent({ ...def, npcRelationships: { npc_mback: 'hostile' } });
+      expect(a.relationshipsRecord()).toEqual({ npc_mback: 'hostile' });
+      a.restoreRelationships({ ally: 'friendly' });
+      expect(a.relationshipsRecord()).toEqual({ ally: 'friendly' });
+      expect(a.getRelationship('npc_mback')).toBe('neutral'); // cleared on restore
+      a.restoreRelationships(undefined);
+      expect(a.relationshipsRecord()).toEqual({});
+    });
+  });
+
+  describe('witnessed events memory (C)', () => {
+    it('records events (deduped), exposes oldest-first + recent newest-first', () => {
+      const a = new NPCAgent({ ...def });
+      expect(a.getKnownEvents()).toEqual([]);
+      a.rememberEvent('You saw Zara killed in a fight.');
+      a.rememberEvent('You saw Zara killed in a fight.'); // dedup
+      a.rememberEvent('  '); // blank ignored
+      a.rememberEvent('Sirens passed.');
+      expect(a.getKnownEvents()).toEqual(['You saw Zara killed in a fight.', 'Sirens passed.']);
+      expect(a.getRecentEvents(1)).toEqual(['Sirens passed.']); // newest first
+    });
+
+    it('caps at 8 events (oldest dropped) and round-trips through restore', () => {
+      const a = new NPCAgent({ ...def });
+      for (let i = 0; i < 10; i++) a.rememberEvent(`e${i}`);
+      const saved = a.getKnownEvents();
+      expect(saved).toHaveLength(8);
+      expect(saved[0]).toBe('e2'); // e0/e1 dropped
+      const b = new NPCAgent({ ...def });
+      b.restoreEvents(saved);
+      expect(b.getKnownEvents()).toEqual(saved); // stable order
+      b.restoreEvents(undefined);
+      expect(b.getKnownEvents()).toEqual([]);
+    });
   });
 
   it('setPosition moves the logical position (proximity/talk follow the NPC)', () => {

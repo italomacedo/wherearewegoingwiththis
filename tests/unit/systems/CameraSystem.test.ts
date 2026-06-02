@@ -235,4 +235,53 @@ describe('CameraSystem', () => {
     const cam = new CameraSystem(scene);
     expect(() => cam.dispose()).not.toThrow();
   });
+
+  describe('free (RTS) camera mode', () => {
+    it('enterFreeMode detaches follow, frames the focus, and sets the radius', () => {
+      const cam = new CameraSystem(scene);
+      const hero = MeshBuilder.CreateBox('hero', {}, scene);
+      cam.setTarget(hero);
+      cam.enterFreeMode(new Vector3(5, 0, 9), 20);
+      expect(cam.isFreeMode()).toBe(true);
+      expect(cam.getCamera().radius).toBe(20);
+      expect(cam.getCamera().target.x).toBeCloseTo(5);
+      expect(cam.getCamera().target.z).toBeCloseTo(9);
+      // update() must NOT re-follow the hero while free.
+      hero.position.set(50, 0, 50);
+      cam.update();
+      expect(cam.getCamera().target.x).toBeCloseTo(5);
+    });
+
+    it('panFree moves the focus on the ground; exitFreeMode restores follow + radius', () => {
+      const cam = new CameraSystem(scene);
+      const hero = MeshBuilder.CreateBox('hero', {}, scene);
+      cam.setTarget(hero);
+      const r0 = cam.getCamera().radius;
+      cam.enterFreeMode(new Vector3(0, 0, 0), 18);
+      const before = cam.getCamera().target.clone();
+      cam.panFree(4, 0);
+      const moved = cam.getCamera().target.clone();
+      expect(Math.hypot(moved.x - before.x, moved.z - before.z)).toBeCloseTo(4, 4);
+      cam.exitFreeMode();
+      expect(cam.isFreeMode()).toBe(false);
+      expect(cam.getCamera().radius).toBe(r0);
+      // Follow resumes: update() pulls the focus back toward the hero.
+      hero.position.set(10, 0, 10);
+      cam.update();
+      expect(cam.getCamera().target.z).not.toBeCloseTo(moved.z); // focus moved off the panned spot
+      expect(cam.getCamera().target.x).toBeGreaterThan(moved.x);
+    });
+
+    it('enterFreeMode is idempotent and panFree/exit are no-ops outside free mode', () => {
+      const cam = new CameraSystem(scene);
+      cam.enterFreeMode(new Vector3(1, 0, 1), 15);
+      cam.enterFreeMode(new Vector3(9, 0, 9), 30); // ignored (already free)
+      expect(cam.getCamera().radius).toBe(15);
+      cam.exitFreeMode();
+      const t = cam.getCamera().target.clone();
+      cam.panFree(5, 5); // not in free mode → no-op
+      expect(cam.getCamera().target.x).toBeCloseTo(t.x);
+      expect(() => cam.exitFreeMode()).not.toThrow();
+    });
+  });
 });

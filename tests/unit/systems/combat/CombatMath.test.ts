@@ -3,8 +3,9 @@ import {
   actionPointsFor, moveApCost, maxMoveMeters,
   attackValue, dodgeValue, resolveAttack,
   rollDamage, initiativeOrder,
-  MELEE_RANGE, COVER_NONE, COVER_PARTIAL, COVER_FULL,
+  MELEE_RANGE, FLEE_MIN_DISTANCE, COVER_NONE, COVER_PARTIAL, COVER_FULL,
   MELEE_BASE, RANGED_BASE,
+  distance2, straightLinePath, truncatePath, centroidOf,
 } from '@systems/combat/CombatMath';
 import { CharacterStats, createDefaultStats } from '@entities/CharacterStats';
 
@@ -48,9 +49,10 @@ describe('actionPointsFor', () => {
 });
 
 describe('movement cost', () => {
-  it('costs moveApPerMeter AP per metre (rounded up)', () => {
-    expect(moveApCost(3)).toBe(3);
-    expect(moveApCost(2.4)).toBe(3); // partial metre rounds up
+  it('costs moveApPerMeter AP per metre (rounded up; default 0.5 = 1 AP per 2 m)', () => {
+    expect(moveApCost(3)).toBe(2); // ceil(3 * 0.5) = 2
+    expect(moveApCost(2.4)).toBe(2); // ceil(1.2) = 2
+    expect(moveApCost(4)).toBe(2); // ceil(2) = 2 → 1 AP moves 2 m
     expect(moveApCost(0)).toBe(0);
     expect(moveApCost(-5)).toBe(0);
   });
@@ -59,7 +61,7 @@ describe('movement cost', () => {
     expect(moveApCost(3, t)).toBe(6);
   });
   it('maxMoveMeters is the whole metres affordable with the AP', () => {
-    expect(maxMoveMeters(6)).toBe(6);
+    expect(maxMoveMeters(6)).toBe(12); // 6 AP / 0.5 AP per m = 12 m
     const t: CombatTuning = { ...DEFAULT_COMBAT_TUNING, moveApPerMeter: 2 };
     expect(maxMoveMeters(5, t)).toBe(2);
   });
@@ -156,10 +158,52 @@ describe('initiativeOrder', () => {
 });
 
 describe('constants', () => {
-  it('exposes melee range and cover tiers', () => {
-    expect(MELEE_RANGE).toBeGreaterThan(0);
+  it('exposes melee range, flee distance and cover tiers', () => {
+    expect(MELEE_RANGE).toBe(1);
+    expect(FLEE_MIN_DISTANCE).toBe(10);
     expect(COVER_NONE).toBe(0);
     expect(COVER_PARTIAL).toBe(20);
     expect(COVER_FULL).toBe(40);
+  });
+});
+
+describe('ground geometry', () => {
+  it('distance2 is the Euclidean distance', () => {
+    expect(distance2({ x: 0, z: 0 }, { x: 3, z: 4 })).toBe(5);
+    expect(distance2({ x: 1, z: 1 }, { x: 1, z: 1 })).toBe(0);
+  });
+
+  it('straightLinePath is a two-point segment with the Euclidean length', () => {
+    const p = straightLinePath({ x: 0, z: 0 }, { x: 0, z: 6 });
+    expect(p).toEqual({ points: [{ x: 0, z: 0 }, { x: 0, z: 6 }], meters: 6 });
+  });
+
+  it('centroidOf averages the points (origin when empty)', () => {
+    expect(centroidOf([{ x: 0, z: 0 }, { x: 4, z: 2 }])).toEqual({ x: 2, z: 1 });
+    expect(centroidOf([])).toEqual({ x: 0, z: 0 });
+  });
+});
+
+describe('truncatePath', () => {
+  const path = [{ x: 0, z: 0 }, { x: 4, z: 0 }, { x: 4, z: 4 }]; // length 4 + 4 = 8
+
+  it('returns the whole path end when the budget covers it', () => {
+    expect(truncatePath(path, 100)).toEqual({ point: { x: 4, z: 4 }, meters: 8 });
+  });
+
+  it('stops partway along a segment when the budget runs out', () => {
+    // 4 m down the first leg, then 2 m up the second → (4, 2)
+    expect(truncatePath(path, 6)).toEqual({ point: { x: 4, z: 2 }, meters: 6 });
+  });
+
+  it('handles zero/negative budgets, single-point and empty paths', () => {
+    expect(truncatePath(path, 0)).toEqual({ point: { x: 0, z: 0 }, meters: 0 });
+    expect(truncatePath([{ x: 2, z: 3 }], 5)).toEqual({ point: { x: 2, z: 3 }, meters: 0 });
+    expect(truncatePath([], 5)).toEqual({ point: { x: 0, z: 0 }, meters: 0 });
+  });
+
+  it('skips zero-length segments without stalling', () => {
+    const dup = [{ x: 0, z: 0 }, { x: 0, z: 0 }, { x: 3, z: 0 }];
+    expect(truncatePath(dup, 2)).toEqual({ point: { x: 2, z: 0 }, meters: 2 });
   });
 });

@@ -10,8 +10,16 @@ import { ClaudeCallQueue } from '@systems/ClaudeCallQueue';
 
 export const COOLDOWN_SECONDS = 3;
 
-/** A persisted NPC's memory: its conversation plus its dynamic disposition. */
-export type NPCMemoryEntry = ConversationState & { disposition?: NPCDisposition };
+/**
+ * A persisted NPC's memory: its conversation, its dynamic disposition toward the
+ * player, and its relationship ledger toward other NPCs (8B).
+ */
+export type NPCMemoryEntry = ConversationState & {
+  disposition?: NPCDisposition;
+  relationships?: Record<string, NPCDisposition>;
+  /** World events this NPC witnessed (e.g. "X was killed"), fed into its prompt. */
+  events?: string[];
+};
 export type NPCMemoryMap = Record<string, NPCMemoryEntry>;
 
 /** A queued autonomous job (currently only deliberation runs through the queue). */
@@ -95,7 +103,8 @@ export class NPCManager {
     let best: NPCAgent | null = null;
     let bestDist = Infinity;
     this.agents.forEach((agent) => {
-      if (agent.canConverse(playerPos) && !agent.isBusy()) {
+      // A defeated NPC is a searchable corpse — reachable even though it's "busy"/down.
+      if (agent.canConverse(playerPos) && (!agent.isBusy() || agent.isDefeated())) {
         const d = agent.distanceTo(playerPos);
         if (d < bestDist) {
           bestDist = d;
@@ -182,6 +191,7 @@ export class NPCManager {
 
     this.agents.forEach((agent) => {
       const id = agent.definition.id;
+      if (agent.isDefeated()) return; // the dead take no autonomous turns
       if (agent.shouldInitiateCombat(ctx.playerPresent)) {
         agent.setIntent({ kind: 'attack' });
         result.attackers.push(id);
@@ -262,7 +272,12 @@ export class NPCManager {
   serializeMemory(): NPCMemoryMap {
     const map: NPCMemoryMap = {};
     this.agents.forEach((agent, id) => {
-      map[id] = { ...agent.conversation.toState(), disposition: agent.getDisposition() };
+      map[id] = {
+        ...agent.conversation.toState(),
+        disposition: agent.getDisposition(),
+        relationships: agent.relationshipsRecord(),
+        events: agent.getKnownEvents(),
+      };
     });
     return map;
   }
@@ -280,6 +295,22 @@ export class NPCManager {
     fallback: NPCDisposition,
   ): NPCDisposition {
     return memory?.[npcId]?.disposition ?? fallback;
+  }
+
+  /** The persisted NPC→NPC relationship ledger for an NPC (undefined = none saved). */
+  static restoreRelationships(
+    memory: NPCMemoryMap | undefined,
+    npcId: string,
+  ): Record<string, NPCDisposition> | undefined {
+    return memory?.[npcId]?.relationships;
+  }
+
+  /** The persisted witnessed-events memory for an NPC (undefined = none saved). */
+  static restoreEvents(
+    memory: NPCMemoryMap | undefined,
+    npcId: string,
+  ): string[] | undefined {
+    return memory?.[npcId]?.events;
   }
 
   dispose(): void {

@@ -183,6 +183,24 @@ export const CORRIDOR_COLLIDERS: readonly ColliderBox[] = [
   { key: 'col-e', position: [ZONE_HALF, WALL_H / 2, 0], size: [2, WALL_H, BUILDING_Z * 2 + 2] },
 ];
 
+/**
+ * Obstacles + bounds for tactical combat movement (Fase 8): the routed move grid
+ * (CombatMovement.buildWalkGrid) is rasterised from these so a fighter routes
+ * around the closed perimeter + the exit wall rather than walking through them.
+ * Pure data (the street interior is otherwise open). Building footprints can be
+ * added here later for finer routing.
+ */
+export const COMBAT_OBSTACLES: readonly ColliderBox[] = [
+  ...CORRIDOR_COLLIDERS,
+  { key: EXIT_WALL.key, position: EXIT_WALL.position, size: EXIT_WALL.size },
+];
+export const COMBAT_BOUNDS = {
+  minX: -ZONE_HALF,
+  maxX: ZONE_HALF,
+  minZ: -(BUILDING_Z + 2),
+  maxZ: BUILDING_Z + 2,
+} as const;
+
 /** Everything the downtown street loads (road first, then structures/props/vendor). */
 export const MERCADO_PROPS: readonly WorldProp[] = [
   ...ROADS,

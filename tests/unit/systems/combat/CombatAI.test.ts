@@ -47,28 +47,26 @@ describe('chooseCombatAction — gunner (ranged)', () => {
 });
 
 describe('chooseCombatAction — brawler (melee)', () => {
-  it('closes the gap, reserving AP for the strike', () => {
-    // distance 6, MELEE_RANGE 1.5 → gap 5; ap 6, reserve primary(2) → can move 4
+  it('advances toward the target when out of range (controller routes the path)', () => {
+    // distance 6, can afford ≥1 m of movement → abstract "move toward target".
     const a = chooseCombatAction(base({ prefersMelee: true, distance: 6, ap: 6 }));
     expect(a.type).toBe('move');
-    expect(a.toward).toBe(true);
-    expect(a.meters).toBe(4);
+    expect(a.attackKind).toBe('melee');
   });
   it('strikes when already in range', () => {
     expect(chooseCombatAction(base({ prefersMelee: true, distance: MELEE_RANGE, ap: 6 })))
       .toEqual({ type: 'attack', attackKind: 'melee' });
   });
   it('ends the turn when it cannot move or strike', () => {
-    // far away, only 0 AP
+    // far away, only 0 AP → cannot afford even 1 m
     expect(chooseCombatAction(base({ prefersMelee: true, distance: 10, ap: 0 }))).toEqual({ type: 'end_turn' });
   });
   it('in range but cannot afford a strike → end_turn', () => {
     expect(chooseCombatAction(base({ prefersMelee: true, distance: 1, ap: 1 }))).toEqual({ type: 'end_turn' });
   });
-  it('spends all AP closing when it cannot also reserve a strike', () => {
-    // ap 1: reserve 0 (cannot afford primary+move), moves 1m toward
+  it('moves toward when it can afford at least one metre', () => {
     const a = chooseCombatAction(base({ prefersMelee: true, distance: 10, ap: 1 }));
-    expect(a).toEqual({ type: 'move', meters: 1, toward: true });
+    expect(a.type).toBe('move');
   });
   it('without a firearm, a gunner is forced into melee (close then strike)', () => {
     // prefersMelee false but hasFirearm false → behaves as a brawler.
@@ -84,9 +82,9 @@ describe('chooseCombatAction — brawler (melee)', () => {
       .toEqual({ type: 'attack', attackKind: 'melee' });
   });
 
-  it('honours a custom tuning', () => {
-    const a = chooseCombatAction(base({ prefersMelee: true, distance: 6, ap: 6, tuning: { ...DEFAULT_COMBAT_TUNING, moveApPerMeter: 2 } }));
-    expect(a.type).toBe('move'); // 6 AP, reserve 2, (6-2)/2 = 2m
-    expect(a.meters).toBe(2);
+  it('honours a custom tuning (cannot afford a metre → end_turn)', () => {
+    // moveApPerMeter 2, ap 1 → maxMoveMeters = 0 → no move possible.
+    const a = chooseCombatAction(base({ prefersMelee: true, distance: 6, ap: 1, tuning: { ...DEFAULT_COMBAT_TUNING, moveApPerMeter: 2 } }));
+    expect(a).toEqual({ type: 'end_turn' });
   });
 });

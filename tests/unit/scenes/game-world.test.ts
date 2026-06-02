@@ -176,6 +176,18 @@ describe('GameWorldScene', () => {
     expect(scene.getDialog()!.isOpen()).toBe(true);
   });
 
+  it('a defeated NPC shows a Search prompt and opens a corpse interaction (no live chat)', async () => {
+    await scene.onEnter();
+    scene.getNpcManager()!.getAgent('npc_zara_vendor_01')!.markDefeated();
+    scene.getPlayer()!.getRoot().position.set(3, 0, 5);
+    scene.update();
+    // Name is unknown until introduced → generic "search the body" prompt.
+    expect(scene.getHud()!.getActionPrompt()).toBe('[E] Search the body');
+    scene.getInputSystem()!.handleKeyDown('KeyE');
+    scene.update();
+    expect(scene.getDialog()!.isOpen()).toBe(true);
+  });
+
   it('pressing interact while dialog open closes it', async () => {
     await scene.onEnter();
     const input = scene.getInputSystem()!;
@@ -263,7 +275,7 @@ describe('GameWorldScene', () => {
       { id: 'player', name: 'Hero', isPlayer: true, stats: createDefaultStats(), health: { current: 100, max: 100 } },
       { id: 'zara', name: 'Zara', isPlayer: false, stats: enemyStats, health: { current: 100, max: 100 } },
     ], { rng: () => 0 });
-    scene.getCombat()!.start(new CombatController(enc, { player: 'Hero', zara: 'Zara' }, 'player', 'zara', enemyStats));
+    scene.getCombat()!.start(new CombatController(enc, { player: 'Hero', zara: 'Zara' }, 'player'));
     expect(scene.getCombat()!.isOpen()).toBe(true);
     const z = scene.getPlayer()!.getPosition().z;
     scene.getInputSystem()!.handleKeyDown('KeyW');
@@ -301,7 +313,7 @@ describe('GameWorldScene', () => {
     scene.getPlayer()!.getRoot().position.set(3, 0, 5);
     scene.update();
     // Name is hidden until the NPC introduces itself (no metagaming).
-    expect(scene.getHud()!.getActionPrompt()).toBe('[E] Talk');
+    expect(scene.getHud()!.getActionPrompt()).toBe('[E] Interact');
   });
 
   it('reveals the NPC name once it introduces itself in a reply', async () => {
@@ -315,7 +327,7 @@ describe('GameWorldScene', () => {
     expect(scene.getDialog()!.getState().npcName).toBe('Zara');
     // Now the prompt uses the real name.
     scene.update();
-    expect(scene.getHud()!.getActionPrompt()).toBe('[E] Talk to Zara');
+    expect(scene.getHud()!.getActionPrompt()).toBe('[E] Interact with Zara');
   });
 
   it('keeps the NPC name hidden when the reply does not mention it', async () => {

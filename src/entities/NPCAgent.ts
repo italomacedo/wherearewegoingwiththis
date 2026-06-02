@@ -21,6 +21,31 @@ export type PlayerAction = 'idle' | 'walking' | 'running' | 'weapon_drawn';
  */
 export type NPCDisposition = 'hostile' | 'wary' | 'neutral' | 'friendly';
 
+/** Disposition scale ordered worst→best (index 0 = most hostile). */
+export const DISPOSITION_SCALE: readonly NPCDisposition[] = ['hostile', 'wary', 'neutral', 'friendly'];
+
+/** One step worse toward hostile (clamped). */
+export function worsenedDisposition(d: NPCDisposition): NPCDisposition {
+  const i = DISPOSITION_SCALE.indexOf(d);
+  return DISPOSITION_SCALE[Math.max(i - 1, 0)]!;
+}
+
+/** How far a disposition sits from neutral (0..2) — the "pull strength" for side-taking. */
+export function dispositionMagnitude(d: NPCDisposition): number {
+  return Math.abs(DISPOSITION_SCALE.indexOf(d) - DISPOSITION_SCALE.indexOf('neutral'));
+}
+
+/**
+ * The outcome of intentionally striking an ally (8B friendly fire): their
+ * disposition toward the attacker worsens one step, and once it reaches `wary`
+ * (or worse) they DEFECT to the opposing side. A `friendly` ally therefore absorbs
+ * ~two betrayals (friendly→neutral→wary) before turning on you.
+ */
+export function friendlyFireDefection(current: NPCDisposition): { disposition: NPCDisposition; defects: boolean } {
+  const next = worsenedDisposition(current);
+  return { disposition: next, defects: next === 'wary' || next === 'hostile' };
+}
+
 export interface NPCDefinition {
   id: string;
   name: string;
@@ -43,8 +68,14 @@ export interface NPCDefinition {
   backstory?: string;
   /** What they do day to day. */
   routine?: string;
-  /** Notable relationships (free text). */
+  /** Notable relationships (free text — fed to gossip/persona prompts). */
   relationships?: string;
+  /**
+   * Structured starting relationships toward OTHER NPCs by id (Fase 8B), on the
+   * same 4-level scale. Drives multi-combatant side-taking (hostile/wary → fight
+   * them, friendly → defend them). Missing entries default to `neutral`.
+   */
+  npcRelationships?: Record<string, NPCDisposition>;
   /** Initial disposition toward the player (dynamic transitions: Phase 5). */
   initialDisposition?: NPCDisposition;
 }
@@ -62,6 +93,8 @@ export class NPCAgent {
   private mood: NPCMood;
   private nameKnown = false;
   private disposition: NPCDisposition;
+  /** This NPC's relationships toward OTHER NPCs (id → disposition); default neutral. */
+  private readonly relationships = new Map<string, NPCDisposition>();
   private intent: NPCIntent = { kind: 'stay' };
 
   constructor(definition: NPCDefinition, conversation?: ConversationContext) {
@@ -69,6 +102,9 @@ export class NPCAgent {
     this.mood = definition.defaultMood;
     this.conversation = conversation ?? new ConversationContext();
     this.disposition = definition.initialDisposition ?? 'neutral';
+    for (const [id, level] of Object.entries(definition.npcRelationships ?? {})) {
+      this.relationships.set(id, level);
+    }
   }
 
   // ─── Disposition toward the player (dynamic, persisted via npcMemory) ────────
@@ -86,9 +122,7 @@ export class NPCAgent {
    * hostile, clamped). Returns the new value.
    */
   worsenDisposition(): NPCDisposition {
-    const order: NPCDisposition[] = ['friendly', 'neutral', 'wary', 'hostile'];
-    const i = order.indexOf(this.disposition);
-    this.disposition = order[Math.min(i + 1, order.length - 1)]!;
+    this.disposition = worsenedDisposition(this.disposition);
     return this.disposition;
   }
 
@@ -113,6 +147,78 @@ export class NPCAgent {
    */
   shouldInitiateCombat(playerPresent: boolean): boolean {
     return playerPresent && this.disposition === 'hostile';
+  }
+
+  // ─── Relationships toward OTHER NPCs (the ledger; Fase 8B) ───────────────────
+
+  /** This NPC's disposition toward another NPC (defaults to neutral). */
+  getRelationship(npcId: string): NPCDisposition {
+    return this.relationships.get(npcId) ?? 'neutral';
+  }
+
+  setRelationship(npcId: string, level: NPCDisposition): void {
+    this.relationships.set(npcId, level);
+  }
+
+  /** Worsen the relationship toward another NPC one step (clamped). Returns the new value. */
+  worsenRelationship(npcId: string): NPCDisposition {
+    const next = worsenedDisposition(this.getRelationship(npcId));
+    this.relationships.set(npcId, next);
+    return next;
+  }
+
+  /** The full ledger as a plain record (for persistence). Omitted when empty. */
+  relationshipsRecord(): Record<string, NPCDisposition> {
+    return Object.fromEntries(this.relationships);
+  }
+
+  /** Replace the ledger from a persisted record (load). */
+  restoreRelationships(record: Record<string, NPCDisposition> | undefined): void {
+    this.relationships.clear();
+    for (const [id, level] of Object.entries(record ?? {})) this.relationships.set(id, level);
+  }
+
+  /** True when this NPC would take up arms against `npcId` (hostile or wary). */
+  isAntagonisticToward(npcId: string): boolean {
+    const r = this.getRelationship(npcId);
+    return r === 'hostile' || r === 'wary';
+  }
+
+  // ─── Defeat (killed in combat — persists for the rest of the scene) ──────────
+
+  private defeated = false;
+  /** Mark this NPC as defeated/killed: it stays down and takes no further part in the world. */
+  markDefeated(): void { this.defeated = true; }
+  isDefeated(): boolean { return this.defeated; }
+
+  // ─── Witnessed events (e.g. "X was killed") — fed into the NPC's prompt ──────
+
+  private static readonly MAX_EVENTS = 8;
+  private knownEvents: string[] = [];
+
+  /** Record a world event this NPC witnessed/learned (deduped, newest kept; capped). */
+  rememberEvent(line: string): void {
+    const e = line.trim();
+    if (!e || this.knownEvents.includes(e)) return;
+    this.knownEvents.push(e);
+    if (this.knownEvents.length > NPCAgent.MAX_EVENTS) {
+      this.knownEvents = this.knownEvents.slice(-NPCAgent.MAX_EVENTS);
+    }
+  }
+
+  /** Events this NPC knows, oldest first (stable for persistence). */
+  getKnownEvents(): string[] {
+    return [...this.knownEvents];
+  }
+
+  /** The most recent `n` events, newest first (for the prompt's "recent events"). */
+  getRecentEvents(n = 3): string[] {
+    return [...this.knownEvents].slice(-n).reverse();
+  }
+
+  /** Replace the known-events memory from a persisted list (load). */
+  restoreEvents(events: string[] | undefined): void {
+    this.knownEvents = [...(events ?? [])];
   }
 
   // ─── Current deliberated intent (set by the autonomy layer) ─────────────────

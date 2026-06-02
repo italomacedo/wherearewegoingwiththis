@@ -52,6 +52,8 @@ export const ZARA_DEFINITION: NPCDefinition = {
     'Loathes Mback, the smug corporate fixer who slums the strip dangling money to buy people off — ' +
     'to her he is everything wrong with this city. Steers clear of the Vyse-Tek enforcers who patrol it.',
   initialDisposition: 'wary',
+  // Loathes the corporate fixer — sides against him in a multi-combatant fight (8B).
+  npcRelationships: { npc_mback_fence_01: 'wary' },
 };
 
 export function createZara(): NPCDefinition {

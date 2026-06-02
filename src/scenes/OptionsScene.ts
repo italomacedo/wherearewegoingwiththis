@@ -131,12 +131,17 @@ export class OptionsScene extends BaseScene {
     return next;
   }
 
-  /** Cycle the movement AP-per-metre cost 1 → 2 → 1 and persist. */
-  cycleCombatMoveApPerMeter(): 1 | 2 {
-    const next: 1 | 2 = this.getSetting('combatMoveApPerMeter') === 1 ? 2 : 1;
+  /** Cycle the movement cost 0.5 → 1 → 0.5 AP/m (0.5 = 1 AP moves 2 m) and persist. */
+  cycleCombatMoveApPerMeter(): 0.5 | 1 {
+    const next: 0.5 | 1 = this.getSetting('combatMoveApPerMeter') === 0.5 ? 1 : 0.5;
     this.setSetting('combatMoveApPerMeter', next);
     SettingsService.set('combatMoveApPerMeter', next);
     return next;
+  }
+
+  /** Movement cost shown as whole metres per AP (the inverse of AP/m) for clarity. */
+  static metresPerApLabel(apPerMetre: number): string {
+    return `${apPerMetre > 0 ? Math.round(1 / apPerMetre) : 0} m/AP`;
   }
 
   validateAndSaveClaudePath(path: string): { valid: boolean; reason?: string } {
@@ -390,8 +395,8 @@ export class OptionsScene extends BaseScene {
     );
     mkCycler(
       'combat-move', 'options.combatMoveCost',
-      `${this.settings.combatMoveApPerMeter} AP/m`,
-      () => `${this.cycleCombatMoveApPerMeter()} AP/m`,
+      OptionsScene.metresPerApLabel(this.settings.combatMoveApPerMeter),
+      () => OptionsScene.metresPerApLabel(this.cycleCombatMoveApPerMeter()),
     );
 
     // Back button

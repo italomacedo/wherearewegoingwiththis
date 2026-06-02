@@ -9,7 +9,7 @@ function mkController(): CombatController {
   const enemyStats = createDefaultStats();
   const enemy: CombatantInit = { id: 'zara', name: 'Zara', isPlayer: false, stats: enemyStats, health: { current: 100, max: 100 } };
   const enc = new CombatEncounter([player, enemy], { rng: () => 0 });
-  return new CombatController(enc, { player: 'Hero', zara: 'Zara' }, 'player', 'zara', enemyStats);
+  return new CombatController(enc, { player: 'Hero', zara: 'Zara' }, 'player');
 }
 
 describe('CombatOverlay (pure surface, no DOM)', () => {
