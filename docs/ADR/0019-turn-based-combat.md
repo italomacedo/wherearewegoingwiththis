@@ -96,3 +96,8 @@ After the 1v1 played well in Electron, the owner asked to raise the aesthetics
   NPC↔NPC disposition), weapons/ammo (reload is flavour for now), per-NPC stat
   blocks (a street-tough block is used), persisting an in-progress fight across
   save/load, the muzzle-flash particle, and animation sequencing within a turn.
+- **Deferred — block/crouch animations (need a rig retarget):** the Quaternius
+  rig has no block or crouch clip, so **Take cover / Hunker down play no pose** and
+  a **miss plays no dodge** (the Roll stand-in read badly and was removed). Proper
+  block + crouch animations require retargeting external clips (e.g. the Universal
+  Animation Library) onto the Quaternius skeleton in Blender — a future asset task.

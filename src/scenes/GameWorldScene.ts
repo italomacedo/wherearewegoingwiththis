@@ -545,17 +545,15 @@ export class GameWorldScene extends BaseScene {
   /** Play attack/hit/dodge/death animations on the world meshes for a resolved combat beat. */
   /* istanbul ignore next — browser-only animation playback */
   private animateCombatBeat(entry: CombatLogEntry): void {
-    // Take cover / hunker down → a quick Roll (the closest "get low" motion the rig has).
-    if (entry.kind === 'cover' || entry.kind === 'hunker') {
-      this.playCombatClip(entry.actorId, 'dodge', false);
-      return;
-    }
+    // NOTE: cover/hunker have NO pose and a miss has NO dodge for now — the Quaternius
+    // rig lacks block/crouch clips and Roll read badly. Proper block + crouch clips
+    // need a rig retarget (future work; see ADR-0019 deferred list).
     if (!entry.attackKind || !(entry.kind === 'hit' || entry.kind === 'miss' || entry.kind === 'death')) return;
     const dead = entry.kind === 'death';
     const landed = entry.kind === 'hit' || dead;
-    // Target reacts: HitRecieve / Death on a landed blow, a dodge Roll on a miss.
-    if (entry.targetId) {
-      this.playCombatClip(entry.targetId, dead ? 'death' : (landed ? 'hit' : 'dodge'), dead);
+    // Target reacts ONLY when actually hit (HitRecieve / Death). Misses: no reaction.
+    if (landed && entry.targetId) {
+      this.playCombatClip(entry.targetId, dead ? 'death' : 'hit', dead);
     }
     // Attacker: melee lunges in, strikes, and retreats; ranged shoots in place.
     if (entry.attackKind === 'melee' && entry.targetId) {
