@@ -66,7 +66,21 @@ export class CombatOverlay {
   private startBrowser(): void {
     if (this.panel) this.panel.isVisible = true;
     if (this.logStack) this.logStack.clearControls();
+    // If the enemy won initiative, play out its turn(s) before handing control over.
+    this.pumpEnemyTurns();
+  }
+
+  /** Run enemy turns until it's the player's turn (or the fight ends), then render. */
+  /* istanbul ignore next — browser GUI only */
+  private pumpEnemyTurns(): void {
+    const c = this.controller;
+    if (!c) return;
+    let guard = 0;
+    while (!c.isOver() && !c.isPlayerTurn() && guard++ < 20) {
+      c.runEnemyTurn().forEach((e) => this.appendBeat(e));
+    }
     this.refresh();
+    if (c.isOver()) this.finish(c.outcome());
   }
 
   /* istanbul ignore next — browser GUI only */
@@ -86,11 +100,11 @@ export class CombatOverlay {
     this.buttonsRow.clearControls();
     c.options().forEach((opt) => {
       const btn = Button.CreateSimpleButton(`combat-${opt.labelKey}`, t(opt.labelKey));
-      btn.width = '128px';
-      btn.height = '40px';
+      btn.width = '104px';
+      btn.height = '38px';
       btn.color = opt.enabled ? '#00FFCC' : '#557';
       btn.background = opt.enabled ? 'rgba(0,40,50,0.9)' : 'rgba(10,14,20,0.7)';
-      btn.fontSize = 13;
+      btn.fontSize = 12;
       btn.fontFamily = '"Courier New", monospace';
       btn.thickness = 1;
       btn.isEnabled = opt.enabled && c.isPlayerTurn();
@@ -158,7 +172,7 @@ export class CombatOverlay {
     this.panel = scrim;
 
     const stack = new StackPanel('combat-stack');
-    stack.width = '720px';
+    stack.width = '980px';
     stack.spacing = 10;
     scrim.addControl(stack);
 
@@ -179,22 +193,22 @@ export class CombatOverlay {
     this.statusText = status;
 
     const scroll = new ScrollViewer('combat-log-scroll');
-    scroll.width = '700px';
-    scroll.height = '240px';
+    scroll.width = '960px';
+    scroll.height = '220px';
     scroll.thickness = 1;
     scroll.color = '#234';
     scroll.barColor = '#0AA';
     stack.addControl(scroll);
     const log = new StackPanel('combat-log');
-    log.width = '680px';
+    log.width = '940px';
     log.isVertical = true;
     scroll.addControl(log);
     this.logStack = log;
 
     const buttons = new StackPanel('combat-buttons');
     buttons.isVertical = false;
-    buttons.height = '46px';
-    buttons.width = '700px';
+    buttons.height = '44px';
+    buttons.width = '980px';
     stack.addControl(buttons);
     this.buttonsRow = buttons;
 
