@@ -45,7 +45,7 @@ describe('SaveService', () => {
 
   it('createNewSave includes an empty inventory', () => {
     const save = SaveService.createNewSave(testCharacter);
-    expect(save.inventory).toEqual({ items: [], equippedWeaponId: null, capacityWeight: 30 });
+    expect(save.inventory).toEqual({ items: [], equipped: {}, equippedWeaponId: null, capacityWeight: 30 });
   });
 
   it('load migrates a legacy save missing the inventory field', () => {
@@ -53,7 +53,7 @@ describe('SaveService', () => {
     delete (save as Partial<SaveGame>).inventory;
     SaveService.save(save);
     const loaded = SaveService.load(save.saveId)!;
-    expect(loaded.inventory).toEqual({ items: [], equippedWeaponId: null, capacityWeight: 30 });
+    expect(loaded.inventory).toEqual({ items: [], equipped: {}, equippedWeaponId: null, capacityWeight: 30 });
   });
 
   it('updateInventory persists the inventory and round-trips', () => {

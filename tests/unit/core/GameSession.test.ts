@@ -61,7 +61,7 @@ describe('GameSession', () => {
 
   it('defaults to an empty inventory when constructed minimally', () => {
     const session = new GameSession('s', character);
-    expect(session.inventory).toEqual({ items: [], equippedWeaponId: null, capacityWeight: 30 });
+    expect(session.inventory).toEqual({ items: [], equipped: {}, equippedWeaponId: null, capacityWeight: 30 });
   });
 
   it('fromSave carries the inventory, defaulting to empty on a legacy save', () => {
@@ -69,7 +69,7 @@ describe('GameSession', () => {
     save.inventory = { items: [{ id: 'knife', qty: 1 }], equippedWeaponId: 'knife', capacityWeight: 30 };
     expect(GameSession.fromSave(save).inventory.equippedWeaponId).toBe('knife');
     (save as { inventory?: unknown }).inventory = undefined;
-    expect(GameSession.fromSave(save).inventory).toEqual({ items: [], equippedWeaponId: null, capacityWeight: 30 });
+    expect(GameSession.fromSave(save).inventory).toEqual({ items: [], equipped: {}, equippedWeaponId: null, capacityWeight: 30 });
   });
 
   it('fromSave tolerates a save with no npcMemory', () => {

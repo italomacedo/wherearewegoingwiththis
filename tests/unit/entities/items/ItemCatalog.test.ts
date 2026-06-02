@@ -1,6 +1,7 @@
 import {
   ITEM_REGISTRY, WEAPON_REGISTRY,
-  itemDef, weaponDef, isWeapon, itemWeight, itemMaxStack, weaponProfile,
+  itemDef, weaponDef, isWeapon, isMeleeWeapon, itemWeight, itemMaxStack, weaponProfile,
+  itemEquipSlot, itemCapacityBonus, itemHungerRestore, itemModelPath, itemAttach,
 } from '../../../../src/entities/items/ItemCatalog';
 import { FIST_PROFILE } from '../../../../src/systems/combat/CombatMath';
 
@@ -8,14 +9,36 @@ describe('ItemCatalog', () => {
   it('every weapon id has a matching item entry', () => {
     for (const id of Object.keys(WEAPON_REGISTRY)) {
       expect(ITEM_REGISTRY[id]).toBeDefined();
-      expect(ITEM_REGISTRY[id].category).toBe('melee');
     }
   });
 
-  it('all weapons are melee this phase (no firearms shipped)', () => {
+  it('every melee weapon item is in the melee category', () => {
     for (const w of Object.values(WEAPON_REGISTRY)) {
-      expect(w.attackKind).toBe('melee');
+      if (w.attackKind === 'melee') expect(ITEM_REGISTRY[w.id].category).toBe('melee');
     }
+  });
+
+  it('firearms are modelled ranged but ship as cosmetic misc items (Phase 10)', () => {
+    expect(weaponDef('pistol')?.attackKind).toBe('ranged');
+    expect(ITEM_REGISTRY.pistol.category).toBe('misc');
+    expect(isMeleeWeapon('pistol')).toBe(false); // never arms the melee fighter
+    expect(isMeleeWeapon('knife')).toBe(true);
+  });
+
+  it('equip slots / capacity bonus / hunger / model path expose Phase 10 fields', () => {
+    expect(itemEquipSlot('knife')).toBe('main_hand');     // weapon defaults to main hand
+    expect(itemEquipSlot('backpack')).toBe('back');
+    expect(itemEquipSlot('flashlight')).toBe('main_hand');
+    expect(itemEquipSlot('phone')).toBeUndefined();        // transient, no fixed slot
+    expect(itemEquipSlot('scrap')).toBeUndefined();
+    expect(itemCapacityBonus('backpack')).toBe(20);
+    expect(itemCapacityBonus('knife')).toBe(0);
+    expect(itemHungerRestore('burger')).toBe(40);
+    expect(itemHungerRestore('medkit')).toBe(0);
+    expect(itemModelPath('knife')).toBe('items/knife.glb');
+    expect(itemModelPath('scrap')).toBeUndefined();
+    expect(itemAttach('knife')).toBeUndefined();   // no per-item transform tuned yet
+    expect(itemAttach('ghost')).toBeUndefined();
   });
 
   it('itemDef / weaponDef look up by id and return undefined for unknown', () => {

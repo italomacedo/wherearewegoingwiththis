@@ -12,8 +12,22 @@
 import type { AttackKind, WeaponProfile } from '@systems/combat/CombatMath';
 import { FIST_PROFILE } from '@systems/combat/CombatMath';
 import type { SkillId } from '@entities/CharacterStats';
+import type { CombatClipState } from '@assets/AvatarMeshCatalog';
 
 export type ItemCategory = 'melee' | 'consumable' | 'misc';
+
+/** Body slots of the paper-doll (Phase 10). main_hand = held; back = backpack. */
+export type EquipSlot = 'main_hand' | 'back';
+
+/** Transform of a held item relative to the hand bone (tuned in Electron). */
+export interface ItemAttach {
+  /** Local position offset [x,y,z]. */
+  pos: [number, number, number];
+  /** Local euler rotation [x,y,z] in radians. */
+  rot: [number, number, number];
+  /** Uniform scale. */
+  scale: number;
+}
 
 export interface ItemDef {
   id: string;
@@ -28,6 +42,19 @@ export interface ItemDef {
   maxStack: number;
   /** Consumable effect: HP restored when used (consumables only). */
   heal?: number;
+  // ── Phase 10: visual / equipment / survival fields (all optional) ──
+  /** GLB path under /assets/ for the visible held/worn prop (Phase 10). */
+  modelPath?: string;
+  /** Paper-doll slot this item occupies when equipped. Weapons default to main_hand. */
+  equipSlot?: EquipSlot;
+  /** Extra carry capacity (kg) granted while equipped — e.g. a backpack on the back. */
+  capacityBonus?: number;
+  /** Consumable effect: hunger restored when eaten (food). */
+  hungerRestore?: number;
+  /** Hand-bone attach transform for the held prop (defaults applied if absent). */
+  attach?: ItemAttach;
+  /** Combat clip key this weapon swings with (defaults by attack kind if absent). */
+  holdClip?: CombatClipState;
 }
 
 export interface WeaponDef {
@@ -44,21 +71,48 @@ export interface WeaponDef {
 }
 
 export const ITEM_REGISTRY: Readonly<Record<string, ItemDef>> = Object.freeze({
-  // ── Melee weapons ──
-  knife:  { id: 'knife',  nameKey: 'item.knife',  category: 'melee', weight: 0.6, stackable: false, maxStack: 1 },
-  pipe:   { id: 'pipe',   nameKey: 'item.pipe',   category: 'melee', weight: 2.0, stackable: false, maxStack: 1 },
-  bat:    { id: 'bat',    nameKey: 'item.bat',    category: 'melee', weight: 1.4, stackable: false, maxStack: 1 },
+  // ── Melee weapons (Phase 9 + Phase 10 additions) ──
+  knife:   { id: 'knife',   nameKey: 'item.knife',   category: 'melee', weight: 0.6, stackable: false, maxStack: 1, modelPath: 'items/knife.glb' },
+  pipe:    { id: 'pipe',    nameKey: 'item.pipe',    category: 'melee', weight: 2.0, stackable: false, maxStack: 1, modelPath: 'items/pipe.glb' },
+  bat:     { id: 'bat',     nameKey: 'item.bat',     category: 'melee', weight: 1.4, stackable: false, maxStack: 1, modelPath: 'items/bat.glb' },
+  machete: { id: 'machete', nameKey: 'item.machete', category: 'melee', weight: 1.1, stackable: false, maxStack: 1, modelPath: 'items/machete.glb' },
+  axe:     { id: 'axe',     nameKey: 'item.axe',     category: 'melee', weight: 2.4, stackable: false, maxStack: 1, modelPath: 'items/axe.glb' },
+  shovel:  { id: 'shovel',  nameKey: 'item.shovel',  category: 'melee', weight: 2.6, stackable: false, maxStack: 1, modelPath: 'items/shovel.glb' },
+  // ── Firearms (Phase 10: COSMETIC only — attach to hand, no shooting/ammo yet) ──
+  pistol:  { id: 'pistol',  nameKey: 'item.pistol',  category: 'misc', weight: 1.0, stackable: false, maxStack: 1, equipSlot: 'main_hand', modelPath: 'items/pistol.glb' },
+  revolver:{ id: 'revolver',nameKey: 'item.revolver',category: 'misc', weight: 1.2, stackable: false, maxStack: 1, equipSlot: 'main_hand', modelPath: 'items/revolver.glb' },
+  shotgun: { id: 'shotgun', nameKey: 'item.shotgun', category: 'misc', weight: 3.5, stackable: false, maxStack: 1, equipSlot: 'main_hand', modelPath: 'items/shotgun.glb' },
+  // ── Equipment ──
+  backpack:   { id: 'backpack',   nameKey: 'item.backpack',   category: 'misc', weight: 1.5, stackable: false, maxStack: 1, equipSlot: 'back', capacityBonus: 20, modelPath: 'items/backpack.glb' },
+  flashlight: { id: 'flashlight', nameKey: 'item.flashlight', category: 'misc', weight: 0.4, stackable: false, maxStack: 1, equipSlot: 'main_hand', modelPath: 'items/flashlight.glb' },
+  phone:      { id: 'phone',      nameKey: 'item.phone',      category: 'misc', weight: 0.2, stackable: false, maxStack: 1, modelPath: 'items/phone.glb' },
   // ── Consumables ──
   medkit: { id: 'medkit', nameKey: 'item.medkit', category: 'consumable', weight: 0.8, stackable: true, maxStack: 5, heal: 40 },
+  // ── Food (consumable — restores hunger; eaten with an in-hand prop) ──
+  burger: { id: 'burger', nameKey: 'item.burger', category: 'consumable', weight: 0.4, stackable: true, maxStack: 5, hungerRestore: 40, heal: 5, modelPath: 'items/food/burger.glb' },
+  hotdog: { id: 'hotdog', nameKey: 'item.hotdog', category: 'consumable', weight: 0.3, stackable: true, maxStack: 5, hungerRestore: 30, modelPath: 'items/food/hotdog.glb' },
+  apple:  { id: 'apple',  nameKey: 'item.apple',  category: 'consumable', weight: 0.2, stackable: true, maxStack: 10, hungerRestore: 15, modelPath: 'items/food/apple.glb' },
+  banana: { id: 'banana', nameKey: 'item.banana', category: 'consumable', weight: 0.2, stackable: true, maxStack: 10, hungerRestore: 12, modelPath: 'items/food/banana.glb' },
+  bread:  { id: 'bread',  nameKey: 'item.bread',  category: 'consumable', weight: 0.3, stackable: true, maxStack: 5, hungerRestore: 25, modelPath: 'items/food/bread.glb' },
+  donut:  { id: 'donut',  nameKey: 'item.donut',  category: 'consumable', weight: 0.2, stackable: true, maxStack: 8, hungerRestore: 18, modelPath: 'items/food/donut.glb' },
+  sushi:  { id: 'sushi',  nameKey: 'item.sushi',  category: 'consumable', weight: 0.3, stackable: true, maxStack: 6, hungerRestore: 22, modelPath: 'items/food/sushi.glb' },
+  noodles:{ id: 'noodles',nameKey: 'item.noodles',category: 'consumable', weight: 0.4, stackable: true, maxStack: 5, hungerRestore: 35, modelPath: 'items/food/noodles.glb' },
   // ── Loot / misc (no mechanic yet — seeds future economy) ──
   scrap:  { id: 'scrap',  nameKey: 'item.scrap',  category: 'misc', weight: 0.3, stackable: true, maxStack: 20 },
   credstick: { id: 'credstick', nameKey: 'item.credstick', category: 'misc', weight: 0.1, stackable: true, maxStack: 50 },
 });
 
 export const WEAPON_REGISTRY: Readonly<Record<string, WeaponDef>> = Object.freeze({
-  knife: { id: 'knife', attackKind: 'melee', skill: 'combate_corpo_a_corpo', damageBase: 12, variance: 6, range: 1 },
-  pipe:  { id: 'pipe',  attackKind: 'melee', skill: 'combate_corpo_a_corpo', damageBase: 15, variance: 6, range: 1 },
-  bat:   { id: 'bat',   attackKind: 'melee', skill: 'combate_corpo_a_corpo', damageBase: 14, variance: 7, range: 1 },
+  knife:   { id: 'knife',   attackKind: 'melee', skill: 'combate_corpo_a_corpo', damageBase: 12, variance: 6, range: 1 },
+  pipe:    { id: 'pipe',    attackKind: 'melee', skill: 'combate_corpo_a_corpo', damageBase: 15, variance: 6, range: 1 },
+  bat:     { id: 'bat',     attackKind: 'melee', skill: 'combate_corpo_a_corpo', damageBase: 14, variance: 7, range: 1 },
+  machete: { id: 'machete', attackKind: 'melee', skill: 'combate_corpo_a_corpo', damageBase: 16, variance: 7, range: 1 },
+  axe:     { id: 'axe',     attackKind: 'melee', skill: 'combate_corpo_a_corpo', damageBase: 18, variance: 8, range: 1 },
+  shovel:  { id: 'shovel',  attackKind: 'melee', skill: 'combate_corpo_a_corpo', damageBase: 15, variance: 8, range: 1 },
+  // Firearms model `ranged` for a FUTURE phase; cosmetic-only now (combat stays melee).
+  pistol:  { id: 'pistol',  attackKind: 'ranged', skill: 'armas_de_fogo', damageBase: 18, variance: 6, range: 20 },
+  revolver:{ id: 'revolver',attackKind: 'ranged', skill: 'armas_de_fogo', damageBase: 22, variance: 8, range: 22 },
+  shotgun: { id: 'shotgun', attackKind: 'ranged', skill: 'armas_de_fogo', damageBase: 30, variance: 12, range: 12 },
 });
 
 const ITEM_BY_ID = new Map<string, ItemDef>(Object.values(ITEM_REGISTRY).map((d) => [d.id, d]));
@@ -67,8 +121,37 @@ const WEAPON_BY_ID = new Map<string, WeaponDef>(Object.values(WEAPON_REGISTRY).m
 export function itemDef(id: string): ItemDef | undefined { return ITEM_BY_ID.get(id); }
 export function weaponDef(id: string): WeaponDef | undefined { return WEAPON_BY_ID.get(id); }
 
-/** True when the item exists and is a wieldable weapon. */
+/** True when the item exists and is a wieldable weapon (melee or ranged). */
 export function isWeapon(id: string): boolean { return WEAPON_BY_ID.has(id); }
+
+/** True when the item is a MELEE weapon — i.e. it drives the melee combat profile. */
+export function isMeleeWeapon(id: string): boolean {
+  return WEAPON_BY_ID.get(id)?.attackKind === 'melee';
+}
+
+/** GLB model path for the item's visible held/worn prop (undefined if it has none). */
+export function itemModelPath(id: string): string | undefined { return ITEM_BY_ID.get(id)?.modelPath; }
+
+/**
+ * The paper-doll slot an item occupies when equipped. Explicit `equipSlot` wins;
+ * otherwise any weapon defaults to the main hand. Returns undefined for items that
+ * cannot be equipped to a body slot (loot, consumables, the transient phone).
+ */
+export function itemEquipSlot(id: string): EquipSlot | undefined {
+  const def = ITEM_BY_ID.get(id);
+  if (!def) return undefined;
+  if (def.equipSlot) return def.equipSlot;
+  return isWeapon(id) ? 'main_hand' : undefined;
+}
+
+/** Extra carry capacity (kg) this item grants while equipped (0 if none). */
+export function itemCapacityBonus(id: string): number { return ITEM_BY_ID.get(id)?.capacityBonus ?? 0; }
+
+/** Hunger restored when this food is eaten (0 if it is not food). */
+export function itemHungerRestore(id: string): number { return ITEM_BY_ID.get(id)?.hungerRestore ?? 0; }
+
+/** The hand-attach transform for an item, or undefined to let the renderer default it. */
+export function itemAttach(id: string): ItemAttach | undefined { return ITEM_BY_ID.get(id)?.attach; }
 
 /** Weight of one unit of an item (0 for unknown ids). */
 export function itemWeight(id: string): number { return ITEM_BY_ID.get(id)?.weight ?? 0; }
