@@ -1,6 +1,7 @@
 import { CharacterData, DEFAULT_APPEARANCE, cloneAppearance, migrateAppearance } from '@entities/CharacterData';
 import { ConversationState } from '@systems/npc/ConversationContext';
 import { HealthState } from '@entities/Health';
+import { HungerState } from '@entities/Hunger';
 import { createDefaultStats } from '@entities/CharacterStats';
 import { NPCDisposition } from '@entities/NPCAgent';
 import { InventoryState, defaultInventoryState } from '@entities/Inventory';
@@ -23,6 +24,7 @@ export interface VehicleSaveState {
 }
 
 export const DEFAULT_PLAYER_HEALTH: HealthState = { current: 100, max: 100 };
+export const DEFAULT_PLAYER_HUNGER: HungerState = { current: 100, max: 100 };
 export const DEFAULT_VEHICLE_STATE: VehicleSaveState = {
   health: { current: 100, max: 100 },
   destroyed: false,
@@ -41,6 +43,7 @@ export interface SaveGame {
     rotation: number;
   };
   playerHealth: HealthState;
+  playerHunger: HungerState;
   vehicle: VehicleSaveState;
   inventory: InventoryState;
   flags: Record<string, boolean | number | string>;
@@ -79,6 +82,7 @@ export class SaveService {
         rotation: 0,
       },
       playerHealth: { ...DEFAULT_PLAYER_HEALTH },
+      playerHunger: { ...DEFAULT_PLAYER_HUNGER },
       vehicle: { health: { ...DEFAULT_VEHICLE_STATE.health }, destroyed: false },
       inventory: defaultInventoryState(),
       flags: {},
@@ -96,6 +100,12 @@ export class SaveService {
     const save = SaveService.load(saveId);
     if (!save) return;
     SaveService.save({ ...save, inventory });
+  }
+
+  static updateHunger(saveId: string, playerHunger: HungerState): void {
+    const save = SaveService.load(saveId);
+    if (!save) return;
+    SaveService.save({ ...save, playerHunger });
   }
 
   static save(saveGame: SaveGame): void {
@@ -193,6 +203,7 @@ export class SaveService {
   private static migrate(save: SaveGame): SaveGame {
     if (!save.npcMemory) save.npcMemory = {};
     if (!save.playerHealth) save.playerHealth = { ...DEFAULT_PLAYER_HEALTH };
+    if (!save.playerHunger) save.playerHunger = { ...DEFAULT_PLAYER_HUNGER };
     if (!save.vehicle) {
       save.vehicle = { health: { ...DEFAULT_VEHICLE_STATE.health }, destroyed: false };
     }

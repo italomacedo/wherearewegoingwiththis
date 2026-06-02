@@ -43,6 +43,30 @@ describe('SaveService', () => {
     expect(loaded.vehicle.destroyed).toBe(false);
   });
 
+  it('createNewSave includes full player hunger', () => {
+    const save = SaveService.createNewSave(testCharacter);
+    expect(save.playerHunger).toEqual({ current: 100, max: 100 });
+  });
+
+  it('load migrates a legacy save missing the hunger field', () => {
+    const save = SaveService.createNewSave(testCharacter);
+    delete (save as Partial<SaveGame>).playerHunger;
+    SaveService.save(save);
+    const loaded = SaveService.load(save.saveId)!;
+    expect(loaded.playerHunger).toEqual({ current: 100, max: 100 });
+  });
+
+  it('updateHunger persists hunger and round-trips', () => {
+    const save = SaveService.createNewSave(testCharacter);
+    SaveService.save(save);
+    SaveService.updateHunger(save.saveId, { current: 42, max: 100 });
+    expect(SaveService.load(save.saveId)!.playerHunger).toEqual({ current: 42, max: 100 });
+  });
+
+  it('updateHunger is a no-op for an unknown save id', () => {
+    expect(() => SaveService.updateHunger('nope', { current: 1, max: 100 })).not.toThrow();
+  });
+
   it('createNewSave includes an empty inventory', () => {
     const save = SaveService.createNewSave(testCharacter);
     expect(save.inventory).toEqual({ items: [], equipped: {}, equippedWeaponId: null, capacityWeight: 30 });

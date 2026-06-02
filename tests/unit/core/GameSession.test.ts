@@ -59,9 +59,18 @@ describe('GameSession', () => {
     expect(session.vehicle.health.current).toBe(30);
   });
 
-  it('defaults to an empty inventory when constructed minimally', () => {
+  it('defaults to an empty inventory + full hunger when constructed minimally', () => {
     const session = new GameSession('s', character);
     expect(session.inventory).toEqual({ items: [], equipped: {}, equippedWeaponId: null, capacityWeight: 30 });
+    expect(session.playerHunger).toEqual({ current: 100, max: 100 });
+  });
+
+  it('fromSave carries player hunger (defaulting to full on a legacy save)', () => {
+    const save = SaveService.createNewSave(character);
+    save.playerHunger = { current: 33, max: 100 };
+    expect(GameSession.fromSave(save).playerHunger).toEqual({ current: 33, max: 100 });
+    (save as { playerHunger?: unknown }).playerHunger = undefined;
+    expect(GameSession.fromSave(save).playerHunger).toEqual({ current: 100, max: 100 });
   });
 
   it('fromSave carries the inventory, defaulting to empty on a legacy save', () => {
