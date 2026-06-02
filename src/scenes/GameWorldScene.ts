@@ -1,6 +1,6 @@
 import {
   Engine, Color4, Color3, Vector3, Matrix, AbstractMesh, TransformNode, MeshBuilder,
-  PhysicsAggregate, PhysicsShapeType, AnimationGroup, Animation, LinesMesh, Node,
+  PhysicsAggregate, PhysicsShapeType, AnimationGroup, Animation, LinesMesh,
 } from '@babylonjs/core';
 import { BaseScene } from './BaseScene';
 import { ServiceLocator } from '@core/ServiceLocator';
@@ -92,6 +92,10 @@ export class GameWorldScene extends BaseScene {
     | { mode: 'move' }
     | null = null;
   private moveTrail: LinesMesh | null = null;
+  /** Hover highlight under the combatant the cursor is nearest, during attack targeting. */
+  private targetRing: LinesMesh | null = null;
+  /** Click tolerance (m): the cursor's ground point must land within this of a combatant. */
+  private static readonly TARGET_PICK_RADIUS = 2.0;
   /** Active N-way encounter + the player's side (for friendly-fire defection). */
   private combatEnc: CombatEncounter | null = null;
   private combatPlayerSide: string | null = null;
@@ -781,22 +785,35 @@ export class GameWorldScene extends BaseScene {
   }
 
   /**
-   * Move-mode hover: draw the routed on-ground trail under the cursor (green if the
-   * routed path is affordable, red if over the AP budget). Driven by the overlay
-   * scrim's GUI pointer-move (reliable over the fullscreen combat GUI).
+   * Hover preview, driven by the overlay scrim's pointer-move:
+   *  - move mode: routed on-ground trail (green affordable / red over the AP budget);
+   *  - attack mode: a ring under the combatant nearest the cursor — GREEN when it is
+   *    within melee range (strikeable), RED when out of range.
    */
   /* istanbul ignore next — browser-only pointer/targeting */
   private previewCombatTargeting(): void {
     const c = this.combat?.getController();
-    if (this.combatTargeting?.mode !== 'move' || !c || !c.isPlayerTurn()) {
-      if (this.moveTrail) { this.moveTrail.dispose(); this.moveTrail = null; }
+    const targeting = this.combatTargeting;
+    if (!targeting || !c || !c.isPlayerTurn()) {
+      this.clearTargetingVisuals();
       return;
     }
     const me = c.getState().combatants.find((x) => x.isPlayer);
     const to = this.groundPointFromPointer();
-    const path = me && to && this.combatPathfind ? this.combatPathfind(me.pos, to) : null;
-    const reachable = !!path && !!this.combatTuning && !!me && path.meters > 0 && moveApCost(path.meters, this.combatTuning) <= me.ap;
-    this.drawMoveTrail(path, reachable);
+
+    if (targeting.mode === 'move') {
+      if (this.targetRing) { this.targetRing.dispose(); this.targetRing = null; }
+      const path = me && to && this.combatPathfind ? this.combatPathfind(me.pos, to) : null;
+      const reachable = !!path && !!this.combatTuning && !!me && path.meters > 0 && moveApCost(path.meters, this.combatTuning) <= me.ap;
+      this.drawMoveTrail(path, reachable);
+      return;
+    }
+
+    // Attack mode: ring the combatant nearest the cursor; green if in melee range.
+    if (this.moveTrail) { this.moveTrail.dispose(); this.moveTrail = null; }
+    const cand = me && to ? this.combatantNearGround(to) : null;
+    const inRange = !!cand && !!me && distance2(me.pos, cand.pos) <= MELEE_RANGE;
+    this.drawTargetRing(cand ? cand.pos : null, inRange);
   }
 
   /**
@@ -824,16 +841,28 @@ export class GameWorldScene extends BaseScene {
       return;
     }
 
-    // Attack: pick the 3-D combatant under the cursor (scene.pick sees meshes behind
-    // the GUI), strike if it is within melee range.
-    const pick = this.babylonScene.pick(this.babylonScene.pointerX, this.babylonScene.pointerY);
-    const targetId = pick?.pickedMesh ? this.combatantIdOfPickedMesh(pick.pickedMesh) : null;
-    if (!targetId || targetId === me.id) return; // clicked nothing / self
-    const tgt = c.getState().combatants.find((x) => x.id === targetId);
-    if (!tgt || !tgt.alive) return;
-    if (distance2(me.pos, tgt.pos) > MELEE_RANGE) return; // out of range → ignore
+    // Attack: the combatant nearest the cursor's ground point is the target (robust —
+    // no fragile mesh pick); strike only if it is within melee range (≤1 m).
+    const to = this.groundPointFromPointer();
+    const cand = to ? this.combatantNearGround(to) : null;
+    if (!cand || distance2(me.pos, cand.pos) > MELEE_RANGE) return; // none / out of range → ignore
     this.clearCombatTargeting();
-    this.combat?.submitPlayerAction({ type: 'attack', attackKind: targeting.attackKind, targetId });
+    this.combat?.submitPlayerAction({ type: 'attack', attackKind: targeting.attackKind, targetId: cand.id });
+  }
+
+  /** The non-player combatant whose position is nearest the ground point, within the click radius. */
+  /* istanbul ignore next — browser-only picking */
+  private combatantNearGround(point: Point2): { id: string; pos: Point2 } | null {
+    const c = this.combat?.getController();
+    if (!c) return null;
+    let best: { id: string; pos: Point2 } | null = null;
+    let bestD = GameWorldScene.TARGET_PICK_RADIUS;
+    for (const cb of c.getState().combatants) {
+      if (cb.isPlayer || !cb.alive || cb.removed) continue; // self / downed are not targets
+      const d = distance2(point, cb.pos);
+      if (d < bestD) { bestD = d; best = { id: cb.id, pos: cb.pos }; }
+    }
+    return best;
   }
 
   /** Ground-plane (y=0) point under the cursor, or null if the ray is parallel. */
@@ -852,17 +881,32 @@ export class GameWorldScene extends BaseScene {
     return { x: p.x, z: p.z };
   }
 
-  /** Map a picked mesh up its parent chain to a combatant id (or null). */
-  /* istanbul ignore next — browser-only picking */
-  private combatantIdOfPickedMesh(mesh: AbstractMesh): string | null {
-    const playerRoot = this.player?.getRoot() ?? null;
-    let n: Node | null = mesh;
-    while (n) {
-      if (playerRoot && n === playerRoot) return 'player';
-      for (const [id, holder] of this.npcHolderById) if (n === holder) return id;
-      n = n.parent;
+  /** Draw/replace the hover ring under a target combatant (green = strikeable, red = out of range). */
+  /* istanbul ignore next — browser-only rendering */
+  private drawTargetRing(center: Point2 | null, valid: boolean): void {
+    this.targetRing?.dispose();
+    this.targetRing = null;
+    if (!center) return;
+    const pts: Vector3[] = [];
+    const r = 0.7;
+    const n = 28;
+    for (let i = 0; i <= n; i++) {
+      const a = (i / n) * Math.PI * 2;
+      pts.push(new Vector3(center.x + Math.cos(a) * r, 0.12, center.z + Math.sin(a) * r));
     }
-    return null;
+    const ring = MeshBuilder.CreateLines('combat-target-ring', { points: pts }, this.babylonScene);
+    ring.color = valid ? Color3.Green() : Color3.Red();
+    ring.isPickable = false;
+    this.targetRing = ring;
+  }
+
+  /** Dispose both targeting visuals (trail + ring). */
+  /* istanbul ignore next — browser-only rendering */
+  private clearTargetingVisuals(): void {
+    this.moveTrail?.dispose();
+    this.moveTrail = null;
+    this.targetRing?.dispose();
+    this.targetRing = null;
   }
 
   /** Draw/replace the on-ground move trail; green when affordable, red when over budget. */
@@ -882,8 +926,7 @@ export class GameWorldScene extends BaseScene {
   /* istanbul ignore next — browser-only */
   private clearCombatTargeting(): void {
     this.combatTargeting = null;
-    this.moveTrail?.dispose();
-    this.moveTrail = null;
+    this.clearTargetingVisuals();
   }
 
   /** Walk an avatar along the routed polyline (walk clip + facing), then idle. */
