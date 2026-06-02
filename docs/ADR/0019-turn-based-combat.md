@@ -60,12 +60,39 @@ overlay GUI and the scene wiring (`istanbul ignore`d, like PauseMenu/Dialog).
   syncs the player's HP into the session, relaxes a **defeated** NPC's disposition
   (defeated, not killed), and a loss drops the player to 0 HP → existing game-over.
 
+## Addendum — Fase 7.2: Baldur's-Gate-style presentation
+
+After the 1v1 played well in Electron, the owner asked to raise the aesthetics
+(turn model unchanged):
+
+- **Narration only on a critical hit.** The to-hit probability + attack kind now
+  ride the attack `CombatEvent` → `CombatLogEntry`; `isCriticalHit` (a landed
+  hit/kill with **P > 0.9**) gates the Claude line, shown as a **transient
+  caption** (the chat-log box is gone). Cheaper, and reserved for decisive blows.
+- **Real avatar animations (no UAL pack, no retarget).** The Quaternius avatars
+  already ship 24 embedded clips on their own rig; `assembleGltf` now keeps the
+  combat set (`COMBAT_CLIPS`: punch/kick/shoot/aim + **HitRecieve/Death**) instead
+  of discarding it. `GameWorldScene.playCombatClip` one-shots the attacker's
+  punch/shoot and the target's HitRecieve/Death (held on death), driven by the new
+  `CombatOverlay.onBeat` handler. Muzzle-flash particle is **deferred**.
+- **Cinematic combat camera.** `startCombat` frames the midpoint of the two
+  fighters (reusing the conversation-mode framing); restored on end.
+- **3D portrait strip + turn marker** (`CombatPortraits.ts`, browser-only): a
+  per-combatant head-framing camera rendered into a small top viewport (a 3D
+  subprojection), in initiative order, with a neon marker on the active fighter.
+  The overlay is now portraits (top) + a transient caption + status/buttons
+  (bottom), over the lightened 3D scene — no log box.
+- **Strict one-at-a-time** turns preserved (enemy acts only on its own turn / after
+  the player's End Turn; the enemy-first turn is pumped on open).
+
 ## Consequences
 
 - The duel consumes the RPG sheet end-to-end (Destreza→AP, skills→hit,
   attributes→damage), so character building now matters mechanically.
-- Combat is deterministic given RNG → unit-tested without a GPU/DOM; combat
-  modules sit at ~100% coverage.
-- **Deferred:** multi-combatant fights, weapons/ammo (reload is flavour for now),
-  per-NPC stat blocks (a street-tough block is used), persisting an in-progress
-  fight across save/load, and AP/turn feedback animations on the avatars.
+- Combat logic is deterministic given RNG → unit-tested without a GPU/DOM; the
+  pure combat modules sit at ~100% coverage. The presentation (overlay, portraits,
+  camera, animation playback) is browser-only and verified in Electron.
+- **Deferred:** multi-combatant / faction fights (allies & enemies joining by
+  NPC↔NPC disposition), weapons/ammo (reload is flavour for now), per-NPC stat
+  blocks (a street-tough block is used), persisting an in-progress fight across
+  save/load, the muzzle-flash particle, and animation sequencing within a turn.
