@@ -66,12 +66,6 @@ import { buildWalkGrid, gridPathfinder } from '@systems/combat/CombatMovement';
 import { recruitSides, RecruitParticipant, SIDE_INITIATOR, SIDE_TARGET } from '@systems/combat/CombatRecruiter';
 import { COMBAT_OBSTACLES, COMBAT_BOUNDS } from '@assets/WorldAssetCatalog';
 
-/**
- * TEMP (Phase 10.4) — seed a test loadout into a fresh hero so all held-prop
- * attach points can be tuned in Electron without looting. REMOVE before merge.
- */
-const DEBUG_TEST_LOADOUT = true;
-
 export class GameWorldScene extends BaseScene {
   /** Setting used for the ambient "react to surroundings" narration (global chat). */
   private static readonly SURROUNDINGS =
@@ -230,13 +224,6 @@ export class GameWorldScene extends BaseScene {
     // so all attach points (hand weapon, back pack, flashlight, firearm, food) can
     // be inspected without looting. REMOVE before merge; empty start is the rule.
     /* istanbul ignore next — dev-only seed, browser playtest aid */
-    if (DEBUG_TEST_LOADOUT && this.playerInventory.isEmpty()) {
-      for (const id of ['knife', 'backpack', 'flashlight', 'pistol', 'burger']) this.playerInventory.add(id);
-      // Equip the PISTOL so the ribbon's Shoot is live for the ranged playtest; the
-      // knife/flashlight are in the pack (swap via the inventory to test melee).
-      this.playerInventory.equipToSlot('main_hand', 'pistol');
-      this.playerInventory.equipToSlot('back', 'backpack');
-    }
     this.heldAttach = session.heldAttach ?? {};
     this.npcMemory = session.npcMemory ?? {};
     this.gameTimeSeconds = session.gameTimeSeconds;
