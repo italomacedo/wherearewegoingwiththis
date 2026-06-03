@@ -17,6 +17,8 @@ export interface VehicleConfig {
   maxAltitude: number;     // ceiling
   safeImpactSpeed: number; // crash speed (units/s) below which no damage
   damagePerSpeed: number;  // HP lost per unit of impact speed above the safe threshold
+  /** Half-extent (m) the nave is confined to on X/Z (the closed street). Infinity = unbounded. */
+  horizontalHalfExtent: number;
 }
 
 /**
@@ -44,6 +46,7 @@ export const DEFAULT_VEHICLE_CONFIG: VehicleConfig = {
   maxAltitude: 40,
   safeImpactSpeed: 6,
   damagePerSpeed: 8,
+  horizontalHalfExtent: Infinity, // unbounded by default; the scene confines it to the street
 };
 
 export interface VehicleFlightInput {
@@ -151,6 +154,17 @@ export class VehicleController {
     } else if (position.y > config.maxAltitude) {
       position.y = config.maxAltitude;
       if (velocity.y > 0) velocity.y = 0;
+    }
+
+    // Confine to the closed street: clamp X/Z to the half-extent (stops the nave
+    // from flying out of the playable area over the walls — out-of-bounds state
+    // was crashing the game). Zero the velocity into the wall so it doesn't stick.
+    const h = config.horizontalHalfExtent;
+    if (Number.isFinite(h)) {
+      if (position.x > h) { position.x = h; if (velocity.x > 0) velocity.x = 0; }
+      else if (position.x < -h) { position.x = -h; if (velocity.x < 0) velocity.x = 0; }
+      if (position.z > h) { position.z = h; if (velocity.z > 0) velocity.z = 0; }
+      else if (position.z < -h) { position.z = -h; if (velocity.z < 0) velocity.z = 0; }
     }
 
     return { position, velocity, landed, impactSpeed };

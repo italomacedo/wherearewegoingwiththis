@@ -74,6 +74,24 @@ describe('VehicleController.computeFlightStep (pure flight model)', () => {
     const next = VehicleController.computeFlightStep(start, { axis: { x: 0, z: 0 }, vertical: 0 }, 0, 0.2);
     expect(Math.abs(next.velocity.x)).toBeLessThan(5);
   });
+
+  it('confines X/Z to horizontalHalfExtent and zeroes the velocity into the wall', () => {
+    const cfg = { ...DEFAULT_VEHICLE_CONFIG, horizontalHalfExtent: 30 };
+    // Past the +X edge, moving outward → clamped to +30, x-velocity zeroed.
+    const out: VehicleFlightState = { position: new Vector3(35, 5, -40), velocity: new Vector3(5, 0, -5) };
+    const next = VehicleController.computeFlightStep(out, { axis: { x: 0, z: 0 }, vertical: 0 }, 0, 0.1, cfg);
+    expect(next.position.x).toBeLessThanOrEqual(30 + 1e-6);
+    expect(next.position.z).toBeGreaterThanOrEqual(-30 - 1e-6);
+    expect(next.velocity.x).toBe(0); // velocity into the +X wall is cancelled
+    expect(next.velocity.z).toBe(0); // velocity into the -Z wall is cancelled
+  });
+
+  it('does not confine when horizontalHalfExtent is Infinity (default)', () => {
+    const start: VehicleFlightState = { position: new Vector3(100, 5, 100), velocity: Vector3.Zero() };
+    const next = VehicleController.computeFlightStep(start, { axis: { x: 0, z: 0 }, vertical: 0 }, 0, 0.1);
+    expect(next.position.x).toBeCloseTo(100, 5);
+    expect(next.position.z).toBeCloseTo(100, 5);
+  });
 });
 
 describe('VehicleController instance', () => {

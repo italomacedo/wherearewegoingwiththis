@@ -66,7 +66,7 @@ import {
 } from '@systems/combat/CombatMath';
 import { buildWalkGrid, gridPathfinder } from '@systems/combat/CombatMovement';
 import { recruitSides, RecruitParticipant, SIDE_INITIATOR, SIDE_TARGET } from '@systems/combat/CombatRecruiter';
-import { COMBAT_OBSTACLES, COMBAT_BOUNDS } from '@assets/WorldAssetCatalog';
+import { COMBAT_OBSTACLES, COMBAT_BOUNDS, ZONE_HALF } from '@assets/WorldAssetCatalog';
 
 export class GameWorldScene extends BaseScene {
   /** Setting used for the ambient "react to surroundings" narration (global chat). */
@@ -370,8 +370,9 @@ export class GameWorldScene extends BaseScene {
     );
     void this.syncPlayerHeldItems();
 
-    // Park a flying motorcycle near the spawn point.
-    this.vehicle = new VehicleController(this.babylonScene);
+    // Park a flying motorcycle near the spawn point. Confine it to the closed
+    // street (flying out of bounds and back was crashing the game).
+    this.vehicle = new VehicleController(this.babylonScene, { horizontalHalfExtent: ZONE_HALF });
     this.vehicle.spawn(zone.getSpawnPoint().add(new Vector3(4, 0, 0)));
     this.vehicle.setHealthState(this.vehicleState.health);
     this.vehicle.setDestroyed(this.vehicleState.destroyed);
