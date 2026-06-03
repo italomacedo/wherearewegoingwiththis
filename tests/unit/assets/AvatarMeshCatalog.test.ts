@@ -2,6 +2,7 @@ import {
   OUTFITS, DEFAULT_OUTFIT, LOCO_CLIPS, COMBAT_CLIPS, combatClipFor, attackClipFor,
   LOCO_CLIP_GROUND_SPEED, LOCO_SPEED_RATIO_MIN, LOCO_SPEED_RATIO_MAX, computeLocoSpeedRatio,
   outfitsForGender, outfitByKey, genderOfOutfit, tintRoleForMaterial,
+  partRegionOf, isStrippableMesh, tintRoleForMaterialInRegion, HAIR_MATERIAL_OVERRIDES,
 } from '../../../src/assets/AvatarMeshCatalog';
 
 describe('AvatarMeshCatalog — Quaternius Ultimate Modular outfits (pure)', () => {
@@ -99,6 +100,58 @@ describe('AvatarMeshCatalog — Quaternius Ultimate Modular outfits (pure)', () 
     it('leaves clothing materials untinted (null)', () => {
       expect(tintRoleForMaterial('White')).toBeNull();
       expect(tintRoleForMaterial('LightBlue')).toBeNull();
+    });
+  });
+
+  describe('partRegionOf (modular mesh classification)', () => {
+    it('classifies the four region meshes by name suffix', () => {
+      expect(partRegionOf('Adventurer_Head')).toBe('head');
+      expect(partRegionOf('Punk_Body')).toBe('top');
+      expect(partRegionOf('Suit_Legs')).toBe('lower');
+      expect(partRegionOf('SciFi_Feet')).toBe('lower');
+    });
+    it('classifies weapons and accessories', () => {
+      expect(partRegionOf('Pistol')).toBe('weapon');
+      expect(partRegionOf('Sword')).toBe('weapon');
+      expect(partRegionOf('Backpack')).toBe('accessory');
+    });
+    it('returns null for skeleton/root nodes', () => {
+      expect(partRegionOf('CharacterArmature')).toBeNull();
+      expect(partRegionOf('__root__')).toBeNull();
+      expect(partRegionOf('Hips')).toBeNull();
+    });
+    it('isStrippableMesh removes weapons and accessories only', () => {
+      expect(isStrippableMesh('Pistol')).toBe(true);
+      expect(isStrippableMesh('Backpack')).toBe(true);
+      expect(isStrippableMesh('Punk_Body')).toBe(false);
+      expect(isStrippableMesh('Adventurer_Head')).toBe(false);
+    });
+  });
+
+  describe('tintRoleForMaterialInRegion (region-aware + hair override)', () => {
+    it('semantic names win regardless of region (exposed skin stays skin)', () => {
+      expect(tintRoleForMaterialInRegion('Skin', 'top')).toBe('skin');
+      expect(tintRoleForMaterialInRegion('Skin', 'lower')).toBe('skin');
+      expect(tintRoleForMaterialInRegion('Eye', 'head')).toBe('eye');
+      expect(tintRoleForMaterialInRegion('Eyebrows', 'head')).toBe('hair');
+    });
+    it('clothing on the body becomes top; on legs/feet becomes bottom', () => {
+      expect(tintRoleForMaterialInRegion('Tie', 'top')).toBe('top');
+      expect(tintRoleForMaterialInRegion('Suit', 'top')).toBe('top');
+      expect(tintRoleForMaterialInRegion('Brown2', 'lower')).toBe('bottom');
+      expect(tintRoleForMaterialInRegion('Black', 'lower')).toBe('bottom');
+    });
+    it('themed hair materials recolour via the per-outfit override (punk mohawk)', () => {
+      expect(tintRoleForMaterialInRegion('Red', 'head', 'punk')).toBe('hair');
+      expect(tintRoleForMaterialInRegion('Red_Dark', 'head', 'punk')).toBe('hair');
+      // without the override key, Red is just an authored colour on the head
+      expect(tintRoleForMaterialInRegion('Red', 'head')).toBeNull();
+      expect(HAIR_MATERIAL_OVERRIDES.w_punk).toContain('Hair_Brown');
+    });
+    it('head accessories / unknown materials keep their authored colour (null)', () => {
+      expect(tintRoleForMaterialInRegion('Earrings', 'head', 'punk')).toBeNull();
+      expect(tintRoleForMaterialInRegion('Gold', 'weapon')).toBeNull();
+      expect(tintRoleForMaterialInRegion('Whatever', null)).toBeNull();
     });
   });
 });
