@@ -45,6 +45,9 @@ const SFX = [
 const MUSIC = [
   { src: '645691__marcriver29__generic-futuristic-heros-theme.flac', dest: 'music/theme.ogg' },
   { src: '410592__osfx__outside-an-urban-rave.wav', dest: 'music/world.ogg' },
+  { src: '798358__harrisonlace__dystopic_menu_ambience_f_phrygdom_133_bpm.wav', dest: 'music/menu.ogg' },
+  { src: '611305__szegvari__new-york-cyberpunk-synth-analogue-drums-bass-dance-retro-atmo-ambience-pad-drone-cinematic-action-music-surround.wav', dest: 'music/combat.ogg' },
+  { src: '844767__glorytothemachine__waterbender-84bpm-melodic_data_stream-seamless-loop-glorytothemachine.mp3', dest: 'music/gameover.ogg' },
 ];
 
 function findSource(basename) {

@@ -815,6 +815,7 @@ export class GameWorldScene extends BaseScene {
   private checkGameOver(): void {
     if (this.gameOver || !this.player?.isDead()) return;
     this.gameOver = true;
+    (this.audio ??= ServiceLocator.tryGet<AudioManager>('audio'))?.playMusic('gameover');
     this.gameOverMenu?.openMenu();
   }
 

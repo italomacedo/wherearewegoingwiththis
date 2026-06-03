@@ -10,12 +10,15 @@ licensed **CC-BY 4.0** and require attribution, listed below.
 | Track | Source | Author | License |
 |---|---|---|---|
 | Opening theme (splash/studio/publisher) | "Generic Futuristic Hero's Theme" — https://freesound.org/people/marcriver29/sounds/645691/ | Marc Armitage (marcriver29) | CC-BY 4.0 |
+| Game-over music | "WATERBENDER 84BPM (Melodic Data Stream)" — https://freesound.org/people/glorytothemachine/sounds/844767/ | glorytothemachine | CC-BY 4.0 |
 
 ### CC0 1.0 (public domain — no attribution required, listed for provenance)
 
 | Track | Source | Author |
 |---|---|---|
 | Street ambience bed (world) | https://freesound.org/people/OSFX/sounds/410592/ | OSFX |
+| Menu ambience | https://freesound.org/people/harrisonlace/sounds/798358/ | harrisonlace |
+| Combat music | https://freesound.org/people/szegvari/sounds/611305/ | szegvari |
 
 ## Audio — Sound Effects (freesound.org)
 
