@@ -1,6 +1,6 @@
 # ADR-0024 — Modular avatars (head + top + bottom) + clothing recolor
 
-**Status:** Accepted — implemented on branch `feat/modular-avatars` (Fase 12).
+**Status:** Accepted — MERGED to `main` (Fase 12), owner-validated in Electron.
 **Supersedes (partially):** ADR-0014's "avatar = whole-outfit swap" — that remains
 the fallback/default look; the composition just generalizes it.
 
