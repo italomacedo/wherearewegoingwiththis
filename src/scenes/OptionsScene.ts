@@ -5,6 +5,7 @@ import { SceneManager } from '@core/SceneManager';
 import { ServiceLocator } from '@core/ServiceLocator';
 import { SettingsService, GameSettings } from '@systems/SettingsService';
 import { t, getLocale, setLocale, LANGUAGE_LABELS, Locale } from '@systems/I18n';
+import { playSfxCue } from '@systems/UiSound';
 
 export type OptionsTab = 'game' | 'display' | 'video' | 'audio';
 
@@ -272,6 +273,7 @@ export class OptionsScene extends BaseScene {
       tab.fontFamily = '"Courier New", monospace';
       tab.thickness = 1;
       tab.onPointerUpObservable.add(() => {
+        playSfxCue('ui_click');
         this.selectTab(id);
         this.rebuildUI(); // swap the content panel to the selected tab
       });
@@ -321,6 +323,7 @@ export class OptionsScene extends BaseScene {
       btn.fontFamily = 'monospace';
       btn.thickness = 1;
       btn.onPointerUpObservable.add(() => {
+        playSfxCue('ui_click');
         const next = onClick();
         if (btn.textBlock) btn.textBlock.text = next;
       });
@@ -355,6 +358,7 @@ export class OptionsScene extends BaseScene {
       langBtn.fontFamily = 'monospace';
       langBtn.thickness = 1;
       langBtn.onPointerUpObservable.add(() => {
+        playSfxCue('ui_click');
         const next = this.cycleLanguage();
         if (langBtn.textBlock) langBtn.textBlock.text = LANGUAGE_LABELS[next];
         // Re-translate the screen so the change is visible immediately.
@@ -494,7 +498,7 @@ export class OptionsScene extends BaseScene {
     backBtn.horizontalAlignment = 0;
     backBtn.left = '80px';
     backBtn.top = '-40px';
-    backBtn.onPointerUpObservable.add(() => this.onBack());
+    backBtn.onPointerUpObservable.add(() => { playSfxCue('ui_click'); this.onBack(); });
     gui.addControl(backBtn);
   }
 }

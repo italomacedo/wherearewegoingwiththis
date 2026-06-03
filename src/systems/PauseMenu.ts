@@ -3,6 +3,7 @@ import {
   AdvancedDynamicTexture, Rectangle, TextBlock, Button, StackPanel, Control,
 } from '@babylonjs/gui';
 import { t } from '@systems/I18n';
+import { playSfxCue } from '@systems/UiSound';
 
 export interface PauseMenuHandlers {
   onResume?: () => void;
@@ -135,7 +136,7 @@ export class PauseMenu {
       btn.fontSize = 17;
       btn.fontFamily = '"Courier New", monospace';
       btn.thickness = 1;
-      btn.onPointerUpObservable.add(action);
+      btn.onPointerUpObservable.add(() => { playSfxCue('ui_click'); action(); });
       stack.addControl(btn);
       return btn;
     };

@@ -95,6 +95,8 @@ export class GameWorldScene extends BaseScene {
   /** Cached AudioManager (resolved lazily) + footstep cadence accumulator. */
   private audio: AudioManager | null = null;
   private footstepTimer = 0;
+  /** Last frame's fall-damage reading, to fire the landing thud once per impact. */
+  private prevFallDamage = 0;
   /** Tracks the nave's last destroyed state so the explosion SFX fires once. */
   private naveWasDestroyed = false;
   /** Visible held props on the hero (main-hand weapon/flashlight/firearm + backpack). */
@@ -390,7 +392,7 @@ export class GameWorldScene extends BaseScene {
     // Inventory overlay (I) — manage the pack; loot a corpse. Freezes the world.
     this.inventoryOverlay = new InventoryOverlay(this.babylonScene);
     this.inventoryOverlay.setHandlers({
-      onChange: () => { this.persistSession(); void this.syncPlayerHeldItems(); },
+      onChange: () => { this.sfx('ui_click'); this.persistSession(); void this.syncPlayerHeldItems(); },
       onHeal: (amount) => { this.player?.getHealth().heal(amount); },
       onFeed: (itemId, amount) => this.eat(itemId, amount),
       // Looting a corpse framed the camera on it (conversation mode); restore the
@@ -411,10 +413,10 @@ export class GameWorldScene extends BaseScene {
     // Main action ribbon (Phase 11): Attack Ranged / Melee / Talk / Inventory.
     this.actionRibbon = new ActionRibbon(this.babylonScene);
     this.actionRibbon.setHandlers({
-      onAttackRanged: () => this.enterSurpriseTargeting('ranged'),
-      onAttackMelee: () => this.enterSurpriseTargeting('melee'),
-      onTalk: () => this.openTalkFromRibbon(),
-      onInventory: () => this.inventoryOverlay?.openManage(this.playerInventory),
+      onAttackRanged: () => { this.sfx('ui_click'); this.enterSurpriseTargeting('ranged'); },
+      onAttackMelee: () => { this.sfx('ui_click'); this.enterSurpriseTargeting('melee'); },
+      onTalk: () => { this.sfx('ui_click'); this.openTalkFromRibbon(); },
+      onInventory: () => { this.sfx('ui_click'); this.inventoryOverlay?.openManage(this.playerInventory); },
     });
 
     // Turn-based combat overlay (triggered by a hostile NPC's attack intent).
@@ -728,6 +730,10 @@ export class GameWorldScene extends BaseScene {
         }
         this.player?.update(dt);
         this.tickFootsteps(dt);
+        // A fresh hard landing (fall damage just applied) thuds like a body fall.
+        const fd = this.player?.getLastFallDamage() ?? 0;
+        if (fd > 0 && fd !== this.prevFallDamage) this.sfx('bodyfall');
+        this.prevFallDamage = fd;
       }
     }
     // Vehicle physics run every frame: piloted it flies; abandoned it falls.
@@ -1480,7 +1486,10 @@ export class GameWorldScene extends BaseScene {
     const to = this.groundPointFromPointer();
     if (!aim || !me || !to) return;
     const cand = nearestToPoint(this.aimTargetsInScene(), to, GameWorldScene.TARGET_PICK_RADIUS);
-    if (!cand || distance2({ x: me.x, z: me.z }, cand.pos) > this.surpriseRange(aim.attackKind)) return;
+    if (!cand || distance2({ x: me.x, z: me.z }, cand.pos) > this.surpriseRange(aim.attackKind)) {
+      this.sfx('ui_error'); // clicked an out-of-reach / empty spot
+      return;
+    }
     const attackKind = aim.attackKind;
     this.clearSurpriseTargeting();
     this.beginCombat('player', cand.id, { ambush: true, openingAttack: attackKind });
@@ -1767,6 +1776,7 @@ export class GameWorldScene extends BaseScene {
       ]);
       this.chatMode = 'npc';
       this.dialog.open(agent.getDisplayName(), seed);
+      this.sfx('ui_open');
       // Cinematic framing: focus the NPC we're talking to. Target the holder (a
       // top-level node at the NPC's world position) — the camera follows
       // target.position (local), so the parented mesh anchor would frame the
@@ -1806,6 +1816,7 @@ export class GameWorldScene extends BaseScene {
     // Seed with any overheard NPC↔NPC gossip so it shows in the T history.
     const seed: DialogLine[] = this.gossipLog.map((text) => ({ role: 'narration' as const, text }));
     this.dialog.open(t('dialog.openChannel'), seed);
+    this.sfx('ui_open');
   }
 
   /**
@@ -1823,6 +1834,7 @@ export class GameWorldScene extends BaseScene {
       ]);
       this.chatMode = 'npc';
       this.dialog.open(agent.getDisplayName(), seed);
+      this.sfx('ui_open');
       const holder = this.npcHolderById.get(agent.definition.id);
       if (holder && this.player) {
         const pp = this.player.getPosition();
@@ -1834,6 +1846,7 @@ export class GameWorldScene extends BaseScene {
     this.chatMode = 'global';
     const seed: DialogLine[] = this.gossipLog.map((text) => ({ role: 'narration' as const, text }));
     this.dialog.open(t('dialog.openChannel'), seed);
+    this.sfx('ui_open');
   }
 
   /** Builds the world snapshot and routes a message to the conversable NPC (E). */
@@ -1850,6 +1863,7 @@ export class GameWorldScene extends BaseScene {
     const allowed = await this.npcManager.moderate(agent.definition.id, spoken);
     if (!allowed) {
       this.dialog.addSystemLine(t('dialog.cantSay'));
+      this.sfx('ui_error');
       return;
     }
 
@@ -1880,6 +1894,7 @@ export class GameWorldScene extends BaseScene {
     const allowed = await this.npcManager.moderate(modId, spoken);
     if (!allowed) {
       this.dialog.addSystemLine(t('dialog.cantSay'));
+      this.sfx('ui_error');
       return;
     }
 
