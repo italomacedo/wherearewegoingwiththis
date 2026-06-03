@@ -37,7 +37,10 @@ import { CharacterStats } from '@entities/CharacterStats';
 
 export type ColorKey =
   | 'skin' | 'hair' | 'eyebrow' | 'eye' | 'beard' | 'makeup'
-  | 'outfit' | 'bottom' | 'shoes' | 'hat';
+  | 'outfit' | 'top' | 'bottom' | 'shoes' | 'hat';
+
+/** Modular avatar regions the creator composes independently (Fase 12). */
+export type AvatarPartRegion = 'head' | 'top' | 'bottom';
 
 export type SkinTextureId = 'skin_01' | 'skin_02' | 'skin_03' | 'skin_04';
 
@@ -171,9 +174,10 @@ export interface CharacterAppearance {
   accessories: string[];
   implants: string[];
   /**
-   * Dormant attach-piece selection (kept for save compatibility). With the
-   * Ultimate Modular outfit model the whole look is the chosen `bodyBase` outfit,
-   * so this is unused; reserved for future per-part mixing.
+   * Modular avatar composition (Fase 12): per-region outfit keys —
+   * `head` / `top` / `bottom`. A missing/null region inherits `bodyBase`, so an
+   * appearance with an empty map renders exactly the whole-outfit look of
+   * `bodyBase` (back-compat). Resolve via `resolveAvatarParts`.
    */
   avatarPieces: Record<string, string | null>;
 }
@@ -223,6 +227,7 @@ export const DEFAULT_COLORS: Record<ColorKey, string> = {
   beard: '#1A1A1A',
   makeup: '#A03050',
   outfit: '#3A4A6B',
+  top: '#3A4A6B',
   bottom: '#2A2E38',
   shoes: '#1A1A1A',
   hat: '#202833',
@@ -299,6 +304,23 @@ export function resolveLayers(appearance: CharacterAppearance): ResolvedLayer[] 
         !!e.def && e.def.category !== 'makeup' && typeof e.value === 'string' && e.value.length > 0,
     )
     .sort((a, b) => a.def.layer - b.def.layer);
+}
+
+/**
+ * Resolve the modular avatar composition into a concrete outfit key per region.
+ * Each region (`head`/`top`/`bottom`) comes from `avatarPieces`; a missing, null,
+ * or empty entry inherits `bodyBase`. So a default appearance (empty map) yields
+ * `{ head, top, bottom }` all equal to `bodyBase` — identical to the legacy
+ * whole-outfit look. Pure + fully testable.
+ */
+export function resolveAvatarParts(
+  a: CharacterAppearance,
+): Record<AvatarPartRegion, string> {
+  const pick = (region: AvatarPartRegion): string => {
+    const v = a.avatarPieces?.[region];
+    return typeof v === 'string' && v.length > 0 ? v : a.bodyBase;
+  };
+  return { head: pick('head'), top: pick('top'), bottom: pick('bottom') };
 }
 
 // ─── Accessors (callers never reach into raw fields) ────────────────────────────
