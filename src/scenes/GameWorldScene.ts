@@ -1,7 +1,7 @@
 import {
   Engine, Color4, Color3, Vector3, Matrix, AbstractMesh, TransformNode, MeshBuilder,
   PhysicsAggregate, PhysicsShapeType, PhysicsMotionType, AnimationGroup, Animation, LinesMesh,
-  SpotLight, PointerEventTypes,
+  SpotLight,
 } from '@babylonjs/core';
 import { BaseScene } from './BaseScene';
 import { ServiceLocator } from '@core/ServiceLocator';
@@ -124,6 +124,7 @@ export class GameWorldScene extends BaseScene {
     | null = null;
   /** Out-of-combat surprise-attack aiming (from the action ribbon). */
   private surpriseTargeting: { attackKind: 'melee' | 'ranged' } | null = null;
+  private surpriseClickHandler: ((e: PointerEvent) => void) | null = null;
   private moveTrail: LinesMesh | null = null;
   /** Hover highlight under the combatant the cursor is nearest, during attack targeting. */
   private targetRing: LinesMesh | null = null;
@@ -309,13 +310,16 @@ export class GameWorldScene extends BaseScene {
       this.babylonScene.materials.forEach(lift);
       this.babylonScene.onNewMaterialAddedObservable.add(lift);
       // A left-click commits an out-of-combat surprise attack (the ribbon entered
-      // aiming). POINTERDOWN is used (not POINTERTAP) because the camera input can
-      // swallow the tap; button 0 only, so right/middle-drag camera orbit never fires.
-      this.babylonScene.onPointerObservable.add((pi) => {
-        if (pi.type !== PointerEventTypes.POINTERDOWN || !this.surpriseTargeting) return;
-        const evt = pi.event as { button?: number };
-        if ((evt.button ?? 0) === 0) this.commitSurpriseTargeting();
-      });
+      // aiming). Listen on the CANVAS DOM directly — the most reliable signal (the
+      // Babylon pointer observable can be swallowed by the camera input). Button 0
+      // only, so right/middle-drag camera orbit never fires.
+      const canvas = this.engine.getRenderingCanvas();
+      if (canvas) {
+        this.surpriseClickHandler = (e: PointerEvent) => {
+          if (this.surpriseTargeting && e.button === 0) this.commitSurpriseTargeting();
+        };
+        canvas.addEventListener('pointerdown', this.surpriseClickHandler);
+      }
     }
 
     // Camera FIRST — guarantees the scene always has an active camera so it
@@ -573,6 +577,11 @@ export class GameWorldScene extends BaseScene {
   }
 
   async onExit(): Promise<void> {
+    /* istanbul ignore next — browser-only listener cleanup */
+    if (this.surpriseClickHandler) {
+      this.engine.getRenderingCanvas()?.removeEventListener('pointerdown', this.surpriseClickHandler);
+      this.surpriseClickHandler = null;
+    }
     // Autosave before tearing anything down (npcManager is disposed below) —
     // but NOT on game over, or we'd overwrite the save with the dead state.
     if (!this.gameOver) this.persistSession();
@@ -1038,7 +1047,10 @@ export class GameWorldScene extends BaseScene {
       }
     }
     // Need at least two distinct sides among the recruited combatants.
-    if (combatants.length < 2 || new Set(combatants.map((c) => c.side)).size < 2) return;
+    if (combatants.length < 2 || new Set(combatants.map((c) => c.side)).size < 2) {
+      console.warn('[Combat] not enough sides', { count: combatants.length, sides });
+      return;
+    }
 
     this.combatPlayerSide = sides['player'] ?? null;
     // Phase 11 ambush: a surprise attack grants the player the very first turn.
@@ -1424,9 +1436,12 @@ export class GameWorldScene extends BaseScene {
     const aim = this.surpriseTargeting;
     const me = this.player?.getRoot().position;
     const to = this.groundPointFromPointer();
-    if (!aim || !me || !to) return;
+    if (!aim || !me || !to) { console.warn('[Surprise] no aim/player/ground', { aim, hasMe: !!me, to }); return; }
     const cand = nearestToPoint(this.aimTargetsInScene(), to, GameWorldScene.TARGET_PICK_RADIUS);
-    if (!cand || distance2({ x: me.x, z: me.z }, cand.pos) > this.surpriseRange(aim.attackKind)) return;
+    const dist = cand ? distance2({ x: me.x, z: me.z }, cand.pos) : Infinity;
+    const reach = this.surpriseRange(aim.attackKind);
+    console.warn('[Surprise] commit', { to, cand: cand?.id ?? null, dist, reach });
+    if (!cand || dist > reach) return;
     const attackKind = aim.attackKind;
     this.clearSurpriseTargeting();
     this.beginCombat('player', cand.id, { ambush: true, openingAttack: attackKind });
