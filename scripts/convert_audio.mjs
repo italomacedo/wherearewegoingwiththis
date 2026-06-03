@@ -39,6 +39,7 @@ const SFX = [
   { src: '594210__steaq__robo-nope-16bit-flac.flac', dest: 'sfx/ui_error.ogg' },
   { src: '634123__erbsland-music__eating-a-raw-carrot.wav', dest: 'sfx/eat.ogg', trimSec: 2 },
   { src: '447911__breviceps__growling-stomach-stomach-rumbles.wav', dest: 'sfx/growl.ogg', trimSec: 3 },
+  { src: '420668__sypherzent__basic-melee-swing-miss-whoosh.wav', dest: 'sfx/whiff.ogg' },
 ];
 
 function findSource(basename) {

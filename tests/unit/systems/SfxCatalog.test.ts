@@ -36,16 +36,13 @@ describe('SfxCatalog', () => {
       expect(sfxForBeat({ kind: 'hit', attackKind: 'melee' })).toEqual(['punch']); // no weaponName = fists
     });
 
-    it('unarmed melee miss → silent (no sword swing)', () => {
-      expect(sfxForBeat({ kind: 'miss', attackKind: 'melee', weaponName: 'fists' })).toEqual([]);
+    it('any melee miss → whiff (fists or armed)', () => {
+      expect(sfxForBeat({ kind: 'miss', attackKind: 'melee', weaponName: 'fists' })).toEqual(['whiff']);
+      expect(sfxForBeat({ kind: 'miss', attackKind: 'melee', weaponName: 'Knife' })).toEqual(['whiff']);
     });
 
     it('armed melee hit → swing then stab', () => {
       expect(sfxForBeat({ kind: 'hit', attackKind: 'melee', weaponName: 'Knife' })).toEqual(['swing', 'stab']);
-    });
-
-    it('armed melee miss → swing only (no impact)', () => {
-      expect(sfxForBeat({ kind: 'miss', attackKind: 'melee', weaponName: 'Knife' })).toEqual(['swing']);
     });
 
     it('armed melee death → swing, stab, bodyfall', () => {
@@ -77,7 +74,7 @@ describe('SfxCatalog', () => {
 
   it('all SfxCue ids are present in the registry', () => {
     const cues: SfxCue[] = [
-      'footstep', 'punch', 'stab', 'swing', 'gunshot', 'explosion',
+      'footstep', 'punch', 'stab', 'swing', 'whiff', 'gunshot', 'explosion',
       'bodyfall', 'engine', 'ui_click', 'ui_open', 'ui_error', 'eat', 'growl',
     ];
     for (const c of cues) expect(SFX_CUES[c]).toBeDefined();

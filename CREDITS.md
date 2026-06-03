@@ -18,6 +18,7 @@ licensed **CC-BY 4.0** and require attribution, listed below.
 |---|---|---|
 | Footsteps | https://freesound.org/people/kretopi/sounds/406750/ | kretopi |
 | Sword swing | https://freesound.org/people/Nomagician/sounds/840717/ | Nomagician |
+| Melee miss whoosh | https://freesound.org/people/sypherzent/sounds/420668/ | SypherZent |
 | UI click | https://freesound.org/people/vacuumfan7072/sounds/394159/ | vacuumfan7072 |
 | Pistol gunshot | https://freesound.org/people/morganpurkis/sounds/392229/ | morganpurkis |
 | Explosion | https://freesound.org/people/Anomaex/sounds/490266/ | Anomaex |

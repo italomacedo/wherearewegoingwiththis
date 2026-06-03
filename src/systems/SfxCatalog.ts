@@ -6,6 +6,7 @@ export type SfxCue =
   | 'punch'
   | 'stab'
   | 'swing'
+  | 'whiff'
   | 'gunshot'
   | 'explosion'
   | 'bodyfall'
@@ -35,6 +36,7 @@ export const SFX_CUES: Record<SfxCue, SfxSpec> = {
   punch: { path: `${BASE}/punch.ogg`, bus: 'sfx' },
   stab: { path: `${BASE}/stab.ogg`, bus: 'sfx' },
   swing: { path: `${BASE}/swing.ogg`, bus: 'sfx' },
+  whiff: { path: `${BASE}/whiff.ogg`, bus: 'sfx' },
   gunshot: { path: `${BASE}/gunshot.ogg`, bus: 'sfx' },
   explosion: { path: `${BASE}/explosion.ogg`, bus: 'sfx' },
   bodyfall: { path: `${BASE}/bodyfall.ogg`, bus: 'sfx' },
@@ -65,26 +67,26 @@ function isFists(weaponName: string | undefined): boolean {
 }
 
 /**
- * Map a combat beat to the SFX cues it should fire, in order. By weapon class:
+ * Map a combat beat to the SFX cues it should fire, in order:
  * - ranged: gunshot;
- * - armed melee (knife/axe/…): the sword-style `swing` whoosh on every attack,
- *   then `stab` on a landed blow;
- * - bare fists: just the `punch` impact on a landed blow (NO sword swing).
- * A kill adds `bodyfall`. A bare-fist miss is silent. Pure.
+ * - melee MISS (fists or armed): the `whiff` swing-through-air whoosh;
+ * - melee landed: armed → `swing` (blade whoosh) + `stab`; bare fists → `punch`;
+ * - any kill also adds `bodyfall`.
+ * Pure.
  */
 export function sfxForBeat(entry: CombatBeatLike): SfxCue[] {
   const cues: SfxCue[] = [];
   const isAttack = entry.kind === 'hit' || entry.kind === 'miss' || entry.kind === 'death';
   if (!isAttack || !entry.attackKind) return cues;
 
-  const landed = entry.kind === 'hit' || entry.kind === 'death';
   if (entry.attackKind === 'ranged') {
     cues.push('gunshot');
+  } else if (entry.kind === 'miss') {
+    cues.push('whiff'); // melee whiffed through the air
   } else if (isFists(entry.weaponName)) {
-    if (landed) cues.push('punch'); // bare fists: punch impact only, no sword whoosh
+    cues.push('punch'); // bare fists landed: punch impact
   } else {
-    cues.push('swing'); // armed melee: blade whoosh on every swing
-    if (landed) cues.push('stab');
+    cues.push('swing', 'stab'); // armed melee landed: blade whoosh + impact
   }
   if (entry.kind === 'death') cues.push('bodyfall');
   return cues;
