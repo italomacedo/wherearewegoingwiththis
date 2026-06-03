@@ -144,6 +144,68 @@ export class OptionsScene extends BaseScene {
     return `${apPerMetre > 0 ? Math.round(1 / apPerMetre) : 0} m/AP`;
   }
 
+  // ─── Audio (Sound tab) ─────────────────────────────────────────────────────
+
+  /** Discrete volume steps the cyclers walk through. */
+  static readonly VOLUME_STEPS: readonly number[] = [0, 0.25, 0.5, 0.75, 1];
+
+  /** Snap a volume to the nearest step, then advance one step (wrapping). */
+  static nextVolume(v: number): number {
+    const steps = OptionsScene.VOLUME_STEPS;
+    let nearest = 0;
+    for (let i = 1; i < steps.length; i++) {
+      if (Math.abs(steps[i]! - v) < Math.abs(steps[nearest]! - v)) nearest = i;
+    }
+    return steps[(nearest + 1) % steps.length]!;
+  }
+
+  /** Volume shown as a whole percentage. */
+  static volumeLabel(v: number): string {
+    return `${Math.round(v * 100)}%`;
+  }
+
+  /** Advance a volume bus to the next step, persist it, and refresh live audio. */
+  cycleVolume(key: 'masterVolume' | 'musicVolume' | 'sfxVolume' | 'npcVoiceVolume'): number {
+    const next = OptionsScene.nextVolume(this.getSetting(key) as number);
+    this.setSetting(key, next);
+    SettingsService.set(key, next);
+    this.notifyAudioChanged();
+    return next;
+  }
+
+  /** Toggle the music bus mute and persist it. */
+  cycleMusicEnabled(): boolean {
+    const next = !this.getSetting('musicEnabled');
+    this.setSetting('musicEnabled', next);
+    SettingsService.set('musicEnabled', next);
+    this.notifyAudioChanged();
+    return next;
+  }
+
+  /** Toggle the SFX bus mute and persist it. */
+  cycleSfxEnabled(): boolean {
+    const next = !this.getSetting('sfxEnabled');
+    this.setSetting('sfxEnabled', next);
+    SettingsService.set('sfxEnabled', next);
+    this.notifyAudioChanged();
+    return next;
+  }
+
+  /** Toggle the TTS voice service on/off and persist it. */
+  cycleTtsEnabled(): boolean {
+    const next = !this.getSetting('ttsEnabled');
+    this.setSetting('ttsEnabled', next);
+    SettingsService.set('ttsEnabled', next);
+    this.notifyAudioChanged();
+    return next;
+  }
+
+  /** Push the new audio settings to the live mixer if the service is present. */
+  private notifyAudioChanged(): void {
+    const audio = ServiceLocator.tryGet<{ refreshFromSettings(): void }>('audio');
+    audio?.refreshFromSettings();
+  }
+
   validateAndSaveClaudePath(path: string): { valid: boolean; reason?: string } {
     const result = SettingsService.validateClaudePath(path);
     if (result.valid) {
@@ -211,6 +273,7 @@ export class OptionsScene extends BaseScene {
       tab.thickness = 1;
       tab.onPointerUpObservable.add(() => {
         this.selectTab(id);
+        this.rebuildUI(); // swap the content panel to the selected tab
       });
       tabBar.addControl(tab);
     });
@@ -225,104 +288,7 @@ export class OptionsScene extends BaseScene {
     content.horizontalAlignment = 0;
     gui.addControl(content);
 
-    // Language toggle (Game tab)
-    const langRow = new Rectangle('lang-row');
-    langRow.height = '40px';
-    langRow.thickness = 0;
-    content.addControl(langRow);
-
-    const langLabel = new TextBlock('lang-label');
-    langLabel.text = `${t('common.language')}:`;
-    langLabel.color = '#AABBCC';
-    langLabel.fontSize = 14;
-    langLabel.fontFamily = 'monospace';
-    langLabel.horizontalAlignment = 0;
-    langLabel.textHorizontalAlignment = 0;
-    langLabel.width = '180px';
-    langRow.addControl(langLabel);
-
-    const langBtn = Button.CreateSimpleButton('lang-btn', LANGUAGE_LABELS[getLocale()]);
-    langBtn.width = '160px';
-    langBtn.height = '32px';
-    langBtn.left = '190px';
-    langBtn.horizontalAlignment = 0;
-    langBtn.color = '#00FFCC';
-    langBtn.background = 'rgba(0,30,40,0.8)';
-    langBtn.fontSize = 13;
-    langBtn.fontFamily = 'monospace';
-    langBtn.thickness = 1;
-    langBtn.onPointerUpObservable.add(() => {
-      const next = this.cycleLanguage();
-      if (langBtn.textBlock) langBtn.textBlock.text = LANGUAGE_LABELS[next];
-      // Re-translate the screen so the change is visible immediately.
-      this.rebuildUI();
-    });
-    langRow.addControl(langBtn);
-
-    // Claude CLI path input (Game tab)
-    const pathRow = new Rectangle('path-row');
-    pathRow.height = '40px';
-    pathRow.thickness = 0;
-    content.addControl(pathRow);
-
-    const pathLabel = new TextBlock('path-label');
-    pathLabel.text = t('options.claudePath');
-    pathLabel.color = '#AABBCC';
-    pathLabel.fontSize = 14;
-    pathLabel.fontFamily = 'monospace';
-    pathLabel.horizontalAlignment = 0;
-    pathLabel.textHorizontalAlignment = 0;
-    pathLabel.left = '0px';
-    pathLabel.width = '180px';
-    pathRow.addControl(pathLabel);
-
-    const pathInput = new InputText('path-input', this.settings.claudeCliPath);
-    pathInput.width = '300px';
-    pathInput.height = '32px';
-    pathInput.color = '#00FFCC';
-    pathInput.background = 'rgba(0,30,40,0.8)';
-    pathInput.fontSize = 13;
-    pathInput.fontFamily = 'monospace';
-    pathInput.left = '190px';
-    pathInput.horizontalAlignment = 0;
-    pathInput.onBlurObservable.add(() => {
-      this.validateAndSaveClaudePath(pathInput.text);
-    });
-    pathRow.addControl(pathInput);
-
-    // Skill-gain multiplier cycler (Game tab) — anti-grind pacing.
-    const gainRow = new Rectangle('gain-row');
-    gainRow.height = '40px';
-    gainRow.thickness = 0;
-    content.addControl(gainRow);
-
-    const gainLabel = new TextBlock('gain-label');
-    gainLabel.text = t('options.skillGain');
-    gainLabel.color = '#AABBCC';
-    gainLabel.fontSize = 14;
-    gainLabel.fontFamily = 'monospace';
-    gainLabel.horizontalAlignment = 0;
-    gainLabel.textHorizontalAlignment = 0;
-    gainLabel.width = '180px';
-    gainRow.addControl(gainLabel);
-
-    const gainBtn = Button.CreateSimpleButton('gain-btn', `${this.settings.skillGainMultiplier}x`);
-    gainBtn.width = '90px';
-    gainBtn.height = '32px';
-    gainBtn.left = '190px';
-    gainBtn.horizontalAlignment = 0;
-    gainBtn.color = '#00FFCC';
-    gainBtn.background = 'rgba(0,30,40,0.8)';
-    gainBtn.fontSize = 13;
-    gainBtn.fontFamily = 'monospace';
-    gainBtn.thickness = 1;
-    gainBtn.onPointerUpObservable.add(() => {
-      const next = this.cycleSkillGainMultiplier();
-      if (gainBtn.textBlock) gainBtn.textBlock.text = `${next}x`;
-    });
-    gainRow.addControl(gainBtn);
-
-    // ─── Living-NPC autonomy throttle (Game tab) ────────────────────────────
+    // Generic label + cycling-button row helper.
     const mkCycler = (
       name: string,
       labelKey: string,
@@ -361,43 +327,159 @@ export class OptionsScene extends BaseScene {
       row.addControl(btn);
     };
 
-    mkCycler(
-      'autonomy', 'options.npcAutonomy',
-      this.settings.npcAutonomy ? t('common.on') : t('common.off'),
-      () => (this.cycleNpcAutonomy() ? t('common.on') : t('common.off')),
-    );
-    mkCycler(
-      'reflect', 'options.npcReflection',
-      `${this.settings.npcReflectionMinutes} min`,
-      () => `${this.cycleNpcReflectionMinutes()} min`,
-    );
-    mkCycler(
-      'budget', 'options.npcBudget',
-      `${this.settings.npcCallsPerMinute}/min`,
-      () => `${this.cycleNpcCallsPerMinute()}/min`,
-    );
+    if (this.activeTab === 'game') {
+      // Language toggle
+      const langRow = new Rectangle('lang-row');
+      langRow.height = '40px';
+      langRow.thickness = 0;
+      content.addControl(langRow);
 
-    // ─── Turn-based combat economy (Game tab) ───────────────────────────────
-    mkCycler(
-      'combat-ap', 'options.combatApPerDex',
-      `Dex/${this.settings.combatApPerDexterity}`,
-      () => `Dex/${this.cycleCombatApPerDexterity()}`,
-    );
-    mkCycler(
-      'combat-primary', 'options.combatPrimaryCost',
-      `${this.settings.combatPrimaryCost} AP`,
-      () => `${this.cycleCombatPrimaryCost()} AP`,
-    );
-    mkCycler(
-      'combat-secondary', 'options.combatSecondaryCost',
-      `${this.settings.combatSecondaryCost} AP`,
-      () => `${this.cycleCombatSecondaryCost()} AP`,
-    );
-    mkCycler(
-      'combat-move', 'options.combatMoveCost',
-      OptionsScene.metresPerApLabel(this.settings.combatMoveApPerMeter),
-      () => OptionsScene.metresPerApLabel(this.cycleCombatMoveApPerMeter()),
-    );
+      const langLabel = new TextBlock('lang-label');
+      langLabel.text = `${t('common.language')}:`;
+      langLabel.color = '#AABBCC';
+      langLabel.fontSize = 14;
+      langLabel.fontFamily = 'monospace';
+      langLabel.horizontalAlignment = 0;
+      langLabel.textHorizontalAlignment = 0;
+      langLabel.width = '180px';
+      langRow.addControl(langLabel);
+
+      const langBtn = Button.CreateSimpleButton('lang-btn', LANGUAGE_LABELS[getLocale()]);
+      langBtn.width = '160px';
+      langBtn.height = '32px';
+      langBtn.left = '190px';
+      langBtn.horizontalAlignment = 0;
+      langBtn.color = '#00FFCC';
+      langBtn.background = 'rgba(0,30,40,0.8)';
+      langBtn.fontSize = 13;
+      langBtn.fontFamily = 'monospace';
+      langBtn.thickness = 1;
+      langBtn.onPointerUpObservable.add(() => {
+        const next = this.cycleLanguage();
+        if (langBtn.textBlock) langBtn.textBlock.text = LANGUAGE_LABELS[next];
+        // Re-translate the screen so the change is visible immediately.
+        this.rebuildUI();
+      });
+      langRow.addControl(langBtn);
+
+      // Claude CLI path input
+      const pathRow = new Rectangle('path-row');
+      pathRow.height = '40px';
+      pathRow.thickness = 0;
+      content.addControl(pathRow);
+
+      const pathLabel = new TextBlock('path-label');
+      pathLabel.text = t('options.claudePath');
+      pathLabel.color = '#AABBCC';
+      pathLabel.fontSize = 14;
+      pathLabel.fontFamily = 'monospace';
+      pathLabel.horizontalAlignment = 0;
+      pathLabel.textHorizontalAlignment = 0;
+      pathLabel.left = '0px';
+      pathLabel.width = '180px';
+      pathRow.addControl(pathLabel);
+
+      const pathInput = new InputText('path-input', this.settings.claudeCliPath);
+      pathInput.width = '300px';
+      pathInput.height = '32px';
+      pathInput.color = '#00FFCC';
+      pathInput.background = 'rgba(0,30,40,0.8)';
+      pathInput.fontSize = 13;
+      pathInput.fontFamily = 'monospace';
+      pathInput.left = '190px';
+      pathInput.horizontalAlignment = 0;
+      pathInput.onBlurObservable.add(() => {
+        this.validateAndSaveClaudePath(pathInput.text);
+      });
+      pathRow.addControl(pathInput);
+
+      // Skill-gain multiplier cycler — anti-grind pacing.
+      mkCycler(
+        'gain', 'options.skillGain',
+        `${this.settings.skillGainMultiplier}x`,
+        () => `${this.cycleSkillGainMultiplier()}x`,
+      );
+
+      // Living-NPC autonomy throttle.
+      mkCycler(
+        'autonomy', 'options.npcAutonomy',
+        this.settings.npcAutonomy ? t('common.on') : t('common.off'),
+        () => (this.cycleNpcAutonomy() ? t('common.on') : t('common.off')),
+      );
+      mkCycler(
+        'reflect', 'options.npcReflection',
+        `${this.settings.npcReflectionMinutes} min`,
+        () => `${this.cycleNpcReflectionMinutes()} min`,
+      );
+      mkCycler(
+        'budget', 'options.npcBudget',
+        `${this.settings.npcCallsPerMinute}/min`,
+        () => `${this.cycleNpcCallsPerMinute()}/min`,
+      );
+
+      // Turn-based combat economy.
+      mkCycler(
+        'combat-ap', 'options.combatApPerDex',
+        `Dex/${this.settings.combatApPerDexterity}`,
+        () => `Dex/${this.cycleCombatApPerDexterity()}`,
+      );
+      mkCycler(
+        'combat-primary', 'options.combatPrimaryCost',
+        `${this.settings.combatPrimaryCost} AP`,
+        () => `${this.cycleCombatPrimaryCost()} AP`,
+      );
+      mkCycler(
+        'combat-secondary', 'options.combatSecondaryCost',
+        `${this.settings.combatSecondaryCost} AP`,
+        () => `${this.cycleCombatSecondaryCost()} AP`,
+      );
+      mkCycler(
+        'combat-move', 'options.combatMoveCost',
+        OptionsScene.metresPerApLabel(this.settings.combatMoveApPerMeter),
+        () => OptionsScene.metresPerApLabel(this.cycleCombatMoveApPerMeter()),
+      );
+    }
+
+    if (this.activeTab === 'audio') {
+      // Volume cyclers (Master / Music / SFX / Voice).
+      mkCycler(
+        'vol-master', 'options.masterVolume',
+        OptionsScene.volumeLabel(this.settings.masterVolume),
+        () => OptionsScene.volumeLabel(this.cycleVolume('masterVolume')),
+      );
+      mkCycler(
+        'vol-music', 'options.musicVolume',
+        OptionsScene.volumeLabel(this.settings.musicVolume),
+        () => OptionsScene.volumeLabel(this.cycleVolume('musicVolume')),
+      );
+      mkCycler(
+        'vol-sfx', 'options.sfxVolume',
+        OptionsScene.volumeLabel(this.settings.sfxVolume),
+        () => OptionsScene.volumeLabel(this.cycleVolume('sfxVolume')),
+      );
+      mkCycler(
+        'vol-voice', 'options.voiceVolume',
+        OptionsScene.volumeLabel(this.settings.npcVoiceVolume),
+        () => OptionsScene.volumeLabel(this.cycleVolume('npcVoiceVolume')),
+      );
+
+      // Mute / service toggles (Music / SFX / TTS).
+      mkCycler(
+        'mute-music', 'options.musicEnabled',
+        this.settings.musicEnabled ? t('common.on') : t('common.off'),
+        () => (this.cycleMusicEnabled() ? t('common.on') : t('common.off')),
+      );
+      mkCycler(
+        'mute-sfx', 'options.sfxEnabled',
+        this.settings.sfxEnabled ? t('common.on') : t('common.off'),
+        () => (this.cycleSfxEnabled() ? t('common.on') : t('common.off')),
+      );
+      mkCycler(
+        'tts', 'options.ttsEnabled',
+        this.settings.ttsEnabled ? t('common.on') : t('common.off'),
+        () => (this.cycleTtsEnabled() ? t('common.on') : t('common.off')),
+      );
+    }
 
     // Back button
     const backBtn = Button.CreateSimpleButton('back', t('common.back'));

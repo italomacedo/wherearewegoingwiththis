@@ -41,6 +41,12 @@ export interface GameSettings {
   musicVolume: number;
   sfxVolume: number;
   npcVoiceVolume: number;
+  /** Mute toggle for the music bus (volume preserved). */
+  musicEnabled: boolean;
+  /** Mute toggle for the SFX bus (volume preserved). */
+  sfxEnabled: boolean;
+  /** Master switch for the text-to-speech voice service (Kokoro). */
+  ttsEnabled: boolean;
 }
 
 export const DEFAULT_SETTINGS: Readonly<GameSettings> = {
@@ -73,6 +79,9 @@ export const DEFAULT_SETTINGS: Readonly<GameSettings> = {
   musicVolume: 0.6,
   sfxVolume: 0.8,
   npcVoiceVolume: 1,
+  musicEnabled: true,
+  sfxEnabled: true,
+  ttsEnabled: true,
 };
 
 const STORAGE_KEY = 'beirario-settings';
