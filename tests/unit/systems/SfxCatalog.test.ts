@@ -30,21 +30,30 @@ describe('SfxCatalog', () => {
       expect(sfxForBeat({ kind: 'hit', attackKind: 'ranged' })).toEqual(['gunshot']);
     });
 
-    it('unarmed melee hit → swing then punch', () => {
-      expect(sfxForBeat({ kind: 'hit', attackKind: 'melee', weaponName: 'fists' })).toEqual(['swing', 'punch']);
-      expect(sfxForBeat({ kind: 'hit', attackKind: 'melee', weaponName: 'punhos' })).toEqual(['swing', 'punch']);
+    it('unarmed melee hit → punch only (NO sword swing)', () => {
+      expect(sfxForBeat({ kind: 'hit', attackKind: 'melee', weaponName: 'fists' })).toEqual(['punch']);
+      expect(sfxForBeat({ kind: 'hit', attackKind: 'melee', weaponName: 'punhos' })).toEqual(['punch']);
+      expect(sfxForBeat({ kind: 'hit', attackKind: 'melee' })).toEqual(['punch']); // no weaponName = fists
+    });
+
+    it('unarmed melee miss → silent (no sword swing)', () => {
+      expect(sfxForBeat({ kind: 'miss', attackKind: 'melee', weaponName: 'fists' })).toEqual([]);
     });
 
     it('armed melee hit → swing then stab', () => {
       expect(sfxForBeat({ kind: 'hit', attackKind: 'melee', weaponName: 'Knife' })).toEqual(['swing', 'stab']);
     });
 
-    it('melee miss → swing only (no impact)', () => {
+    it('armed melee miss → swing only (no impact)', () => {
       expect(sfxForBeat({ kind: 'miss', attackKind: 'melee', weaponName: 'Knife' })).toEqual(['swing']);
     });
 
-    it('melee death → swing, stab, bodyfall', () => {
+    it('armed melee death → swing, stab, bodyfall', () => {
       expect(sfxForBeat({ kind: 'death', attackKind: 'melee', weaponName: 'Knife' })).toEqual(['swing', 'stab', 'bodyfall']);
+    });
+
+    it('unarmed melee death → punch, bodyfall', () => {
+      expect(sfxForBeat({ kind: 'death', attackKind: 'melee', weaponName: 'fists' })).toEqual(['punch', 'bodyfall']);
     });
 
     it('ranged death → gunshot then bodyfall (no melee impact)', () => {

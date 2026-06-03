@@ -65,20 +65,26 @@ function isFists(weaponName: string | undefined): boolean {
 }
 
 /**
- * Map a combat beat to the SFX cues it should fire, in order: the attack motion
- * (swing/gunshot) then, on a landed blow, the impact (punch for fists, stab when
- * armed melee) and a body-fall on a kill. A miss plays only the motion. Pure.
+ * Map a combat beat to the SFX cues it should fire, in order. By weapon class:
+ * - ranged: gunshot;
+ * - armed melee (knife/axe/…): the sword-style `swing` whoosh on every attack,
+ *   then `stab` on a landed blow;
+ * - bare fists: just the `punch` impact on a landed blow (NO sword swing).
+ * A kill adds `bodyfall`. A bare-fist miss is silent. Pure.
  */
 export function sfxForBeat(entry: CombatBeatLike): SfxCue[] {
   const cues: SfxCue[] = [];
   const isAttack = entry.kind === 'hit' || entry.kind === 'miss' || entry.kind === 'death';
   if (!isAttack || !entry.attackKind) return cues;
 
-  cues.push(entry.attackKind === 'ranged' ? 'gunshot' : 'swing');
-
   const landed = entry.kind === 'hit' || entry.kind === 'death';
-  if (landed && entry.attackKind === 'melee') {
-    cues.push(isFists(entry.weaponName) ? 'punch' : 'stab');
+  if (entry.attackKind === 'ranged') {
+    cues.push('gunshot');
+  } else if (isFists(entry.weaponName)) {
+    if (landed) cues.push('punch'); // bare fists: punch impact only, no sword whoosh
+  } else {
+    cues.push('swing'); // armed melee: blade whoosh on every swing
+    if (landed) cues.push('stab');
   }
   if (entry.kind === 'death') cues.push('bodyfall');
   return cues;
