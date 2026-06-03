@@ -30,6 +30,7 @@ import { weaponProfile, itemDef, isMeleeWeapon, isFirearm } from '@entities/item
 import { InventoryOverlay } from '@systems/InventoryOverlay';
 import { HeldItemRig, resolveAttachWith, boneFor, AttachOverrides, flashlightActive, holdsAimPose } from '@systems/HeldItems';
 import { AdjustOverlay } from '@systems/AdjustOverlay';
+import { ActionRibbon } from '@systems/ActionRibbon';
 import { AimTarget, nearestToPoint } from '@systems/SurpriseTargeting';
 import { createMuzzleFlash } from '@systems/ParticleEffects';
 import { EquipSlot, ItemAttach } from '@entities/items/ItemCatalog';
@@ -103,6 +104,7 @@ export class GameWorldScene extends BaseScene {
   private heldAttach: AttachOverrides = {};
   /** Held-prop calibration overlay (Adjust tool). */
   private adjustOverlay: AdjustOverlay | null = null;
+  private actionRibbon: ActionRibbon | null = null;
   /** Spotlight projected forward while the flashlight is held (auto-on). */
   private flashlightLight: SpotLight | null = null;
   private combat: CombatOverlay | null = null;
@@ -395,6 +397,15 @@ export class GameWorldScene extends BaseScene {
       },
     });
 
+    // Main action ribbon (Phase 11): Attack Ranged / Melee / Talk / Inventory.
+    this.actionRibbon = new ActionRibbon(this.babylonScene);
+    this.actionRibbon.setHandlers({
+      onAttackRanged: () => this.enterSurpriseTargeting('ranged'),
+      onAttackMelee: () => this.enterSurpriseTargeting('melee'),
+      onTalk: () => this.openTalkFromRibbon(),
+      onInventory: () => this.inventoryOverlay?.openManage(this.playerInventory),
+    });
+
     // Turn-based combat overlay (triggered by a hostile NPC's attack intent).
     this.combat = new CombatOverlay(this.babylonScene);
 
@@ -570,6 +581,8 @@ export class GameWorldScene extends BaseScene {
     this.inventoryOverlay?.dispose();
     this.adjustOverlay?.dispose();
     this.adjustOverlay = null;
+    this.actionRibbon?.dispose();
+    this.actionRibbon = null;
     this.flashlightLight?.dispose();
     this.flashlightLight = null;
     this.playerHeldRig?.dispose();
@@ -621,6 +634,11 @@ export class GameWorldScene extends BaseScene {
 
   update(): void {
     const dt = this.engine.getDeltaTime() / 1000;
+
+    // Keep the action ribbon in sync (shown only during free on-foot play; Attack
+    // Ranged enabled only with a firearm in hand). Done before the early returns so
+    // it hides while any overlay/combat/dialog/aiming/vehicle owns the screen.
+    this.syncActionRibbon();
 
     // ESC toggles the pause menu (unless the dialog owns the keyboard). While
     // paused, the world is frozen — only the menu (and camera follow) live on.
@@ -1729,6 +1747,34 @@ export class GameWorldScene extends BaseScene {
     this.dialog.open(t('dialog.openChannel'), seed);
   }
 
+  /**
+   * The ribbon's Talk button: open a conversation with a conversable NPC in reach,
+   * else open the global channel (the same outcomes as E / T, mouse-driven).
+   */
+  /* istanbul ignore next — browser-only ribbon action */
+  private openTalkFromRibbon(): void {
+    if (!this.dialog || this.dialog.isOpen() || (this.vehicle?.isOccupied() ?? false)) return;
+    const agent = this.player && this.npcManager ? this.npcManager.getConversableAgent(this.player.getPosition()) : null;
+    if (agent && !agent.isDefeated()) {
+      const seed: DialogLine[] = agent.conversation.getFullHistory().flatMap((ex) => [
+        { role: 'player' as const, text: ex.player },
+        { role: 'npc' as const, text: ex.npc },
+      ]);
+      this.chatMode = 'npc';
+      this.dialog.open(agent.getDisplayName(), seed);
+      const holder = this.npcHolderById.get(agent.definition.id);
+      if (holder && this.player) {
+        const pp = this.player.getPosition();
+        holder.rotation.y = Math.atan2(pp.x - holder.position.x, pp.z - holder.position.z);
+        this.cameraSystem?.enterConversationMode(holder);
+      }
+      return;
+    }
+    this.chatMode = 'global';
+    const seed: DialogLine[] = this.gossipLog.map((text) => ({ role: 'narration' as const, text }));
+    this.dialog.open(t('dialog.openChannel'), seed);
+  }
+
   /** Builds the world snapshot and routes a message to the conversable NPC (E). */
   async sendToActiveNPC(message: string): Promise<void> {
     if (!this.npcManager || !this.player || !this.dialog) return;
@@ -2075,6 +2121,28 @@ export class GameWorldScene extends BaseScene {
 
     this.hud.setVehicleStatus(this.deriveVehicleStatus());
     this.hud.setActionPrompt(this.deriveActionPrompt(dialogOpen));
+  }
+
+  /**
+   * Keep the action ribbon visible only during free, on-foot play and reflect the
+   * equipped firearm (gates Attack Ranged). Hidden while combat / a dialog / an
+   * overlay / surprise-aiming / the vehicle owns the screen.
+   */
+  /* istanbul ignore next — browser-only HUD glue (reads overlay visibility) */
+  private syncActionRibbon(): void {
+    if (!this.actionRibbon) return;
+    const busy = (this.combat?.isOpen() ?? false)
+      || (this.dialog?.isOpen() ?? false)
+      || (this.inventoryOverlay?.isOpen() ?? false)
+      || (this.adjustOverlay?.isOpen() ?? false)
+      || (this.pauseMenu?.isOpen() ?? false)
+      || (this.gameOverMenu?.isOpen() ?? false)
+      || this.gameOver
+      || !!this.surpriseTargeting
+      || (this.vehicle?.isOccupied() ?? false);
+    this.actionRibbon.setVisible(!busy);
+    const main = this.playerInventory.combatWeaponId;
+    this.actionRibbon.setFirearmEquipped(!!main && isFirearm(main));
   }
 
   /** Nave status line: destroyed / live HP% while relevant, else hidden. */

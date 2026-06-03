@@ -114,6 +114,12 @@ export const STRINGS: Record<string, Entry> = {
   'hud.naveStatus': e('NAVE {pct}%', 'NAVE {pct}%'),
   'hud.naveDestroyed': e('NAVE DESTROYED', 'NAVE DESTRUÍDA'),
 
+  // ─── Action ribbon (Phase 11) ────────────────────────────────────────────────
+  'ribbon.attackRanged': e('Shoot', 'Atirar'),
+  'ribbon.attackMelee': e('Strike', 'Golpear'),
+  'ribbon.talk': e('Talk', 'Falar'),
+  'ribbon.inventory': e('Inventory', 'Inventário'),
+
   // ─── Inventory (Phase 9) ─────────────────────────────────────────────────────
   'inventory.title': e('Inventory', 'Inventário'),
   'inventory.lootTitle': e('Search {name}', 'Revistar {name}'),
