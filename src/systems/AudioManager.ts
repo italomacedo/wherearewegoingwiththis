@@ -1,4 +1,3 @@
-import { Sound } from '@babylonjs/core';
 import type { Scene } from '@babylonjs/core';
 import type { EventBus } from '@core/EventBus';
 import { SettingsService, type GameSettings } from './SettingsService';
@@ -66,11 +65,10 @@ export const DEFAULT_SFX_INSTANCE_CAP = 4;
  */
 export class AudioManager {
   private mixer: MixerState;
-  private scene: Scene | null = null;
   /** Active SFX instance count per cue id (for the instance cap). */
   private active = new Map<string, number>();
-  /** Currently-playing looping sounds, keyed by cue id. */
-  private loops = new Map<string, Sound>();
+  /** Currently-playing looping audio elements, keyed by cue id. */
+  private loops = new Map<string, HTMLAudioElement>();
   private unsubscribes: Array<() => void> = [];
 
   constructor(eventBus?: EventBus) {
@@ -98,80 +96,75 @@ export class AudioManager {
     this.applyToLiveSounds();
   }
 
-  /* istanbul ignore next — requires a Babylon audio engine / DOM */
-  setScene(scene: Scene): void {
-    this.scene = scene;
+  /** Kept for future spatial audio; the HTMLAudio playback layer doesn't need it. */
+  /* istanbul ignore next — no-op setter */
+  setScene(_scene: Scene): void {
+    /* reserved */
   }
 
-  /* istanbul ignore next — browser-only */
+  /* istanbul ignore next — browser-only: re-apply bus volume to live loops */
   private applyToLiveSounds(): void {
-    if (typeof document === 'undefined' || !this.scene) return;
-    for (const snd of this.scene.mainSoundTrack?.soundCollection ?? []) {
-      const bus = (snd.metadata?.bus as AudioBus) ?? 'sfx';
-      const base = (snd.metadata?.baseVolume as number) ?? 1;
-      snd.setVolume(base * this.effective(bus));
-    }
+    this.loops.forEach((el, cueId) => {
+      const spec = sfxSpec(cueId);
+      el.volume = clampVolume(this.effective(spec?.bus ?? 'sfx'));
+    });
   }
 
   /**
    * Play a registered cue by id (looks up SfxCatalog). One-shots go through the
-   * instance cap; looping cues start/replace a persistent loop. Unknown cues are
-   * a no-op. Browser-only; safe no-op without a scene/DOM.
+   * instance cap; looping cues start a persistent loop. Unknown cues are a no-op.
+   * Browser-only; safe no-op outside the DOM.
    */
   /* istanbul ignore next — browser-only playback */
   playCue(cueId: string): void {
     const spec = sfxSpec(cueId);
     if (!spec) return;
     if (spec.loop) this.playLoop(cueId);
-    else this.playSfx(cueId, spec.path, { cap: spec.cap });
+    else this.playSfx(cueId, spec.path, { cap: spec.cap, bus: spec.bus });
   }
 
   /**
-   * Play a one-shot SFX from a URL on the sfx bus, respecting the per-cue
-   * instance cap. Browser-only; safe no-op without a scene/DOM.
+   * Play a one-shot SFX from a URL via an HTMLAudioElement, respecting the
+   * per-cue instance cap. Browser-only; safe no-op outside the DOM.
    */
   /* istanbul ignore next — browser-only playback */
-  playSfx(cueId: string, url: string, opts?: { baseVolume?: number; cap?: number }): void {
-    if (typeof document === 'undefined' || !this.scene) return;
+  playSfx(cueId: string, url: string, opts?: { baseVolume?: number; cap?: number; bus?: AudioBus }): void {
+    if (typeof document === 'undefined' || typeof Audio === 'undefined') return;
     const cap = opts?.cap ?? DEFAULT_SFX_INSTANCE_CAP;
     const current = this.active.get(cueId) ?? 0;
     if (!canPlayMore(current, cap)) return;
     const base = opts?.baseVolume ?? 1;
-    const snd = new Sound(`sfx:${cueId}`, url, this.scene, null, {
-      autoplay: true,
-      volume: base * this.effective('sfx'),
-    });
-    snd.metadata = { bus: 'sfx', baseVolume: base };
+    const el = new Audio(url);
+    el.volume = clampVolume(base * this.effective(opts?.bus ?? 'sfx'));
     this.active.set(cueId, current + 1);
-    snd.onEndedObservable.addOnce(() => {
+    const done = (): void => {
       this.active.set(cueId, Math.max(0, (this.active.get(cueId) ?? 1) - 1));
-      snd.dispose();
-    });
+    };
+    el.addEventListener('ended', done, { once: true });
+    el.addEventListener('error', done, { once: true });
+    void el.play().catch(() => done());
   }
 
-  /** Start (or restart) a looping cue (e.g. the nave engine). Browser-only. */
+  /** Start a looping cue (e.g. the nave engine) if not already playing. Browser-only. */
   /* istanbul ignore next — browser-only playback */
   playLoop(cueId: string): void {
-    if (typeof document === 'undefined' || !this.scene) return;
+    if (typeof document === 'undefined' || typeof Audio === 'undefined') return;
     const spec = sfxSpec(cueId);
     if (!spec || this.loops.has(cueId)) return;
-    const bus = spec.bus;
-    const snd = new Sound(`loop:${cueId}`, spec.path, this.scene, null, {
-      autoplay: true,
-      loop: true,
-      volume: this.effective(bus),
-    });
-    snd.metadata = { bus, baseVolume: 1 };
-    this.loops.set(cueId, snd);
+    const el = new Audio(spec.path);
+    el.loop = true;
+    el.volume = clampVolume(this.effective(spec.bus));
+    this.loops.set(cueId, el);
+    void el.play().catch(() => {});
   }
 
-  /** Stop and dispose a looping cue. Browser-only. */
+  /** Stop a looping cue. Browser-only. */
   /* istanbul ignore next — browser-only playback */
   stopLoop(cueId: string): void {
-    const snd = this.loops.get(cueId);
-    if (!snd) return;
-    snd.stop();
-    snd.dispose();
+    const el = this.loops.get(cueId);
+    if (!el) return;
+    el.pause();
+    el.currentTime = 0;
     this.loops.delete(cueId);
   }
 
@@ -179,9 +172,8 @@ export class AudioManager {
     this.unsubscribes.forEach((u) => u());
     this.unsubscribes = [];
     /* istanbul ignore next — browser-only loop teardown */
-    this.loops.forEach((snd) => snd.dispose());
+    this.loops.forEach((el) => el.pause());
     this.loops.clear();
     this.active.clear();
-    this.scene = null;
   }
 }
