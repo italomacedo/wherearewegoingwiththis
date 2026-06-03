@@ -131,6 +131,13 @@ export class GameWorldScene extends BaseScene {
   private targetRing: LinesMesh | null = null;
   /** Click tolerance (m): the cursor's ground point must land within this of a combatant. */
   private static readonly TARGET_PICK_RADIUS = 2.0;
+  /**
+   * Reach (m) for committing an OUT-OF-COMBAT melee surprise attack. More forgiving
+   * than the in-combat MELEE_RANGE (1 m): collision capsules keep the player from
+   * standing within 1 m of an NPC, so a 1 m gate made melee ambush impossible to
+   * commit. The lunge into adjacency happens at combat start (see beginCombat).
+   */
+  private static readonly SURPRISE_MELEE_REACH = 2.5;
   /** Active N-way encounter + the player's side (for friendly-fire defection). */
   private combatEnc: CombatEncounter | null = null;
   private combatPlayerSide: string | null = null;
@@ -1024,6 +1031,23 @@ export class GameWorldScene extends BaseScene {
     if (targetId !== 'player' && mgr.getAgent(targetId)?.isDefeated()) return;
     this.dialog?.close();
 
+    // Melee surprise: lunge the hero adjacent to the target so the opening strike
+    // lands. Collision capsules keep the player just outside the 1 m melee gate, so
+    // without this the auto opening attack would whiff. (Ranged needs no lunge.)
+    if (opts.ambush && opts.openingAttack === 'melee' && this.player && targetId !== 'player') {
+      const tp = this.npcHolderById.get(targetId)?.position ?? mgr.getAgent(targetId)?.getPosition();
+      if (tp) {
+        const pp = this.player.getRoot().position;
+        const dx = pp.x - tp.x;
+        const dz = pp.z - tp.z;
+        const d = Math.hypot(dx, dz);
+        if (d > MELEE_RANGE) {
+          const r = (MELEE_RANGE * 0.85) / (d || 1);
+          this.player.teleport(new Vector3(tp.x + dx * r, pp.y, tp.z + dz * r));
+        }
+      }
+    }
+
     const playerInvolved = initiatorId === 'player' || targetId === 'player';
     // Whole-scene recruitment: each NPC's relationships come from its disposition
     // (toward the player) and its ledger (toward other NPCs).
@@ -1434,6 +1458,7 @@ export class GameWorldScene extends BaseScene {
   /** Reach (m) of the player's pending surprise attack: firearm range / melee 1 m. */
   /* istanbul ignore next — browser-only */
   private surpriseRange(attackKind: 'melee' | 'ranged'): number {
+    if (attackKind === 'melee') return GameWorldScene.SURPRISE_MELEE_REACH;
     return targetRangeFor(attackKind, weaponProfile(this.playerInventory.combatWeaponId));
   }
 
