@@ -439,17 +439,25 @@ export class GameWorldScene extends BaseScene {
 
   /* istanbul ignore next — physics colliders are browser/Electron only */
   private buildEntityColliders(): void {
-    // The nave is a static prop → one fixed box. NPCs get a capsule that follows them.
-    const veh = this.vehicle?.getRoot() as unknown as AbstractMesh | undefined;
+    // The nave's collider is PARENTED to its root (ANIMATED body, disablePreStep=false)
+    // so it follows the nave when it flies / falls / is repositioned — same self-
+    // following mold as the NPC capsule (a static box stayed behind at the spawn).
+    const veh = this.vehicle?.getRoot();
     if (veh) {
+      veh.computeWorldMatrix(true);
       const { min, max } = veh.getHierarchyBoundingVectors(true);
       const size = max.subtract(min);
       if (size.x >= 0.05 && size.y >= 0.05 && size.z >= 0.05) {
         const box = MeshBuilder.CreateBox('col-entity-nave', { width: size.x, height: size.y, depth: size.z }, this.babylonScene);
-        box.position.copyFrom(min.add(max).scale(0.5));
         box.isVisible = false;
+        box.parent = veh;
+        // Local offset to the nave's geometric centre (root is unrotated/unscaled at spawn).
+        box.position.copyFrom(min.add(max).scale(0.5).subtract(veh.getAbsolutePosition()));
+        const agg = new PhysicsAggregate(box, PhysicsShapeType.BOX, { mass: 0 }, this.babylonScene);
+        agg.body.setMotionType(PhysicsMotionType.ANIMATED);
+        agg.body.disablePreStep = false;
         this.entityColliders.push(box);
-        this.entityAggregates.push(new PhysicsAggregate(box, PhysicsShapeType.BOX, { mass: 0 }, this.babylonScene));
+        this.entityAggregates.push(agg);
       }
     }
     this.npcHolderById.forEach((holder, id) => this.buildNpcCapsule(id, holder));
