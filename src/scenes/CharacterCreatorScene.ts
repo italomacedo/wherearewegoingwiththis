@@ -8,7 +8,7 @@ import { SceneManager } from '@core/SceneManager';
 import { ServiceLocator } from '@core/ServiceLocator';
 import { GameSession } from '@core/GameSession';
 import {
-  CharacterData, DEFAULT_APPEARANCE, ColorKey, cloneAppearance,
+  CharacterData, DEFAULT_APPEARANCE, ColorKey, AvatarPartRegion, cloneAppearance, resolveAvatarParts,
 } from '@entities/CharacterData';
 import {
   CharacterStats, AttributeId, ATTRIBUTES, SKILLS, StartingSkillPick, StartTier,
@@ -37,8 +37,8 @@ const CREATOR_LABEL_KEY: Record<string, string> = {
 export type ControlSpec =
   | { kind: 'gender'; label: string }
   | { kind: 'color'; label: string; colorKey: ColorKey; presets: string[] }
-  // Cycle through the outfits (complete Quaternius characters) of the current gender.
-  | { kind: 'outfit'; label: string };
+  // Cycle through the current gender's outfits for one modular region (head/top/bottom).
+  | { kind: 'part'; label: string; region: AvatarPartRegion };
 
 export interface CategorySpec {
   title: string;
@@ -85,7 +85,11 @@ export function buildCreatorSchema(): CategorySpec[] {
     {
       title: 'Outfit',
       controls: [
-        { kind: 'outfit', label: 'Outfit' },
+        { kind: 'part', label: 'Head', region: 'head' },
+        { kind: 'part', label: 'Top', region: 'top' },
+        { kind: 'part', label: 'Bottom', region: 'bottom' },
+        colorControl('top', 'Top Color'),
+        colorControl('bottom', 'Bottom Color'),
         colorControl('hair', 'Hair Color'),
       ],
     },
@@ -272,22 +276,25 @@ export class CharacterCreatorScene extends BaseScene {
   }
 
   /**
-   * Set the current outfit (a complete Quaternius character key), then rebuild.
+   * Set the whole outfit (a complete Quaternius character key): anchors `bodyBase`
+   * (the gender source) and clears the modular composition so every region renders
+   * that outfit. Then rebuild. (Back-compat entry point; the creator UI uses the
+   * per-region `setPart` below.)
    */
   async setOutfit(key: string): Promise<void> {
     this.characterData = {
       ...this.characterData,
-      appearance: { ...this.characterData.appearance, bodyBase: key },
+      appearance: { ...this.characterData.appearance, bodyBase: key, avatarPieces: {} },
     };
     await this.rebuildCharacter();
   }
 
-  /** Currently-selected outfit key. */
+  /** Currently-selected whole-outfit anchor (the `top`/gender source). */
   getOutfit(): string {
     return this.characterData.appearance.bodyBase;
   }
 
-  /** Cycle through the current gender's outfits. */
+  /** Cycle the whole outfit through the current gender's outfits. */
   async cycleOutfit(dir: 1 | -1): Promise<void> {
     const keys = outfitsForGender(this.getGender()).map((o) => o.key);
     if (keys.length === 0) return;
@@ -296,13 +303,39 @@ export class CharacterCreatorScene extends BaseScene {
     await this.setOutfit(keys[(start + dir + keys.length) % keys.length]!);
   }
 
-  /** Set a region tint (skin/eye/hair…) and rebuild. */
+  /** The outfit currently donating a given modular region. */
+  getPart(region: AvatarPartRegion): string {
+    return resolveAvatarParts(this.characterData.appearance)[region];
+  }
+
+  /**
+   * Set one modular region's donor outfit, then rebuild. The `top` pick also
+   * re-anchors `bodyBase` (the gender source), so cycling Top stays in-gender.
+   */
+  async setPart(region: AvatarPartRegion, key: string): Promise<void> {
+    const appearance = cloneAppearance(this.characterData.appearance);
+    appearance.avatarPieces = { ...appearance.avatarPieces, [region]: key };
+    if (region === 'top') appearance.bodyBase = key;
+    this.characterData = { ...this.characterData, appearance };
+    await this.rebuildCharacter();
+  }
+
+  /** Cycle one region's donor through the current gender's outfits. */
+  async cyclePart(region: AvatarPartRegion, dir: 1 | -1): Promise<void> {
+    const keys = outfitsForGender(this.getGender()).map((o) => o.key);
+    if (keys.length === 0) return;
+    const idx = keys.indexOf(this.getPart(region));
+    const start = idx === -1 ? 0 : idx;
+    await this.setPart(region, keys[(start + dir + keys.length) % keys.length]!);
+  }
+
+  /** Set a region tint (skin/eye/hair/top/bottom…) and rebuild. */
   async setColorValue(key: ColorKey, hex: string): Promise<void> {
     this.setColor(key, hex);
     await this.rebuildCharacter();
   }
 
-  /** Switch gender — picks the first outfit of that gender. */
+  /** Switch gender — resets to the first whole outfit of that gender. */
   async setGender(gender: Gender): Promise<void> {
     const first = outfitsForGender(gender)[0];
     if (first) await this.setOutfit(first.key);
@@ -664,7 +697,8 @@ export class CharacterCreatorScene extends BaseScene {
       return;
     }
 
-    // outfit — ◄ ► row cycling the current gender's outfits
+    // part — ◄ ► row cycling the current gender's outfits for one modular region
+    const region = spec.region;
     const row = new StackPanel(`row-${spec.label}`);
     row.isVertical = false; row.height = '30px'; row.spacing = 4;
     const prev = Button.CreateSimpleButton(`prev-${spec.label}`, '◄');
@@ -673,8 +707,8 @@ export class CharacterCreatorScene extends BaseScene {
       b.width = '40px'; b.height = '30px';
       b.color = '#00FFCC'; b.background = 'rgba(0,30,40,0.8)';
     });
-    prev.onPointerUpObservable.add(() => void this.cycleOutfit(-1));
-    next.onPointerUpObservable.add(() => void this.cycleOutfit(1));
+    prev.onPointerUpObservable.add(() => void this.cyclePart(region, -1));
+    next.onPointerUpObservable.add(() => void this.cyclePart(region, 1));
     row.addControl(prev);
     row.addControl(next);
     parent.addControl(row);
