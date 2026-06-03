@@ -1,7 +1,7 @@
 import {
   Engine, Color4, Color3, Vector3, Matrix, AbstractMesh, TransformNode, MeshBuilder,
   PhysicsAggregate, PhysicsShapeType, PhysicsMotionType, AnimationGroup, Animation, LinesMesh,
-  SpotLight,
+  SpotLight, PointerEventTypes,
 } from '@babylonjs/core';
 import { BaseScene } from './BaseScene';
 import { ServiceLocator } from '@core/ServiceLocator';
@@ -30,6 +30,7 @@ import { weaponProfile, itemDef, isMeleeWeapon, isFirearm } from '@entities/item
 import { InventoryOverlay } from '@systems/InventoryOverlay';
 import { HeldItemRig, resolveAttachWith, boneFor, AttachOverrides, flashlightActive, holdsAimPose } from '@systems/HeldItems';
 import { AdjustOverlay } from '@systems/AdjustOverlay';
+import { AimTarget, nearestToPoint } from '@systems/SurpriseTargeting';
 import { EquipSlot, ItemAttach } from '@entities/items/ItemCatalog';
 import { NPCManager, NPCMemoryMap, AutonomyContext, AutonomyJob } from '@systems/NPCManager';
 import { ClaudeCallQueue, queueConfigFromSettings } from '@systems/ClaudeCallQueue';
@@ -118,6 +119,8 @@ export class GameWorldScene extends BaseScene {
     | { mode: 'attack'; attackKind: 'melee' | 'ranged' | undefined }
     | { mode: 'move' }
     | null = null;
+  /** Out-of-combat surprise-attack aiming (from the action ribbon). */
+  private surpriseTargeting: { attackKind: 'melee' | 'ranged' } | null = null;
   private moveTrail: LinesMesh | null = null;
   /** Hover highlight under the combatant the cursor is nearest, during attack targeting. */
   private targetRing: LinesMesh | null = null;
@@ -300,6 +303,10 @@ export class GameWorldScene extends BaseScene {
       };
       this.babylonScene.materials.forEach(lift);
       this.babylonScene.onNewMaterialAddedObservable.add(lift);
+      // A click commits an out-of-combat surprise attack (the ribbon entered aiming).
+      this.babylonScene.onPointerObservable.add((pi) => {
+        if (pi.type === PointerEventTypes.POINTERTAP && this.surpriseTargeting) this.commitSurpriseTargeting();
+      });
     }
 
     // Camera FIRST — guarantees the scene always has an active camera so it
@@ -619,6 +626,16 @@ export class GameWorldScene extends BaseScene {
     // Game over freezes everything but the camera until the player picks an option.
     this.checkGameOver();
     if (this.gameOverMenu?.isOpen()) {
+      this.cameraSystem?.update();
+      this.inputSystem?.endFrame();
+      return;
+    }
+
+    // Surprise-attack aiming (from the action ribbon): the world is frozen while the
+    // player picks a target; a click commits the ambush, ESC cancels. Checked before
+    // pause so ESC backs out of aiming instead of opening the menu.
+    if (this.surpriseTargeting) {
+      this.handleSurpriseTargeting(dt);
       this.cameraSystem?.update();
       this.inputSystem?.endFrame();
       return;
@@ -1318,6 +1335,77 @@ export class GameWorldScene extends BaseScene {
       if (d < bestD) { bestD = d; best = { id: cb.id, pos: cb.pos }; }
     }
     return best;
+  }
+
+  // ─── Out-of-combat surprise attack (Phase 11) ──────────────────────────────
+
+  /**
+   * Enter surprise-attack aiming from the action ribbon. Ranged needs a firearm in
+   * hand; melee always works (equipped melee weapon or fists). No-op while a dialog,
+   * combat, or another overlay owns the screen.
+   */
+  /* istanbul ignore next — browser-only entry from the ribbon */
+  enterSurpriseTargeting(attackKind: 'melee' | 'ranged'): void {
+    if (typeof document === 'undefined') return;
+    if (this.combat?.isOpen() || this.dialog?.isOpen() || this.inventoryOverlay?.isOpen()) return;
+    if (this.vehicle?.isOccupied()) return;
+    const mainHand = this.playerInventory.combatWeaponId;
+    if (attackKind === 'ranged' && !(mainHand && isFirearm(mainHand))) return; // need a gun
+    this.surpriseTargeting = { attackKind };
+  }
+
+  /** Living, non-defeated NPCs as aim targets at their current ground positions. */
+  /* istanbul ignore next — browser-only (reads live holders) */
+  private aimTargetsInScene(): AimTarget[] {
+    const out: AimTarget[] = [];
+    for (const a of this.npcManager?.getAgents() ?? []) {
+      if (a.isDefeated()) continue;
+      const p = this.npcHolderById.get(a.definition.id)?.position ?? a.getPosition();
+      out.push({ id: a.definition.id, pos: { x: p.x, z: p.z } });
+    }
+    return out;
+  }
+
+  /** Reach (m) of the player's pending surprise attack: firearm range / melee 1 m. */
+  /* istanbul ignore next — browser-only */
+  private surpriseRange(attackKind: 'melee' | 'ranged'): number {
+    return targetRangeFor(attackKind, weaponProfile(this.playerInventory.combatWeaponId));
+  }
+
+  /** Per-frame aim feedback: ring the NPC under the cursor (green = in reach). */
+  /* istanbul ignore next — browser-only pointer/rendering */
+  private handleSurpriseTargeting(dt: number): void {
+    if (this.inputSystem?.wasJustPressed('pause')) { this.clearSurpriseTargeting(); return; }
+    this.handleCameraKeys(dt); // Z/C orbit to line up the shot
+    const aim = this.surpriseTargeting;
+    const me = this.player?.getRoot().position;
+    const to = this.groundPointFromPointer();
+    if (!aim || !me || !to) { this.drawTargetRing(null, false); return; }
+    const cand = nearestToPoint(this.aimTargetsInScene(), to, GameWorldScene.TARGET_PICK_RADIUS);
+    const inRange = !!cand && distance2({ x: me.x, z: me.z }, cand.pos) <= this.surpriseRange(aim.attackKind);
+    this.drawTargetRing(cand ? cand.pos : null, inRange);
+  }
+
+  /** Click commit: ambush the NPC under the cursor if it is within reach. */
+  /* istanbul ignore next — browser-only pointer */
+  private commitSurpriseTargeting(): void {
+    const aim = this.surpriseTargeting;
+    const me = this.player?.getRoot().position;
+    const to = this.groundPointFromPointer();
+    if (!aim || !me || !to) return;
+    const cand = nearestToPoint(this.aimTargetsInScene(), to, GameWorldScene.TARGET_PICK_RADIUS);
+    if (!cand || distance2({ x: me.x, z: me.z }, cand.pos) > this.surpriseRange(aim.attackKind)) return;
+    const attackKind = aim.attackKind;
+    this.clearSurpriseTargeting();
+    this.beginCombat('player', cand.id, { ambush: true, openingAttack: attackKind });
+  }
+
+  /** Leave surprise aiming, clearing the ring. */
+  /* istanbul ignore next — browser-only */
+  private clearSurpriseTargeting(): void {
+    this.surpriseTargeting = null;
+    this.targetRing?.dispose();
+    this.targetRing = null;
   }
 
   /** Ground-plane (y=0) point under the cursor, or null if the ray is parallel. */
