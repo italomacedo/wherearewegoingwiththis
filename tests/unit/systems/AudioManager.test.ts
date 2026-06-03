@@ -115,4 +115,15 @@ describe('AudioManager — instance + settings wiring', () => {
     expect(am.effective('sfx')).toBe(0);
     expect(bus.listenerCount('settings:changed')).toBe(0);
   });
+
+  it('subscribes to audio:sfx; emitting a cue is safe without a scene; dispose clears it', () => {
+    const bus = new EventBus();
+    const am = new AudioManager(bus);
+    expect(bus.listenerCount('audio:sfx')).toBe(1);
+    // No scene set → playCue is a safe no-op (must not throw).
+    expect(() => bus.emit('audio:sfx', { cue: 'gunshot' })).not.toThrow();
+    expect(() => bus.emit('audio:sfx', { cue: 'unknown_cue' })).not.toThrow();
+    am.dispose();
+    expect(bus.listenerCount('audio:sfx')).toBe(0);
+  });
 });

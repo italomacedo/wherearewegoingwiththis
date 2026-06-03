@@ -33,6 +33,8 @@ import { AdjustOverlay } from '@systems/AdjustOverlay';
 import { ActionRibbon } from '@systems/ActionRibbon';
 import { AimTarget, nearestToPoint } from '@systems/SurpriseTargeting';
 import { createMuzzleFlash } from '@systems/ParticleEffects';
+import type { AudioManager } from '@systems/AudioManager';
+import { sfxForBeat, footstepInterval } from '@systems/SfxCatalog';
 import { EquipSlot, ItemAttach } from '@entities/items/ItemCatalog';
 import { NPCManager, NPCMemoryMap, AutonomyContext, AutonomyJob } from '@systems/NPCManager';
 import { ClaudeCallQueue, queueConfigFromSettings } from '@systems/ClaudeCallQueue';
@@ -90,6 +92,11 @@ export class GameWorldScene extends BaseScene {
   private chatMode: 'npc' | 'global' = 'npc';
   private pauseMenu: PauseMenu | null = null;
   private inventoryOverlay: InventoryOverlay | null = null;
+  /** Cached AudioManager (resolved lazily) + footstep cadence accumulator. */
+  private audio: AudioManager | null = null;
+  private footstepTimer = 0;
+  /** Tracks the nave's last destroyed state so the explosion SFX fires once. */
+  private naveWasDestroyed = false;
   /** Visible held props on the hero (main-hand weapon/flashlight/firearm + backpack). */
   private playerHeldRig: HeldItemRig | null = null;
   /** Visible held weapon on each NPC avatar (keyed by NPC id). */
@@ -313,6 +320,9 @@ export class GameWorldScene extends BaseScene {
     // renders even if a later async step (physics WASM, asset load) is slow.
     this.cameraSystem = new CameraSystem(this.babylonScene);
     ServiceLocator.register('cameraSystem', this.cameraSystem);
+
+    // Give the AudioManager this scene so SFX cues can play.
+    (this.audio ??= ServiceLocator.tryGet<AudioManager>('audio'))?.setScene(this.babylonScene);
 
     this.inputSystem = new InputSystem();
     this.detachInput = this.inputSystem.attach();
@@ -572,6 +582,8 @@ export class GameWorldScene extends BaseScene {
     // Autosave before tearing anything down (npcManager is disposed below) —
     // but NOT on game over, or we'd overwrite the save with the dead state.
     if (!this.gameOver) this.persistSession();
+    /* istanbul ignore next — stop the looping engine SFX on world exit */
+    this.audio?.stopLoop('engine');
     this.detachInput?.();
     this.player?.dispose();
     this.vehicle?.dispose();
@@ -712,6 +724,7 @@ export class GameWorldScene extends BaseScene {
           this.player.setCameraYaw(this.cameraSystem.getYaw());
         }
         this.player?.update(dt);
+        this.tickFootsteps(dt);
       }
     }
     // Vehicle physics run every frame: piloted it flies; abandoned it falls.
@@ -742,7 +755,7 @@ export class GameWorldScene extends BaseScene {
     if (delta > 0) health.heal(delta);
     else if (delta < 0) health.applyDamage(-delta);
     const low = this.playerHunger.isLow();
-    if (low && !this.hungerWasLow) this.recordGossipLine(t('hunger.growl'));
+    if (low && !this.hungerWasLow) { this.recordGossipLine(t('hunger.growl')); this.sfx('growl'); }
     this.hungerWasLow = low;
   }
 
@@ -763,6 +776,29 @@ export class GameWorldScene extends BaseScene {
       });
     } else {
       void this.playerHeldRig?.showTransient(null);
+    }
+    this.sfx('eat');
+  }
+
+  /** Fire a registered SFX cue through the AudioManager (no-op if unregistered). */
+  /* istanbul ignore next — thin browser glue over the unit-tested AudioManager */
+  private sfx(cue: string): void {
+    (this.audio ??= ServiceLocator.tryGet<AudioManager>('audio'))?.playCue(cue);
+  }
+
+  /**
+   * Footstep cadence: accumulate dt and fire the footstep cue at the interval
+   * for the current loco state (silent when idle). Pure timing in footstepInterval.
+   */
+  /* istanbul ignore next — per-frame browser glue; footstepInterval is unit-tested */
+  private tickFootsteps(dt: number): void {
+    const state = this.player?.getLocoState() ?? 'idle';
+    const interval = footstepInterval(state);
+    if (interval <= 0) { this.footstepTimer = 0; return; }
+    this.footstepTimer += dt;
+    if (this.footstepTimer >= interval) {
+      this.footstepTimer = 0;
+      this.sfx('footstep');
     }
   }
 
@@ -1136,6 +1172,7 @@ export class GameWorldScene extends BaseScene {
   /* istanbul ignore next — browser-only */
   private onCombatBeat(entry: CombatLogEntry): void {
     this.animateCombatBeat(entry);
+    for (const cue of sfxForBeat(entry)) this.sfx(cue);
     this.applyFriendlyFire(entry);
   }
 
@@ -2003,6 +2040,13 @@ export class GameWorldScene extends BaseScene {
       ? { axis: this.inputSystem.getMovementAxis(), vertical: this.inputSystem.getVerticalAxis() }
       : { axis: { x: 0, z: 0 }, vertical: 0 };
     this.vehicle.update(dt, input, this.cameraSystem.getYaw());
+
+    // Engine loop while piloting; explosion the moment the nave is destroyed.
+    if (driving) this.sfx('engine');
+    else (this.audio ??= ServiceLocator.tryGet<AudioManager>('audio'))?.stopLoop('engine');
+    const destroyed = this.vehicle.isDestroyed();
+    if (destroyed && !this.naveWasDestroyed) this.sfx('explosion');
+    this.naveWasDestroyed = destroyed;
   }
 
   /** Mount on F when near a parked vehicle; dismount on F while piloting. */
@@ -2056,6 +2100,7 @@ export class GameWorldScene extends BaseScene {
       return;
     }
     this.pauseMenu.toggle();
+    this.sfx('ui_open');
   }
 
   /** `I` opens the inventory (manage); while open, `I`/ESC closes it. */
@@ -2068,7 +2113,10 @@ export class GameWorldScene extends BaseScene {
     }
     // Don't open over another modal or while typing in the dialog.
     if (this.dialog?.isOpen() || this.pauseMenu?.isOpen() || this.gameOverMenu?.isOpen()) return;
-    if (this.inputSystem.wasJustPressed('inventory.open')) overlay.openManage(this.playerInventory);
+    if (this.inputSystem.wasJustPressed('inventory.open')) {
+      overlay.openManage(this.playerInventory);
+      this.sfx('ui_open');
+    }
   }
 
   /** `O` toggles the Adjust tool for the currently equipped held prop. */

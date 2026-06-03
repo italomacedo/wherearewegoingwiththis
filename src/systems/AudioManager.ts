@@ -2,6 +2,7 @@ import { Sound } from '@babylonjs/core';
 import type { Scene } from '@babylonjs/core';
 import type { EventBus } from '@core/EventBus';
 import { SettingsService, type GameSettings } from './SettingsService';
+import { sfxSpec } from './SfxCatalog';
 
 /**
  * Audio mixing buses. `master` scales every other bus; `music`/`sfx`/`voice`
@@ -68,12 +69,15 @@ export class AudioManager {
   private scene: Scene | null = null;
   /** Active SFX instance count per cue id (for the instance cap). */
   private active = new Map<string, number>();
-  private unsubscribe: (() => void) | null = null;
+  /** Currently-playing looping sounds, keyed by cue id. */
+  private loops = new Map<string, Sound>();
+  private unsubscribes: Array<() => void> = [];
 
   constructor(eventBus?: EventBus) {
     this.mixer = mixerFromSettings(SettingsService.load());
     if (eventBus) {
-      this.unsubscribe = eventBus.on('settings:changed', () => this.refreshFromSettings());
+      this.unsubscribes.push(eventBus.on('settings:changed', () => this.refreshFromSettings()));
+      this.unsubscribes.push(eventBus.on('audio:sfx', ({ cue }) => this.playCue(cue)));
     }
   }
 
@@ -110,7 +114,20 @@ export class AudioManager {
   }
 
   /**
-   * Play a one-shot SFX cue from a URL on the sfx bus, respecting the per-cue
+   * Play a registered cue by id (looks up SfxCatalog). One-shots go through the
+   * instance cap; looping cues start/replace a persistent loop. Unknown cues are
+   * a no-op. Browser-only; safe no-op without a scene/DOM.
+   */
+  /* istanbul ignore next — browser-only playback */
+  playCue(cueId: string): void {
+    const spec = sfxSpec(cueId);
+    if (!spec) return;
+    if (spec.loop) this.playLoop(cueId);
+    else this.playSfx(cueId, spec.path, { cap: spec.cap });
+  }
+
+  /**
+   * Play a one-shot SFX from a URL on the sfx bus, respecting the per-cue
    * instance cap. Browser-only; safe no-op without a scene/DOM.
    */
   /* istanbul ignore next — browser-only playback */
@@ -132,9 +149,38 @@ export class AudioManager {
     });
   }
 
+  /** Start (or restart) a looping cue (e.g. the nave engine). Browser-only. */
+  /* istanbul ignore next — browser-only playback */
+  playLoop(cueId: string): void {
+    if (typeof document === 'undefined' || !this.scene) return;
+    const spec = sfxSpec(cueId);
+    if (!spec || this.loops.has(cueId)) return;
+    const bus = spec.bus;
+    const snd = new Sound(`loop:${cueId}`, spec.path, this.scene, null, {
+      autoplay: true,
+      loop: true,
+      volume: this.effective(bus),
+    });
+    snd.metadata = { bus, baseVolume: 1 };
+    this.loops.set(cueId, snd);
+  }
+
+  /** Stop and dispose a looping cue. Browser-only. */
+  /* istanbul ignore next — browser-only playback */
+  stopLoop(cueId: string): void {
+    const snd = this.loops.get(cueId);
+    if (!snd) return;
+    snd.stop();
+    snd.dispose();
+    this.loops.delete(cueId);
+  }
+
   dispose(): void {
-    this.unsubscribe?.();
-    this.unsubscribe = null;
+    this.unsubscribes.forEach((u) => u());
+    this.unsubscribes = [];
+    /* istanbul ignore next — browser-only loop teardown */
+    this.loops.forEach((snd) => snd.dispose());
+    this.loops.clear();
     this.active.clear();
     this.scene = null;
   }

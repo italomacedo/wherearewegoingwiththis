@@ -11,6 +11,7 @@ export interface GameEvents {
   'npc:response-done': { npcId: string };
   'npc:player-nearby': { npcId: string; distance: number };
   'settings:changed': { key: string; value: unknown };
+  'audio:sfx': { cue: string };
   'save:created': { saveId: string };
   'save:loaded': { saveId: string };
   'save:deleted': { saveId: string };
