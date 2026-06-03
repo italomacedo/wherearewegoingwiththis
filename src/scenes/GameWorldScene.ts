@@ -231,7 +231,9 @@ export class GameWorldScene extends BaseScene {
     /* istanbul ignore next — dev-only seed, browser playtest aid */
     if (DEBUG_TEST_LOADOUT && this.playerInventory.isEmpty()) {
       for (const id of ['knife', 'backpack', 'flashlight', 'pistol', 'burger']) this.playerInventory.add(id);
-      this.playerInventory.equipToSlot('main_hand', 'knife');
+      // Equip the PISTOL so the ribbon's Shoot is live for the ranged playtest; the
+      // knife/flashlight are in the pack (swap via the inventory to test melee).
+      this.playerInventory.equipToSlot('main_hand', 'pistol');
       this.playerInventory.equipToSlot('back', 'backpack');
     }
     this.heldAttach = session.heldAttach ?? {};
@@ -306,9 +308,13 @@ export class GameWorldScene extends BaseScene {
       };
       this.babylonScene.materials.forEach(lift);
       this.babylonScene.onNewMaterialAddedObservable.add(lift);
-      // A click commits an out-of-combat surprise attack (the ribbon entered aiming).
+      // A left-click commits an out-of-combat surprise attack (the ribbon entered
+      // aiming). POINTERDOWN is used (not POINTERTAP) because the camera input can
+      // swallow the tap; button 0 only, so right/middle-drag camera orbit never fires.
       this.babylonScene.onPointerObservable.add((pi) => {
-        if (pi.type === PointerEventTypes.POINTERTAP && this.surpriseTargeting) this.commitSurpriseTargeting();
+        if (pi.type !== PointerEventTypes.POINTERDOWN || !this.surpriseTargeting) return;
+        const evt = pi.event as { button?: number };
+        if ((evt.button ?? 0) === 0) this.commitSurpriseTargeting();
       });
     }
 
