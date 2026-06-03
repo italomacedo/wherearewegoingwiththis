@@ -62,11 +62,15 @@ export class MercadoSombrasZone extends WorldZone {
       { width: 60, height: 60 },
       scene
     );
-    // Sit BELOW the textured road/sidewalk tiles (top at y≈0) so it never z-fights
-    // with them — it's just the dark base filling becos/gaps, not a competing plane.
-    ground.position.y = -0.12;
+    // THIS plane IS the street asphalt: it faces up (correct normals → lit), covers
+    // the whole district seamlessly, and takes the flashlight cleanly. Sidewalks
+    // (y≈0.03) sit just above it like a low curb. (We dropped the MegaKit road tiles:
+    // that pack tile is directional + flat-normalled and tiled with gaps/black under
+    // the glTF import wrapper; a lit ground plane is robust. Lane/crosswalk decals can
+    // be laid on top later for flavour.)
+    ground.position.y = 0;
     const mat = new StandardMaterial('ground-mat', scene);
-    mat.diffuseColor = new Color3(0.1, 0.1, 0.11); // neutral dark base under the tiles
+    mat.diffuseColor = new Color3(0.2, 0.2, 0.23); // mid-dark asphalt grey (reads under night ambient)
     mat.specularColor = new Color3(0, 0, 0); // no sheen → no harsh flashlight hotspot
     ground.material = mat;
     this.meshes.push(ground);
