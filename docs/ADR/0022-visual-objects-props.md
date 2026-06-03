@@ -1,9 +1,9 @@
 # ADR-0022 — Visual objects & props (held items, paper-doll, hunger, flashlight, firearms)
 
-**Status:** Proposed / IN PROGRESS (Fase 10) — on branch `feat/objects-props`
-(NOT merged). Builds on the inventory/item foundation of
-[ADR-0021](0021-inventory-items.md). ~1115 tests, coverage gated 95/90, typecheck +
-build green per commit.
+**Status:** Accepted (Fase 10) — **MERGED to `main`** (together with Fase 11 /
+[ADR-0023](0023-action-ribbon-surprise-attack-ranged.md)). Builds on the
+inventory/item foundation of [ADR-0021](0021-inventory-items.md). 1129 tests,
+coverage gated 95/90, typecheck + build green.
 
 ## Context
 
@@ -83,13 +83,13 @@ melee swing, Idle_Gun_Pointing for aim, Interact for eating); firearms are
   can break its lighting (normals) — prefer uniform scale, or procedural emissive
   paint for road markings (ignores lighting/normals). (d) Derive held-prop scale from
   the GLB's measured bounding box, not by eye.
-- **Deferred / open (as of this checkpoint):**
-  - **10.7 firearm** — code complete, **awaiting Electron playtest**.
-  - **10.11 muzzle-flash** — forward-looking only (no shooting yet); not built.
+- **Resolved after this checkpoint:**
+  - **10.7 firearm** — validated; **superseded by Fase 11** (real ranged firing, ADR-0023).
+  - **10.11 muzzle-flash** — **delivered live in Fase 11** (`ParticleEffects`).
+  - **`DEBUG_TEST_LOADOUT` removed** before merge — the hero starts with an empty
+    inventory; items come from loot.
+- **Deferred / open:**
   - **10.9 phone + Claude lore chat** — **on hold** (owner).
   - **10.10 drag-and-drop inventory paper-doll** — **cancelled** (owner); the
     button-based inventory + the Adjust button stay.
-  - Firearms/ammo + Shoot/Reload, ranged combat, the phone lore screen.
-- **MUST do before any merge:** remove the temporary `DEBUG_TEST_LOADOUT` seed in
-  `GameWorldScene` (starts the hero with knife+backpack+flashlight+pistol+burger for
-  playtesting; the real game starts with an empty inventory).
+  - Ammo + Reload (firing works without ammo as of Fase 11), the phone lore screen.

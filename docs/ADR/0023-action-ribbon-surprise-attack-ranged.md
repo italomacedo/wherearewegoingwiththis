@@ -1,8 +1,9 @@
 # ADR-0023 — Action ribbon, surprise attack & real ranged combat
 
-**Status:** Accepted (Phase 11) — on branch `feat/objects-props` (continues Phase 10).
-Builds on the tactical combat of [ADR-0020](0020-tactical-multicombatant-combat.md) and
-the inventory/items of [ADR-0021](0021-inventory-items.md) / [ADR-0022](0022-visual-objects-props.md).
+**Status:** Accepted (Phase 11) — **MERGED to `main`** (with Phase 10 / ADR-0022),
+owner-validated in Electron. Builds on the tactical combat of
+[ADR-0020](0020-tactical-multicombatant-combat.md) and the inventory/items of
+[ADR-0021](0021-inventory-items.md) / [ADR-0022](0022-visual-objects-props.md).
 
 ## Context
 
@@ -74,6 +75,11 @@ were **outdated**.
 
 - **Ammo + Reload** (no consumption yet; Reload inert), per-NPC stat blocks, scenery
   cover, line-of-sight/obstruction for ranged, Zara shop/economy.
-- **`DEBUG_TEST_LOADOUT`** in `GameWorldScene` (knife+backpack+flashlight+pistol+burger)
-  is kept for ranged playtesting and **MUST be removed before merge** (real start =
-  empty inventory).
+
+## Playtest note (Lesson 32)
+
+The surprise-attack commit click is a **canvas DOM `pointerdown`** listener
+(`engine.getRenderingCanvas().addEventListener`), not `scene.onPointerObservable`:
+the observable's tap/down was swallowed by the ArcRotateCamera input, so the green
+ring previewed but clicking never fired. `DEBUG_TEST_LOADOUT` was removed before the
+merge (the hero starts with an empty inventory; equip a looted firearm to enable Shoot).
