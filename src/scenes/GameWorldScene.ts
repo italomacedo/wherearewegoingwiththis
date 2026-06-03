@@ -2107,9 +2107,11 @@ export class GameWorldScene extends BaseScene {
       // fall damage). The abandoned bike loses lift and falls too.
       this.vehicle.exit();
       const p = this.vehicle.getPosition();
-      this.player.getRoot().position.set(p.x + 1.5, p.y, p.z);
+      // teleport() also moves the physics capsule (a raw position.set is overridden
+      // by the character controller → hero snapped back to its mount/spawn spot).
+      this.player.teleport(new Vector3(p.x + 1.5, p.y, p.z));
       this.player.getRoot().setEnabled(true);
-      this.player.startFalling(p.y);
+      this.player.startFalling(p.y); // kinematic fall path (no-physics/tests)
       this.cameraSystem.setTarget(this.player.getRoot());
       this.cameraSystem.exitVehicleMode();
     } else if (this.vehicle.canEnter(this.player.getPosition())) {

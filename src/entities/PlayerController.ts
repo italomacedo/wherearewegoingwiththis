@@ -44,6 +44,8 @@ export class PlayerController {
   private health = new Health(100);
   private verticalVelocity = 0;
   private grounded = true;
+  /** Previous-frame grounded state in the physics path (for fall-damage edge detection). */
+  private wasGroundedPhys = true;
   private lastFallDamage = 0; // impact damage applied on the most recent landing
   private locoState: LocoState = 'idle';
   private playingState: LocoState | null = null;
@@ -237,6 +239,16 @@ export class PlayerController {
     const support = cc.checkSupport(dt, this.downRef);
     const grounded = support.supportedState === CharacterSupportedState.SUPPORTED;
     const current = cc.getVelocity();
+    // Fall damage: on the airborne→grounded transition, charge HP for the downward
+    // impact speed above the safe threshold (matches the kinematic updateVertical).
+    const impactSpeed = -current.y; // positive while descending
+    if (!this.wasGroundedPhys && grounded && impactSpeed > this.config.safeFallSpeed) {
+      this.lastFallDamage = (impactSpeed - this.config.safeFallSpeed) * this.config.fallDamagePerSpeed;
+      this.health.applyDamage(this.lastFallDamage);
+    } else if (grounded) {
+      this.lastFallDamage = 0;
+    }
+    this.wasGroundedPhys = grounded;
     const vy = grounded ? 0 : current.y - this.config.gravity * dt;
     cc.setVelocity(new Vector3(displacement.x / dt, vy, displacement.z / dt));
     cc.integrate(dt, support, new Vector3(0, -this.config.gravity, 0));
