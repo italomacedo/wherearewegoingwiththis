@@ -249,7 +249,9 @@ export class VehicleController {
     const horiz = Math.hypot(this.state.velocity.x, this.state.velocity.z);
     if (horiz > 0.05) {
       this.facing = Math.atan2(this.state.velocity.x, this.state.velocity.z);
-      this.root.rotation.y = this.facing;
+      // The model is yawed by VEHICLE_MODEL_YAW (it faces away by default); compensate
+      // so the nose LEADS the travel direction instead of moonwalking backward.
+      this.root.rotation.y = this.facing - VEHICLE_MODEL_YAW;
     }
 
     if (result.landed && result.impactSpeed > this.config.safeImpactSpeed) {
