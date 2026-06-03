@@ -2,13 +2,16 @@ import {
   Scene, AbstractMesh, MeshBuilder, StandardMaterial,
   Color3, Vector3, Mesh,
 } from '@babylonjs/core';
-import type { Skeleton, AnimationGroup } from '@babylonjs/core';
+import type { Skeleton, AnimationGroup, Node } from '@babylonjs/core';
 import {
   CharacterAppearance, SlotId, SlotCategory, ColorKey, MorphId,
-  DEFAULT_COLORS, MORPH_REGISTRY, resolveLayers, getSkinTone, clampMorph,
+  DEFAULT_COLORS, MORPH_REGISTRY, resolveLayers, getSkinTone, clampMorph, resolveAvatarParts,
 } from '@entities/CharacterData';
 import { CharacterAssets, resolveAssetPath, resolveBasePath, mapMorphName } from '@assets/AssetManifest';
-import { outfitByKey, DEFAULT_OUTFIT, LOCO_CLIPS, COMBAT_CLIPS, tintRoleForMaterial, genderOfOutfit } from '@assets/AvatarMeshCatalog';
+import {
+  LOCO_CLIPS, COMBAT_CLIPS, genderOfOutfit,
+  planModularLoad, partRegionOf, isStrippableMesh, tintRoleForMaterialInRegion, MeshRegion,
+} from '@assets/AvatarMeshCatalog';
 
 export interface AssembledCharacter {
   rootMesh: AbstractMesh;
@@ -189,34 +192,77 @@ export class CharacterAssembler {
     let skeleton: Skeleton | null = null;
     let animationGroups: AnimationGroup[] = [];
     const colors = { ...DEFAULT_COLORS, ...appearance.colors };
-    const outfit = outfitByKey(appearance.bodyBase) ?? outfitByKey(DEFAULT_OUTFIT)!;
+    // Modular composition: head from one outfit, top (Body) from another, lower
+    // (Legs+Feet) from a third — all share an identical-order rig within a gender,
+    // so borrowed meshes rebind to the donor skeleton by bone index. An all-equal
+    // composition collapses to one load (legacy whole-outfit look, minus weapons).
+    const parts = resolveAvatarParts(appearance);
+    const plan = planModularLoad(parts);
 
     /* eslint-disable no-console */
-    // ─── Outfit (a complete Quaternius character: parts + rig + embedded clips) ─
     try {
-      const container = await SceneLoader.LoadAssetContainerAsync('/assets/', outfit.path, this.scene);
-      container.addAllToScene();
-      meshes.push(...container.meshes);
-      skeleton = container.skeletons[0] ?? null;
-      // Quaternius faces +Z (= our world forward at rotation.y=0) → no flip.
-      this.tintAvatarMaterials(container.meshes, colors);
+      // 1) Load every source GLB. The donor (the `top` outfit) keeps the skeleton
+      //    + renamed clips; the others contribute only their region meshes.
+      const containers = new Map<string, import('@babylonjs/core').AssetContainer>();
+      for (const item of plan) {
+        if (!containers.has(item.outfitKey)) {
+          containers.set(item.outfitKey, await SceneLoader.LoadAssetContainerAsync('/assets/', item.path, this.scene));
+        }
+      }
+      const donor = plan.find((p) => p.isSkeletonDonor) ?? plan[0]!;
+      const donorContainer = containers.get(donor.outfitKey)!;
+      donorContainer.addAllToScene();
+      skeleton = donorContainer.skeletons[0] ?? null;
+      const donorRoot = this.containerRoot(donorContainer.meshes);
 
-      // Keep the locomotion + combat clips, renamed to their state key so
-      // name-matching plays exactly one; dispose the rest (the pack ships 24
-      // embedded clips on one rig — we keep idle/walk/run/interact + the combat set).
-      const byName = new Map(container.animationGroups.map((g) => [g.name, g]));
+      // 2) Keep + rename the loco + combat clips on the donor; dispose the rest.
+      const byName = new Map(donorContainer.animationGroups.map((g) => [g.name, g]));
       const kept: AnimationGroup[] = [];
       for (const [state, clip] of [...Object.entries(LOCO_CLIPS), ...Object.entries(COMBAT_CLIPS)]) {
         const g = byName.get(clip);
-        if (!g) { console.warn(`[Avatar] clip "${clip}" (${state}) missing in ${outfit.key}`); continue; }
+        if (!g) { console.warn(`[Avatar] clip "${clip}" (${state}) missing in ${donor.outfitKey}`); continue; }
         g.name = state;
         kept.push(g);
       }
-      for (const g of container.animationGroups) { if (!kept.includes(g)) g.dispose(); }
+      for (const g of donorContainer.animationGroups) { if (!kept.includes(g)) g.dispose(); }
       animationGroups = kept;
-      console.warn(`[Avatar] outfit loaded: ${outfit.key} (${container.meshes.length} meshes, ${kept.length} clips)`);
+
+      // 3) For each source: keep its assigned region meshes (rebind borrowed ones
+      //    to the donor skeleton + reparent to the donor root), strip weapons, tint
+      //    by region, and dispose everything else (incl. extra skeletons/clips).
+      for (const item of plan) {
+        const c = containers.get(item.outfitKey)!;
+        const isDonor = item.outfitKey === donor.outfitKey;
+        if (!isDonor) c.addAllToScene();
+        for (const mesh of [...c.meshes]) {
+          if (isStrippableMesh(mesh.name)) { mesh.dispose(); continue; } // pistol/sword/backpack
+          const region = this.regionOfMeshNode(mesh);
+          const keep = region !== null && item.regions.includes(region);
+          if (keep) {
+            if (!isDonor) {
+              if (skeleton) mesh.skeleton = skeleton;     // rebind by bone index (identical order)
+              if (donorRoot) mesh.parent = donorRoot;     // re-home under the kept root
+            }
+            this.tintRegionMesh(mesh, region, item.outfitKey, colors);
+            meshes.push(mesh);
+          } else if (region === null && isDonor) {
+            meshes.push(mesh);                            // keep the donor's root/transform nodes
+          } else {
+            mesh.dispose();                               // unused region mesh / foreign root node
+          }
+        }
+        if (!isDonor) {
+          c.skeletons.forEach((s) => s.dispose());        // we animate via the donor skeleton only
+          c.animationGroups.forEach((g) => g.dispose());
+        }
+      }
+      console.warn(
+        `[Avatar] modular avatar: head=${parts.head} top=${parts.top} bottom=${parts.bottom} ` +
+        `(${plan.length} GLB(s), ${meshes.length} meshes, ${animationGroups.length} clips, ` +
+        `${skeleton?.bones.length ?? 0} bones)`,
+      );
     } catch (err) {
-      console.warn('[Avatar] outfit load failed, using placeholder:', err);
+      console.warn('[Avatar] modular load failed, using placeholder:', err);
       const placeholderBody = this.buildPlaceholderBody(appearance.bodyBase);
       this.applySkinTone(placeholderBody, colors.skin ?? DEFAULT_COLORS.skin);
       meshes.push(...placeholderBody);
@@ -237,22 +283,35 @@ export class CharacterAssembler {
     };
   }
 
-  /**
-   * Tint the avatar's materials by region role: the body/suit with the skin
-   * colour, eyes with the eye colour, hair/eyebrows with the hair colour.
-   * (Quaternius bakes body+suit into one material, so the "skin" colour recolours
-   * the whole stylized body.) See AvatarMeshCatalog.tintRoleForMaterial.
-   */
-  /* istanbul ignore next — browser-only material tint */
-  private tintAvatarMaterials(meshes: AbstractMesh[], colors: Record<ColorKey, string>): void {
-    for (const mesh of meshes) {
-      const mat = mesh.material;
-      if (!mat) continue;
-      const role = tintRoleForMaterial(mat.name);
-      if (!role) continue;
-      const hex = colors[role];
-      if (hex) this.tintMaterial(mat, Color3.FromHexString(hex.padEnd(7, '0')));
+  /** The container's transform root (Babylon's `__root__`, or the first parentless node). */
+  /* istanbul ignore next — browser-only */
+  private containerRoot(meshes: AbstractMesh[]): AbstractMesh | null {
+    return meshes.find((m) => m.name === '__root__') ?? meshes.find((m) => !m.parent) ?? meshes[0] ?? null;
+  }
+
+  /** Region of a mesh node, climbing parents so split `_primitiveN` meshes resolve. */
+  /* istanbul ignore next — browser-only */
+  private regionOfMeshNode(node: Node | null): MeshRegion | null {
+    let n: Node | null = node;
+    for (let i = 0; i < 5 && n; i++) {
+      const r = partRegionOf(n.name);
+      if (r) return r;
+      n = n.parent;
     }
+    return null;
+  }
+
+  /** Tint one mesh's material by its region-aware colour role (skin/eye/hair/top/bottom). */
+  /* istanbul ignore next — browser-only material tint */
+  private tintRegionMesh(
+    mesh: AbstractMesh, region: MeshRegion | null, outfitKey: string, colors: Record<ColorKey, string>,
+  ): void {
+    const mat = mesh.material;
+    if (!mat) return;
+    const role = tintRoleForMaterialInRegion(mat.name, region, outfitKey);
+    if (!role) return;
+    const hex = colors[role];
+    if (hex) this.tintMaterial(mat, Color3.FromHexString(hex.padEnd(7, '0')));
   }
 
   /** Set a material's base colour, handling both PBR (albedoColor) and Standard. */

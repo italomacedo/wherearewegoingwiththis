@@ -3,6 +3,7 @@ import {
   LOCO_CLIP_GROUND_SPEED, LOCO_SPEED_RATIO_MIN, LOCO_SPEED_RATIO_MAX, computeLocoSpeedRatio,
   outfitsForGender, outfitByKey, genderOfOutfit, tintRoleForMaterial,
   partRegionOf, isStrippableMesh, tintRoleForMaterialInRegion, HAIR_MATERIAL_OVERRIDES,
+  planModularLoad,
 } from '../../../src/assets/AvatarMeshCatalog';
 
 describe('AvatarMeshCatalog — Quaternius Ultimate Modular outfits (pure)', () => {
@@ -152,6 +153,42 @@ describe('AvatarMeshCatalog — Quaternius Ultimate Modular outfits (pure)', () 
       expect(tintRoleForMaterialInRegion('Earrings', 'head', 'punk')).toBeNull();
       expect(tintRoleForMaterialInRegion('Gold', 'weapon')).toBeNull();
       expect(tintRoleForMaterialInRegion('Whatever', null)).toBeNull();
+    });
+  });
+
+  describe('planModularLoad (dedup + donor)', () => {
+    it('collapses all-equal picks to a single load carrying every region (donor)', () => {
+      const plan = planModularLoad({ head: 'suit', top: 'suit', bottom: 'suit' });
+      expect(plan).toHaveLength(1);
+      expect(plan[0].outfitKey).toBe('suit');
+      expect(plan[0].isSkeletonDonor).toBe(true);
+      expect(new Set(plan[0].regions)).toEqual(new Set(['top', 'head', 'lower']));
+      expect(plan[0].path).toBe(outfitByKey('suit')!.path);
+    });
+
+    it('three distinct picks → three loads, donor on the top outfit', () => {
+      const plan = planModularLoad({ head: 'suit', top: 'punk', bottom: 'adventurer' });
+      expect(plan.map((p) => p.outfitKey)).toEqual(['punk', 'suit', 'adventurer']); // donor first
+      const donor = plan.find((p) => p.isSkeletonDonor)!;
+      expect(donor.outfitKey).toBe('punk');
+      expect(donor.regions).toEqual(['top']);
+      expect(plan.find((p) => p.outfitKey === 'suit')!.regions).toEqual(['head']);
+      expect(plan.find((p) => p.outfitKey === 'adventurer')!.regions).toEqual(['lower']);
+      expect(plan.filter((p) => p.isSkeletonDonor)).toHaveLength(1);
+    });
+
+    it('merges a repeated outfit across regions (head == bottom)', () => {
+      const plan = planModularLoad({ head: 'king', top: 'punk', bottom: 'king' });
+      expect(plan).toHaveLength(2);
+      expect(new Set(plan.find((p) => p.outfitKey === 'king')!.regions)).toEqual(
+        new Set(['head', 'lower']),
+      );
+    });
+
+    it('unknown keys fall back to the default outfit GLB', () => {
+      const plan = planModularLoad({ head: 'nope', top: 'nope', bottom: 'nope' });
+      expect(plan).toHaveLength(1);
+      expect(plan[0].path).toBe(outfitByKey(DEFAULT_OUTFIT)!.path);
     });
   });
 });

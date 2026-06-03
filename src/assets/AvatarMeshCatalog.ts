@@ -181,10 +181,12 @@ export type TintRole = 'skin' | 'eye' | 'hair' | 'top' | 'bottom';
  * `Backpack`→accessory. Skeleton/root nodes (no region suffix) → null.
  */
 export function partRegionOf(meshName: string): MeshRegion | null {
+  // Token-boundary match so Babylon's `<node>_primitiveN` split meshes (multi-
+  // material nodes) still classify by their node name.
   const n = meshName.toLowerCase();
-  if (/(^|_)head$/.test(n)) return 'head';
-  if (/(^|_)body$/.test(n)) return 'top';
-  if (/(^|_)(legs|feet)$/.test(n)) return 'lower';
+  if (/(^|_)head(_|$)/.test(n)) return 'head';
+  if (/(^|_)body(_|$)/.test(n)) return 'top';
+  if (/(^|_)(legs|feet)(_|$)/.test(n)) return 'lower';
   if (/(pistol|revolver|shotgun|rifle|sword|gun|weapon)/.test(n)) return 'weapon';
   if (/(backpack|bag)/.test(n)) return 'accessory';
   return null;
@@ -227,4 +229,46 @@ export function tintRoleForMaterialInRegion(
   if (region === 'top') return 'top';
   if (region === 'lower') return 'bottom';
   return null;
+}
+
+/** One source GLB to load for a modular avatar + which region meshes to keep from it. */
+export interface ModularLoadItem {
+  outfitKey: string;
+  /** GLB path relative to /assets/. */
+  path: string;
+  /** Region meshes to keep from this container. */
+  regions: MeshRegion[];
+  /** Keep this container's skeleton + animation clips (the others' are discarded). */
+  isSkeletonDonor: boolean;
+}
+
+/**
+ * Plan the (deduplicated) set of source GLBs to load for a modular composition.
+ * The `top` outfit donates the shared skeleton + animation clips (`isSkeletonDonor`);
+ * `head`→head mesh, `top`→body (top) mesh, `bottom`→legs+feet (lower) meshes. When
+ * picks repeat the same outfit, they collapse to one load carrying multiple regions
+ * (so all-equal picks = a single GLB load, identical to the legacy whole-outfit path).
+ * Unknown keys fall back to the default outfit's GLB. Pure + testable.
+ */
+export function planModularLoad(
+  parts: { head: string; top: string; bottom: string },
+): ModularLoadItem[] {
+  const order: Array<[string, MeshRegion]> = [
+    [parts.top, 'top'],     // donor first
+    [parts.head, 'head'],
+    [parts.bottom, 'lower'],
+  ];
+  const byKey = new Map<string, ModularLoadItem>();
+  const items: ModularLoadItem[] = [];
+  for (const [key, region] of order) {
+    let item = byKey.get(key);
+    if (!item) {
+      const path = (outfitByKey(key) ?? outfitByKey(DEFAULT_OUTFIT)!).path;
+      item = { outfitKey: key, path, regions: [], isSkeletonDonor: key === parts.top };
+      byKey.set(key, item);
+      items.push(item);
+    }
+    if (!item.regions.includes(region)) item.regions.push(region);
+  }
+  return items;
 }
