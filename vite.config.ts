@@ -1,6 +1,5 @@
 import { defineConfig } from 'vite';
 import electron from 'vite-plugin-electron';
-import renderer from 'vite-plugin-electron-renderer';
 import path from 'path';
 
 export default defineConfig({
@@ -31,7 +30,11 @@ export default defineConfig({
         },
       },
     ]),
-    renderer(),
+    // NOTE: vite-plugin-electron-renderer was removed — the renderer runs with
+    // nodeIntegration:false + contextIsolation:true (pure browser; it talks to
+    // main only via the preload `window.electronAPI` bridge), and the plugin's
+    // Node-condition resolution pulled the Node build of @huggingface/transformers
+    // (Kokoro TTS) → `Dynamic require of "path"` crash. (Lesson 38.)
   ],
   resolve: {
     alias: {
