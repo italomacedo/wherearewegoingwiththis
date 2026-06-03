@@ -62,10 +62,12 @@ export class MercadoSombrasZone extends WorldZone {
       { width: 60, height: 60 },
       scene
     );
+    // Sit BELOW the textured road/sidewalk tiles (top at y≈0) so it never z-fights
+    // with them — it's just the dark base filling becos/gaps, not a competing plane.
+    ground.position.y = -0.12;
     const mat = new StandardMaterial('ground-mat', scene);
-    mat.diffuseColor = new Color3(0.1, 0.1, 0.11); // neutral dark asphalt base under the tiles
-    mat.specularColor = new Color3(0.18, 0.2, 0.24); // faint wet sheen
-    mat.specularPower = 64;
+    mat.diffuseColor = new Color3(0.1, 0.1, 0.11); // neutral dark base under the tiles
+    mat.specularColor = new Color3(0, 0, 0); // no sheen → no harsh flashlight hotspot
     ground.material = mat;
     this.meshes.push(ground);
   }
