@@ -43,9 +43,54 @@ describe('SaveService', () => {
     expect(loaded.vehicle.destroyed).toBe(false);
   });
 
+  it('createNewSave includes full player hunger', () => {
+    const save = SaveService.createNewSave(testCharacter);
+    expect(save.playerHunger).toEqual({ current: 100, max: 100 });
+  });
+
+  it('load migrates a legacy save missing the hunger field', () => {
+    const save = SaveService.createNewSave(testCharacter);
+    delete (save as Partial<SaveGame>).playerHunger;
+    SaveService.save(save);
+    const loaded = SaveService.load(save.saveId)!;
+    expect(loaded.playerHunger).toEqual({ current: 100, max: 100 });
+  });
+
+  it('updateHunger persists hunger and round-trips', () => {
+    const save = SaveService.createNewSave(testCharacter);
+    SaveService.save(save);
+    SaveService.updateHunger(save.saveId, { current: 42, max: 100 });
+    expect(SaveService.load(save.saveId)!.playerHunger).toEqual({ current: 42, max: 100 });
+  });
+
+  it('updateHunger is a no-op for an unknown save id', () => {
+    expect(() => SaveService.updateHunger('nope', { current: 1, max: 100 })).not.toThrow();
+  });
+
+  it('createNewSave starts with empty held-attach overrides', () => {
+    expect(SaveService.createNewSave(testCharacter).heldAttach).toEqual({});
+  });
+
+  it('load migrates a legacy save missing heldAttach', () => {
+    const save = SaveService.createNewSave(testCharacter);
+    delete (save as Partial<SaveGame>).heldAttach;
+    SaveService.save(save);
+    expect(SaveService.load(save.saveId)!.heldAttach).toEqual({});
+  });
+
+  it('updateHeldAttach persists per-item attach overrides', () => {
+    const save = SaveService.createNewSave(testCharacter);
+    SaveService.save(save);
+    SaveService.updateHeldAttach(save.saveId, { knife: { pos: [0.1, 0, 0], rot: [0, 0, 0], scale: 0.4, bone: 'Wrist.R' } });
+    const loaded = SaveService.load(save.saveId)!;
+    expect(loaded.heldAttach.knife.scale).toBe(0.4);
+    expect(loaded.heldAttach.knife.bone).toBe('Wrist.R');
+    expect(() => SaveService.updateHeldAttach('nope', {})).not.toThrow();
+  });
+
   it('createNewSave includes an empty inventory', () => {
     const save = SaveService.createNewSave(testCharacter);
-    expect(save.inventory).toEqual({ items: [], equippedWeaponId: null, capacityWeight: 30 });
+    expect(save.inventory).toEqual({ items: [], equipped: {}, equippedWeaponId: null, capacityWeight: 30 });
   });
 
   it('load migrates a legacy save missing the inventory field', () => {
@@ -53,7 +98,7 @@ describe('SaveService', () => {
     delete (save as Partial<SaveGame>).inventory;
     SaveService.save(save);
     const loaded = SaveService.load(save.saveId)!;
-    expect(loaded.inventory).toEqual({ items: [], equippedWeaponId: null, capacityWeight: 30 });
+    expect(loaded.inventory).toEqual({ items: [], equipped: {}, equippedWeaponId: null, capacityWeight: 30 });
   });
 
   it('updateInventory persists the inventory and round-trips', () => {

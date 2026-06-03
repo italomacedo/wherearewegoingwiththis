@@ -2,7 +2,7 @@ import {
   CombatTuning, DEFAULT_COMBAT_TUNING, combatTuningFromSettings,
   actionPointsFor, moveApCost, maxMoveMeters,
   attackValue, dodgeValue, resolveAttack,
-  rollDamage, rollWeaponDamage, FIST_PROFILE, WeaponProfile, initiativeOrder,
+  rollDamage, rollWeaponDamage, FIST_PROFILE, WeaponProfile, initiativeOrder, targetRangeFor,
   MELEE_RANGE, FLEE_MIN_DISTANCE, COVER_NONE, COVER_PARTIAL, COVER_FULL,
   MELEE_BASE, RANGED_BASE,
   distance2, straightLinePath, truncatePath, centroidOf,
@@ -170,6 +170,17 @@ describe('rollWeaponDamage', () => {
   it('uses the default RNG when none is injected', () => {
     const dmg = rollWeaponDamage(sheet({ forca: 20 }), FIST_PROFILE);
     expect(dmg).toBeGreaterThanOrEqual(MELEE_BASE + 2);
+  });
+});
+
+describe('targetRangeFor', () => {
+  it('ranged reaches the weapon range; melee is gated at MELEE_RANGE', () => {
+    const gun: WeaponProfile = { attackKind: 'ranged', damageBase: 18, variance: 6, range: 20 };
+    const knife: WeaponProfile = { attackKind: 'melee', damageBase: 12, variance: 6, range: 1 };
+    expect(targetRangeFor('ranged', gun)).toBe(20);
+    expect(targetRangeFor('melee', knife)).toBe(MELEE_RANGE);
+    // A melee strike never inherits a firearm's long reach (no pistol-whip across the street).
+    expect(targetRangeFor('melee', gun)).toBe(MELEE_RANGE);
   });
 });
 

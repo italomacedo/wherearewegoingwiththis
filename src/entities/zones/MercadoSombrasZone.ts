@@ -43,6 +43,7 @@ export class MercadoSombrasZone extends WorldZone {
 
   protected async build(scene: Scene): Promise<void> {
     this.buildGround(scene);
+    this.buildRoadMarkings(scene);
     this.buildLighting(scene);
     this.buildBuildings(scene);
     this.buildStalls(scene);
@@ -62,12 +63,53 @@ export class MercadoSombrasZone extends WorldZone {
       { width: 60, height: 60 },
       scene
     );
+    // THIS plane IS the street asphalt: it faces up (correct normals → lit), covers
+    // the whole district seamlessly, and takes the flashlight cleanly. Sidewalks
+    // (y≈0.03) sit just above it like a low curb. (We dropped the MegaKit road tiles:
+    // that pack tile is directional + flat-normalled and tiled with gaps/black under
+    // the glTF import wrapper; a lit ground plane is robust. Lane/crosswalk decals can
+    // be laid on top later for flavour.)
+    ground.position.y = 0;
     const mat = new StandardMaterial('ground-mat', scene);
-    mat.diffuseColor = new Color3(0.1, 0.1, 0.11); // neutral dark asphalt base under the tiles
-    mat.specularColor = new Color3(0.18, 0.2, 0.24); // faint wet sheen
-    mat.specularPower = 64;
+    mat.diffuseColor = new Color3(0.2, 0.2, 0.23); // mid-dark asphalt grey (reads under night ambient)
+    mat.specularColor = new Color3(0, 0, 0); // no sheen → no harsh flashlight hotspot
     ground.material = mat;
     this.meshes.push(ground);
+  }
+
+  /**
+   * Road markings as glowing paint: a dashed centre line down the street + two
+   * pedestrian crosswalks. Drawn as EMISSIVE flat tiles so they read at night and
+   * never go dark (emissive ignores lighting/normals — unlike a textured decal).
+   */
+  private buildRoadMarkings(scene: Scene): void {
+    const paint = (name: string, color: Color3): StandardMaterial => {
+      const m = new StandardMaterial(name, scene);
+      m.diffuseColor = new Color3(0, 0, 0);
+      m.specularColor = new Color3(0, 0, 0);
+      m.emissiveColor = color; // pure glow → always visible
+      return m;
+    };
+    const lineMat = paint('road-line-mat', new Color3(0.85, 0.78, 0.35)); // amber centre line
+    const zebraMat = paint('road-zebra-mat', new Color3(0.9, 0.92, 0.95)); // white crosswalk
+
+    const stripe = (name: string, x: number, z: number, w: number, d: number, mat: StandardMaterial): void => {
+      const s = MeshBuilder.CreateGround(name, { width: w, height: d }, scene);
+      s.position.set(x, 0.04, z); // just above the asphalt (ground y=0), below the sidewalk curb
+      s.material = mat;
+      this.meshes.push(s);
+    };
+
+    // Dashed amber centre line along the street (X), at z=0.
+    for (let x = -24; x <= 24; x += 4) stripe(`road-dash-${x}`, x, 0, 1.6, 0.18, lineMat);
+
+    // Two zebra crosswalks (bars across the 9-wide road), near the street ends.
+    for (const cx of [-16, 16]) {
+      for (let i = 0; i < 7; i += 1) {
+        const bx = cx + (i - 3) * 0.8; // 7 bars spaced 0.8 along X
+        stripe(`road-zebra-${cx}-${i}`, bx, 0, 0.4, 8, zebraMat);
+      }
+    }
   }
 
   private buildLighting(scene: Scene): void {

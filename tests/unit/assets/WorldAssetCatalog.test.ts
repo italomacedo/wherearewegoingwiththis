@@ -21,13 +21,10 @@ describe('WorldAssetCatalog — downtown city block (pure)', () => {
     for (const p of MERCADO_PROPS) expect(within(p)).toBe(true);
   });
 
-  it('lays a continuous asphalt road along the street axis', () => {
-    const road = byKey(/^road-\d+$/);
-    expect(road.length).toBeGreaterThanOrEqual(3);
-    for (const r of road) expect(r.model).toMatch(/asphalt/);
-    // Tiles step evenly along X for a seamless strip.
-    const xs = road.map((r) => r.position[0]).sort((a, b) => a - b);
-    for (let i = 1; i < xs.length; i += 1) expect(xs[i]! - xs[i - 1]!).toBeCloseTo(9);
+  it('uses no separate road tiles — the lit ground plane is the asphalt', () => {
+    // The MegaKit street tiles were dropped (directional + flat-normalled → gaps/black
+    // under the glTF import wrapper). The zone's ground plane is the road surface.
+    expect(byKey(/^road-\d+$/).length).toBe(0);
   });
 
   it('lines both sides of the street with buildings + a left dead end', () => {

@@ -1,9 +1,12 @@
 import { CharacterData } from '@entities/CharacterData';
 import {
-  NPCMemory, SaveGame, VehicleSaveState, DEFAULT_PLAYER_HEALTH, DEFAULT_VEHICLE_STATE,
+  NPCMemory, SaveGame, VehicleSaveState,
+  DEFAULT_PLAYER_HEALTH, DEFAULT_PLAYER_HUNGER, DEFAULT_VEHICLE_STATE,
 } from '@systems/SaveService';
 import { HealthState } from '@entities/Health';
+import { HungerState } from '@entities/Hunger';
 import { InventoryState, defaultInventoryState } from '@entities/Inventory';
+import type { AttachOverrides } from '@systems/HeldItems';
 
 export interface WorldState {
   zone: string;
@@ -33,6 +36,8 @@ export class GameSession {
       health: { ...DEFAULT_VEHICLE_STATE.health }, destroyed: false,
     },
     public inventory: InventoryState = defaultInventoryState(),
+    public playerHunger: HungerState = { ...DEFAULT_PLAYER_HUNGER },
+    public heldAttach: AttachOverrides = {},
   ) {}
 
   /** Builds a session from a persisted save. */
@@ -46,6 +51,8 @@ export class GameSession {
       save.playerHealth ?? { ...DEFAULT_PLAYER_HEALTH },
       save.vehicle ?? { health: { ...DEFAULT_VEHICLE_STATE.health }, destroyed: false },
       save.inventory ?? defaultInventoryState(),
+      save.playerHunger ?? { ...DEFAULT_PLAYER_HUNGER },
+      save.heldAttach ?? {},
     );
   }
 }

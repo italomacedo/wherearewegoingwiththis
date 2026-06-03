@@ -1,6 +1,7 @@
 import {
   Engine, Color4, Color3, Vector3, Matrix, AbstractMesh, TransformNode, MeshBuilder,
   PhysicsAggregate, PhysicsShapeType, PhysicsMotionType, AnimationGroup, Animation, LinesMesh,
+  SpotLight,
 } from '@babylonjs/core';
 import { BaseScene } from './BaseScene';
 import { ServiceLocator } from '@core/ServiceLocator';
@@ -10,6 +11,7 @@ import {
   SaveService, VehicleSaveState, DEFAULT_PLAYER_HEALTH, DEFAULT_VEHICLE_STATE,
 } from '@systems/SaveService';
 import { HealthState, describeCondition } from '@entities/Health';
+import { Hunger } from '@entities/Hunger';
 import { ZoneManager } from '@systems/ZoneManager';
 import { PauseMenu } from '@systems/PauseMenu';
 import { GameOverMenu } from '@systems/GameOverMenu';
@@ -24,8 +26,14 @@ import { WorldZone } from '@entities/WorldZone';
 import { GameClock, DayPeriod } from '@systems/GameClock';
 import { CharacterAppearance, DEFAULT_APPEARANCE } from '@entities/CharacterData';
 import { Inventory, defaultInventoryState } from '@entities/Inventory';
-import { weaponProfile, itemDef } from '@entities/items/ItemCatalog';
+import { weaponProfile, itemDef, isMeleeWeapon, isFirearm } from '@entities/items/ItemCatalog';
 import { InventoryOverlay } from '@systems/InventoryOverlay';
+import { HeldItemRig, resolveAttachWith, boneFor, AttachOverrides, flashlightActive, holdsAimPose } from '@systems/HeldItems';
+import { AdjustOverlay } from '@systems/AdjustOverlay';
+import { ActionRibbon } from '@systems/ActionRibbon';
+import { AimTarget, nearestToPoint } from '@systems/SurpriseTargeting';
+import { createMuzzleFlash } from '@systems/ParticleEffects';
+import { EquipSlot, ItemAttach } from '@entities/items/ItemCatalog';
 import { NPCManager, NPCMemoryMap, AutonomyContext, AutonomyJob } from '@systems/NPCManager';
 import { ClaudeCallQueue, queueConfigFromSettings } from '@systems/ClaudeCallQueue';
 import { IntentCandidate } from '@systems/npc/Intent';
@@ -47,12 +55,12 @@ import { resolveCheck } from '@systems/SkillCheck';
 import { t, getLocale, languageName } from '@systems/I18n';
 import { SettingsService } from '@systems/SettingsService';
 import { CombatOverlay } from '@systems/combat/CombatOverlay';
-import { CombatController, CombatLogEntry, MELEE_ONLY_CAPS } from '@systems/combat/CombatController';
-import { combatClipFor } from '@assets/AvatarMeshCatalog';
+import { CombatController, CombatLogEntry } from '@systems/combat/CombatController';
+import { combatClipFor, attackClipFor, CombatClipState } from '@assets/AvatarMeshCatalog';
 import { CombatEncounter, CombatantInit, CombatOutcome } from '@systems/combat/CombatEncounter';
 import {
   combatTuningFromSettings, CombatTuning, Point2, Pathfinder,
-  distance2, moveApCost, MELEE_RANGE, centroidOf,
+  distance2, moveApCost, MELEE_RANGE, centroidOf, targetRangeFor,
 } from '@systems/combat/CombatMath';
 import { buildWalkGrid, gridPathfinder } from '@systems/combat/CombatMovement';
 import { recruitSides, RecruitParticipant, SIDE_INITIATOR, SIDE_TARGET } from '@systems/combat/CombatRecruiter';
@@ -82,6 +90,17 @@ export class GameWorldScene extends BaseScene {
   private chatMode: 'npc' | 'global' = 'npc';
   private pauseMenu: PauseMenu | null = null;
   private inventoryOverlay: InventoryOverlay | null = null;
+  /** Visible held props on the hero (main-hand weapon/flashlight/firearm + backpack). */
+  private playerHeldRig: HeldItemRig | null = null;
+  /** Visible held weapon on each NPC avatar (keyed by NPC id). */
+  private npcHeldRigById = new Map<string, HeldItemRig>();
+  /** Per-item held-prop transform overrides (Adjust tool), persisted in the save. */
+  private heldAttach: AttachOverrides = {};
+  /** Held-prop calibration overlay (Adjust tool). */
+  private adjustOverlay: AdjustOverlay | null = null;
+  private actionRibbon: ActionRibbon | null = null;
+  /** Spotlight projected forward while the flashlight is held (auto-on). */
+  private flashlightLight: SpotLight | null = null;
   private combat: CombatOverlay | null = null;
   private gameOverMenu: GameOverMenu | null = null;
   private combatFocus: TransformNode | null = null;
@@ -90,11 +109,16 @@ export class GameWorldScene extends BaseScene {
   /** Routed pathfinder + tuning for the active encounter (set in startCombat). */
   private combatPathfind: Pathfinder | null = null;
   private combatTuning: CombatTuning | null = null;
+  /** Equipped weapon id per combatant (drives the melee swing clip: slash vs punch). */
+  private combatWeaponId = new Map<string, string | null>();
   /** Current player targeting mode (Attack picks a foe avatar; Move picks ground). */
   private combatTargeting:
     | { mode: 'attack'; attackKind: 'melee' | 'ranged' | undefined }
     | { mode: 'move' }
     | null = null;
+  /** Out-of-combat surprise-attack aiming (from the action ribbon). */
+  private surpriseTargeting: { attackKind: 'melee' | 'ranged' } | null = null;
+  private surpriseClickHandler: ((e: PointerEvent) => void) | null = null;
   private moveTrail: LinesMesh | null = null;
   /** Hover highlight under the combatant the cursor is nearest, during attack targeting. */
   private targetRing: LinesMesh | null = null;
@@ -162,6 +186,10 @@ export class GameWorldScene extends BaseScene {
   private saveId = '';
   private spawnOverride: Vector3 | null = null;
   private playerHealthState: HealthState = { ...DEFAULT_PLAYER_HEALTH };
+  /** Live hunger (slow HP regen battery; persisted). */
+  private playerHunger: Hunger = new Hunger();
+  /** Edge-trigger for the diegetic "stomach growling" line. */
+  private hungerWasLow = false;
   private vehicleState: VehicleSaveState = {
     health: { ...DEFAULT_VEHICLE_STATE.health }, destroyed: false,
   };
@@ -192,9 +220,15 @@ export class GameWorldScene extends BaseScene {
     this.playerName = session.character.name;
     this.playerStats = session.character.stats ?? createDefaultStats();
     this.playerInventory = Inventory.fromState(session.inventory ?? defaultInventoryState());
+    // TEMP (Phase 10.4 attach tuning) — seed a test loadout into an empty inventory
+    // so all attach points (hand weapon, back pack, flashlight, firearm, food) can
+    // be inspected without looting. REMOVE before merge; empty start is the rule.
+    /* istanbul ignore next — dev-only seed, browser playtest aid */
+    this.heldAttach = session.heldAttach ?? {};
     this.npcMemory = session.npcMemory ?? {};
     this.gameTimeSeconds = session.gameTimeSeconds;
     this.playerHealthState = session.playerHealth ?? { ...DEFAULT_PLAYER_HEALTH };
+    this.playerHunger = Hunger.fromState(session.playerHunger);
     this.vehicleState = session.vehicle ?? {
       health: { ...DEFAULT_VEHICLE_STATE.health }, destroyed: false,
     };
@@ -226,8 +260,10 @@ export class GameWorldScene extends BaseScene {
 
     const character = { ...save.character, stats: this.playerStats };
     const inventory = this.playerInventory.toState();
+    const playerHunger = this.playerHunger.toState();
     SaveService.save({
       ...save, character, world, gameTimeSeconds: this.gameTimeSeconds, npcMemory: memory, playerHealth, vehicle, inventory,
+      heldAttach: this.heldAttach, playerHunger,
     });
 
     const session = ServiceLocator.tryGet<GameSession>('gameSession');
@@ -239,6 +275,8 @@ export class GameWorldScene extends BaseScene {
       session.playerHealth = playerHealth;
       session.vehicle = vehicle;
       session.inventory = inventory;
+      session.heldAttach = this.heldAttach;
+      session.playerHunger = playerHunger;
     }
   }
 
@@ -246,6 +284,30 @@ export class GameWorldScene extends BaseScene {
     // Pull the active session (set by Character Creator / Load Game). Direct
     // setters still win if a test injected them before onEnter.
     this.adoptSession(ServiceLocator.tryGet<GameSession>('gameSession'));
+
+    // Raise the per-material light cap (Babylon default 4) on EVERY material —
+    // including async-loaded world assets (sidewalks/props/buildings) — so the
+    // player's flashlight (a 5th+ light alongside the street neons) lights them.
+    /* istanbul ignore next — browser-only material wiring */
+    if (typeof document !== 'undefined') {
+      const lift = (m: unknown) => {
+        const mat = m as { maxSimultaneousLights?: number };
+        if ((mat.maxSimultaneousLights ?? 4) < 8) mat.maxSimultaneousLights = 8;
+      };
+      this.babylonScene.materials.forEach(lift);
+      this.babylonScene.onNewMaterialAddedObservable.add(lift);
+      // A left-click commits an out-of-combat surprise attack (the ribbon entered
+      // aiming). Listen on the CANVAS DOM directly — the most reliable signal (the
+      // Babylon pointer observable can be swallowed by the camera input). Button 0
+      // only, so right/middle-drag camera orbit never fires.
+      const canvas = this.engine.getRenderingCanvas();
+      if (canvas) {
+        this.surpriseClickHandler = (e: PointerEvent) => {
+          if (this.surpriseTargeting && e.button === 0) this.commitSurpriseTargeting();
+        };
+        canvas.addEventListener('pointerdown', this.surpriseClickHandler);
+      }
+    }
 
     // Camera FIRST — guarantees the scene always has an active camera so it
     // renders even if a later async step (physics WASM, asset load) is slow.
@@ -282,6 +344,13 @@ export class GameWorldScene extends BaseScene {
 
     this.player.setHealthState(this.playerHealthState);
 
+    // Show the hero's equipped props (weapon in hand, backpack on the back). The
+    // rig no-ops headless (no skeleton); re-synced on every inventory change.
+    this.playerHeldRig = new HeldItemRig(
+      this.babylonScene, this.player.getSkeleton(), this.player.getRenderParts()[0] ?? null,
+    );
+    void this.syncPlayerHeldItems();
+
     // Park a flying motorcycle near the spawn point.
     this.vehicle = new VehicleController(this.babylonScene);
     this.vehicle.spawn(zone.getSpawnPoint().add(new Vector3(4, 0, 0)));
@@ -304,11 +373,34 @@ export class GameWorldScene extends BaseScene {
     // Inventory overlay (I) — manage the pack; loot a corpse. Freezes the world.
     this.inventoryOverlay = new InventoryOverlay(this.babylonScene);
     this.inventoryOverlay.setHandlers({
-      onChange: () => this.persistSession(),
+      onChange: () => { this.persistSession(); void this.syncPlayerHeldItems(); },
       onHeal: (amount) => { this.player?.getHealth().heal(amount); },
+      onFeed: (itemId, amount) => this.eat(itemId, amount),
       // Looting a corpse framed the camera on it (conversation mode); restore the
       // normal follow camera when the overlay closes.
       onClose: () => this.cameraSystem?.exitConversationMode(),
+      // "Adjust" button on an equipped row → open the calibration tool for it.
+      onAdjust: (itemId, slot) => this.openAdjustFor(itemId, slot),
+    });
+
+    // Adjust tool (Phase 10.4b): live-calibrate a held prop's attach transform.
+    this.adjustOverlay = new AdjustOverlay(this.babylonScene);
+    this.adjustOverlay.setHandlers({
+      onApply: (slot, attach) => this.adjustPreview(slot, attach),
+      onSave: (itemId, _slot, attach) => this.adjustSave(itemId, attach),
+      onClose: () => {
+        this.cameraSystem?.setWheelZoomEnabled(false);
+        this.cameraSystem?.exitConversationMode();
+      },
+    });
+
+    // Main action ribbon (Phase 11): Attack Ranged / Melee / Talk / Inventory.
+    this.actionRibbon = new ActionRibbon(this.babylonScene);
+    this.actionRibbon.setHandlers({
+      onAttackRanged: () => this.enterSurpriseTargeting('ranged'),
+      onAttackMelee: () => this.enterSurpriseTargeting('melee'),
+      onTalk: () => this.openTalkFromRibbon(),
+      onInventory: () => this.inventoryOverlay?.openManage(this.playerInventory),
     });
 
     // Turn-based combat overlay (triggered by a hostile NPC's attack intent).
@@ -472,6 +564,11 @@ export class GameWorldScene extends BaseScene {
   }
 
   async onExit(): Promise<void> {
+    /* istanbul ignore next — browser-only listener cleanup */
+    if (this.surpriseClickHandler) {
+      this.engine.getRenderingCanvas()?.removeEventListener('pointerdown', this.surpriseClickHandler);
+      this.surpriseClickHandler = null;
+    }
     // Autosave before tearing anything down (npcManager is disposed below) —
     // but NOT on game over, or we'd overwrite the save with the dead state.
     if (!this.gameOver) this.persistSession();
@@ -484,6 +581,16 @@ export class GameWorldScene extends BaseScene {
     this.dialog?.dispose();
     this.pauseMenu?.dispose();
     this.inventoryOverlay?.dispose();
+    this.adjustOverlay?.dispose();
+    this.adjustOverlay = null;
+    this.actionRibbon?.dispose();
+    this.actionRibbon = null;
+    this.flashlightLight?.dispose();
+    this.flashlightLight = null;
+    this.playerHeldRig?.dispose();
+    this.playerHeldRig = null;
+    this.npcHeldRigById.forEach((r) => r.dispose());
+    this.npcHeldRigById.clear();
     this.combat?.dispose();
     this.gameOverMenu?.dispose();
     this.hud?.dispose();
@@ -530,11 +637,26 @@ export class GameWorldScene extends BaseScene {
   update(): void {
     const dt = this.engine.getDeltaTime() / 1000;
 
+    // Keep the action ribbon in sync (shown only during free on-foot play; Attack
+    // Ranged enabled only with a firearm in hand). Done before the early returns so
+    // it hides while any overlay/combat/dialog/aiming/vehicle owns the screen.
+    this.syncActionRibbon();
+
     // ESC toggles the pause menu (unless the dialog owns the keyboard). While
     // paused, the world is frozen — only the menu (and camera follow) live on.
     // Game over freezes everything but the camera until the player picks an option.
     this.checkGameOver();
     if (this.gameOverMenu?.isOpen()) {
+      this.cameraSystem?.update();
+      this.inputSystem?.endFrame();
+      return;
+    }
+
+    // Surprise-attack aiming (from the action ribbon): the world is frozen while the
+    // player picks a target; a click commits the ambush, ESC cancels. Checked before
+    // pause so ESC backs out of aiming instead of opening the menu.
+    if (this.surpriseTargeting) {
+      this.handleSurpriseTargeting(dt);
       this.cameraSystem?.update();
       this.inputSystem?.endFrame();
       return;
@@ -549,6 +671,7 @@ export class GameWorldScene extends BaseScene {
 
     // Turn-based combat owns the screen: freeze the world, only the camera lives.
     if (this.combat?.isOpen()) {
+      this.hud?.setHudTextVisible(false); // combat bar owns the bottom; hide key hints
       this.handleCombatCameraKeys(dt);
       this.tickCombat(dt);
       this.stepNpcWalks(dt); // advance any in-progress combat move
@@ -561,6 +684,16 @@ export class GameWorldScene extends BaseScene {
     // Inventory overlay (I) — freezes the world like pause; ESC/I closes it.
     this.handleInventoryInput();
     if (this.inventoryOverlay?.isOpen()) {
+      this.cameraSystem?.update();
+      this.inputSystem?.endFrame();
+      return;
+    }
+
+    // Adjust tool (O) — freezes movement but keeps camera orbit/zoom so you can
+    // inspect the held prop from any angle while tuning it.
+    this.handleAdjustInput();
+    if (this.adjustOverlay?.isOpen()) {
+      this.handleCameraKeys(dt);
       this.cameraSystem?.update();
       this.inputSystem?.endFrame();
       return;
@@ -590,9 +723,47 @@ export class GameWorldScene extends BaseScene {
       this.handleInteractInput();
       this.handleChatInput();
     }
+    this.tickHunger(dt);
     this.updateHud(dialogOpen);
     this.inputSystem?.endFrame();
     this.gameTimeSeconds += dt;
+  }
+
+  /**
+   * Hunger drives slow HP regen / starvation drain (pure math in Hunger.tick) and
+   * a diegetic "stomach growling" line when it first dips low. Per-frame browser
+   * glue; the model + thresholds are unit-tested in Hunger.
+   */
+  /* istanbul ignore next — per-frame browser glue; Hunger model is unit-tested */
+  private tickHunger(dt: number): void {
+    if (!this.player) return;
+    const health = this.player.getHealth();
+    const delta = this.playerHunger.tick(dt, health.current >= health.max);
+    if (delta > 0) health.heal(delta);
+    else if (delta < 0) health.applyDamage(-delta);
+    const low = this.playerHunger.isLow();
+    if (low && !this.hungerWasLow) this.recordGossipLine(t('hunger.growl'));
+    this.hungerWasLow = low;
+  }
+
+  /** Eat: restore hunger, play the eat animation, show the food in hand, then drop it. */
+  /* istanbul ignore next — browser-only eat animation + transient prop */
+  private eat(itemId: string, amount: number): void {
+    this.playerHunger.feed(amount);
+    void this.playerHeldRig?.showTransient(itemId);
+    const groups = this.player?.getAnimationGroups() ?? [];
+    const interact = groups.find((g) => g.name.toLowerCase() === 'interact');
+    const idle = groups.find((g) => g.name.toLowerCase() === 'idle') ?? null;
+    if (interact) {
+      groups.forEach((g) => g.stop());
+      interact.start(false);
+      interact.onAnimationEndObservable.addOnce(() => {
+        idle?.start(true);
+        void this.playerHeldRig?.showTransient(null); // food consumed → remove from hand
+      });
+    } else {
+      void this.playerHeldRig?.showTransient(null);
+    }
   }
 
   /** When the hero dies, freeze the run and show the Game Over menu (once). */
@@ -668,7 +839,68 @@ export class GameWorldScene extends BaseScene {
     this.npcHolders.push(holder);
     this.npcHolderById.set(npc.id, holder);
     this.npcGroupsById.set(npc.id, groups);
+
+    // Show the NPC's equipped weapon in its hand (consistency with combat).
+    const agent = this.npcManager?.getAgent(npc.id);
+    const rig = new HeldItemRig(
+      this.babylonScene, assembled.getSkeleton?.() ?? null, assembled.meshes[0] ?? null,
+    );
+    this.npcHeldRigById.set(npc.id, rig);
+    if (agent) void rig.sync(agent.getInventoryState().equipped);
     return assembled.rootMesh;
+  }
+
+  /** Re-attach the hero's visible props to match its current inventory slots. */
+  /* istanbul ignore next — browser-only held-prop rig + effects */
+  private async syncPlayerHeldItems(): Promise<void> {
+    await this.playerHeldRig?.sync(this.playerInventory.toState().equipped, this.heldAttach);
+    this.updateHeldEffects();
+  }
+
+  /* istanbul ignore next — browser-only Adjust live preview */
+  private adjustPreview(slot: EquipSlot, attach: ItemAttach): void {
+    const bone = attach.bone ?? boneFor(this.playerInventory.equippedIn(slot) ?? '', slot, this.heldAttach);
+    void this.playerHeldRig?.applyLiveTransform(slot, attach, bone);
+  }
+
+  /* istanbul ignore next — browser-only Adjust persist */
+  private adjustSave(itemId: string, attach: ItemAttach): void {
+    this.heldAttach = { ...this.heldAttach, [itemId]: attach };
+    this.persistSession();
+    void this.syncPlayerHeldItems();
+  }
+
+  /**
+   * Apply non-mesh effects of the held main-hand item: the flashlight auto-lights a
+   * forward spotlight and puts the hero in the aim pose; anything else clears them.
+   */
+  /* istanbul ignore next — browser-only light + pose */
+  private updateHeldEffects(): void {
+    if (typeof document === 'undefined' || !this.player) return;
+    const equipped = this.playerInventory.toState().equipped;
+    // Aim pose for a flashlight OR a firearm held in the main hand; light only for the flashlight.
+    this.player.setIdleOverride(holdsAimPose(equipped) ? 'aim' : null);
+    const on = flashlightActive(equipped);
+    if (on) {
+      if (!this.flashlightLight) {
+        const light = new SpotLight(
+          'flashlight', new Vector3(0, 1.3, 0.2), new Vector3(0, -0.2, 1),
+          Math.PI / 2.6, 1.2, this.babylonScene,
+        );
+        light.diffuse = new Color3(1, 0.98, 0.9);
+        // No specular: flat untextured surfaces (the road) otherwise show a harsh
+        // blown-out hotspot. A soft, dimmer cone reads better everywhere.
+        light.specular = new Color3(0, 0, 0);
+        light.intensity = 18;
+        light.range = 16;
+        light.parent = this.player.getRoot(); // follows the hero's facing
+        // (Material light caps are raised once in onEnter — incl. async assets.)
+        this.flashlightLight = light;
+      }
+      this.flashlightLight.setEnabled(true);
+    } else {
+      this.flashlightLight?.setEnabled(false);
+    }
   }
 
   /** Builds a ClaudeNPCService when running in Electron; null otherwise. */
@@ -744,7 +976,10 @@ export class GameWorldScene extends BaseScene {
    * initiator/target, or a live spectator autopilot otherwise (8B). Browser-only.
    */
   /* istanbul ignore next — browser-only combat wiring (pure logic is tested) */
-  private beginCombat(initiatorId: string, targetId: string): void {
+  private beginCombat(
+    initiatorId: string, targetId: string,
+    opts: { ambush?: boolean; openingAttack?: 'melee' | 'ranged' } = {},
+  ): void {
     if (typeof document === 'undefined' || !this.combat || this.combat.isOpen()) return;
     const mgr = this.npcManager;
     if (!mgr) return;
@@ -772,6 +1007,7 @@ export class GameWorldScene extends BaseScene {
     this.combatPathfind = gridPathfinder(buildWalkGrid([...COMBAT_OBSTACLES], COMBAT_BOUNDS, 1, 0.6));
     this.combatTuning = tuning;
     this.combatTurnAccum = 0;
+    this.combatWeaponId.clear();
 
     const names: Record<string, string> = {};
     const sources: Record<string, TransformNode> = {};
@@ -780,7 +1016,9 @@ export class GameWorldScene extends BaseScene {
       const side = sides[id]!;
       if (id === 'player') {
         const p = this.player?.getRoot().position ?? Vector3.Zero();
-        combatants.push({ id, name: this.playerName, isPlayer: true, stats: this.playerStats, health: this.playerHealthState, pos: { x: p.x, z: p.z }, side, weapon: weaponProfile(this.playerInventory.equippedWeaponId), weaponName: this.weaponLabel(this.playerInventory.equippedWeaponId) });
+        const pw = this.playerInventory.combatWeaponId; // melee OR firearm (Phase 11)
+        combatants.push({ id, name: this.playerName, isPlayer: true, stats: this.playerStats, health: this.playerHealthState, pos: { x: p.x, z: p.z }, side, weapon: weaponProfile(pw), weaponName: this.weaponLabel(pw) });
+        this.combatWeaponId.set(id, pw);
         names[id] = this.playerName;
         if (this.player) sources[id] = this.player.getRoot();
       } else {
@@ -790,6 +1028,7 @@ export class GameWorldScene extends BaseScene {
         const pos = holder?.position ?? a.getPosition();
         const hp = GameWorldScene.NPC_COMBAT_HP;
         combatants.push({ id, name: a.getDisplayName(), isPlayer: false, stats: this.enemyStatsFor(a), health: { current: hp, max: hp }, pos: { x: pos.x, z: pos.z }, side, weapon: weaponProfile(a.getCombatWeaponId()), weaponName: this.weaponLabel(a.getCombatWeaponId()) });
+        this.combatWeaponId.set(id, a.getCombatWeaponId());
         names[id] = a.getDisplayName();
         if (holder) sources[id] = holder;
       }
@@ -798,10 +1037,16 @@ export class GameWorldScene extends BaseScene {
     if (combatants.length < 2 || new Set(combatants.map((c) => c.side)).size < 2) return;
 
     this.combatPlayerSide = sides['player'] ?? null;
-    const enc = new CombatEncounter(combatants, { tuning, pathfind: this.combatPathfind });
+    // Phase 11 ambush: a surprise attack grants the player the very first turn.
+    const ambusherId = opts.ambush && playerInvolved ? 'player' : undefined;
+    const enc = new CombatEncounter(combatants, { tuning, pathfind: this.combatPathfind, ambusherId });
     this.combatEnc = enc;
-    // Melee-only for now (no firearms/cover). Player id '__none__' for a spectator fight.
-    const controller = new CombatController(enc, names, playerInvolved ? 'player' : '__none__', MELEE_ONLY_CAPS);
+    // Phase 11: the player's loadout drives caps — a firearm in hand enables Shoot;
+    // melee/fists keep the Strike menu. (No scenery cover yet.) NPCs decide ranged vs
+    // melee per their OWN weapon inside the controller. '__none__' = spectator fight.
+    const playerMain = this.playerInventory.combatWeaponId;
+    const caps = { firearm: playerInvolved && !!playerMain && isFirearm(playerMain), cover: false };
+    const controller = new CombatController(enc, names, playerInvolved ? 'player' : '__none__', caps);
 
     const language = languageName(getLocale());
     this.combat.setHandlers({
@@ -835,6 +1080,12 @@ export class GameWorldScene extends BaseScene {
       const live = this.combatEnc.getState().combatants.filter((x) => x.alive && !x.removed);
       const ctr = centroidOf(live.map((x) => x.pos));
       this.cameraSystem.enterFreeMode(new Vector3(ctr.x, 0, ctr.z), GameWorldScene.COMBAT_CAMERA_RADIUS + 6);
+    }
+    // Phase 11 surprise blow: with the ambusher acting first, immediately resolve the
+    // opening strike/shot against the ambushed target (plays the swing/muzzle-flash,
+    // deals damage, spends AP); the player keeps the rest of their first turn.
+    if (opts.openingAttack && playerInvolved) {
+      this.combat.submitPlayerAction({ type: 'attack', attackKind: opts.openingAttack, targetId });
     }
   }
 
@@ -938,6 +1189,12 @@ export class GameWorldScene extends BaseScene {
       this.meleeLunge(entry.actorId, entry.targetId);
     } else {
       this.playCombatClip(entry.actorId, combatClipFor(entry.attackKind), false);
+      // Ranged shot → muzzle flash at the shooter's hand height, toward the target.
+      if (entry.attackKind === 'ranged' && attackerNode) {
+        const muzzle = attackerNode.position.add(new Vector3(0, 1.3, 0));
+        const dir = targetNode ? targetNode.position.subtract(attackerNode.position) : new Vector3(0, 0, 1);
+        void createMuzzleFlash(this.babylonScene, muzzle, dir);
+      }
     }
   }
 
@@ -979,10 +1236,21 @@ export class GameWorldScene extends BaseScene {
 
   /** Melee choreography: dash ~1 m toward the target, punch, then slide back to origin. */
   /* istanbul ignore next — browser-only animation playback */
+  /** Swing clip for a combatant's melee strike: armed → slash (or the weapon's
+   * holdClip), bare-fisted → punch. (Browser combat playback support; pure logic
+   * lives in attackClipFor, fully tested.) */
+  /* istanbul ignore next — browser-only combat playback support */
+  private meleeClip(actorId: string): CombatClipState {
+    const wid = this.combatWeaponId.get(actorId) ?? null;
+    const override = wid ? itemDef(wid)?.holdClip : undefined;
+    return attackClipFor('melee', isMeleeWeapon(wid ?? ''), override);
+  }
+
   private meleeLunge(attackerId: string, targetId: string): void {
+    const swing = this.meleeClip(attackerId);
     const attacker = this.combatNode(attackerId);
     const target = this.combatNode(targetId);
-    if (!attacker || !target) { this.playCombatClip(attackerId, 'punch', false); return; }
+    if (!attacker || !target) { this.playCombatClip(attackerId, swing, false); return; }
     const origin = attacker.position.clone();
     const flat = target.position.subtract(attacker.position);
     flat.y = 0;
@@ -993,7 +1261,7 @@ export class GameWorldScene extends BaseScene {
     // the current position and ACCUMULATES, drifting the hero away each strike.)
     const ABS = Animation.ANIMATIONLOOPMODE_CONSTANT;
     Animation.CreateAndStartAnimation('lunge-in', attacker, 'position', 60, 7, origin, lungeTo, ABS);
-    this.playCombatClip(attackerId, 'punch', false, () => {
+    this.playCombatClip(attackerId, swing, false, () => {
       Animation.CreateAndStartAnimation('lunge-out', attacker, 'position', 60, 9, attacker.position.clone(), origin, ABS);
     });
   }
@@ -1042,7 +1310,8 @@ export class GameWorldScene extends BaseScene {
     // Attack mode: ring the combatant nearest the cursor; green if in melee range.
     if (this.moveTrail) { this.moveTrail.dispose(); this.moveTrail = null; }
     const cand = me && to ? this.combatantNearGround(to) : null;
-    const inRange = !!cand && !!me && distance2(me.pos, cand.pos) <= MELEE_RANGE;
+    const range = me && this.combatEnc ? targetRangeFor(targeting.attackKind ?? 'melee', this.combatEnc.weaponOf(me.id)) : MELEE_RANGE;
+    const inRange = !!cand && !!me && distance2(me.pos, cand.pos) <= range;
     this.drawTargetRing(cand ? cand.pos : null, inRange);
   }
 
@@ -1072,10 +1341,11 @@ export class GameWorldScene extends BaseScene {
     }
 
     // Attack: the combatant nearest the cursor's ground point is the target (robust —
-    // no fragile mesh pick); strike only if it is within melee range (≤1 m).
+    // no fragile mesh pick); strike only if within reach (melee ≤1 m / firearm range).
     const to = this.groundPointFromPointer();
     const cand = to ? this.combatantNearGround(to) : null;
-    if (!cand || distance2(me.pos, cand.pos) > MELEE_RANGE) return; // none / out of range → ignore
+    const range = this.combatEnc ? targetRangeFor(targeting.attackKind ?? 'melee', this.combatEnc.weaponOf(me.id)) : MELEE_RANGE;
+    if (!cand || distance2(me.pos, cand.pos) > range) return; // none / out of range → ignore
     this.clearCombatTargeting();
     this.combat?.submitPlayerAction({ type: 'attack', attackKind: targeting.attackKind, targetId: cand.id });
   }
@@ -1093,6 +1363,77 @@ export class GameWorldScene extends BaseScene {
       if (d < bestD) { bestD = d; best = { id: cb.id, pos: cb.pos }; }
     }
     return best;
+  }
+
+  // ─── Out-of-combat surprise attack (Phase 11) ──────────────────────────────
+
+  /**
+   * Enter surprise-attack aiming from the action ribbon. Ranged needs a firearm in
+   * hand; melee always works (equipped melee weapon or fists). No-op while a dialog,
+   * combat, or another overlay owns the screen.
+   */
+  /* istanbul ignore next — browser-only entry from the ribbon */
+  enterSurpriseTargeting(attackKind: 'melee' | 'ranged'): void {
+    if (typeof document === 'undefined') return;
+    if (this.combat?.isOpen() || this.dialog?.isOpen() || this.inventoryOverlay?.isOpen()) return;
+    if (this.vehicle?.isOccupied()) return;
+    const mainHand = this.playerInventory.combatWeaponId;
+    if (attackKind === 'ranged' && !(mainHand && isFirearm(mainHand))) return; // need a gun
+    this.surpriseTargeting = { attackKind };
+  }
+
+  /** Living, non-defeated NPCs as aim targets at their current ground positions. */
+  /* istanbul ignore next — browser-only (reads live holders) */
+  private aimTargetsInScene(): AimTarget[] {
+    const out: AimTarget[] = [];
+    for (const a of this.npcManager?.getAgents() ?? []) {
+      if (a.isDefeated()) continue;
+      const p = this.npcHolderById.get(a.definition.id)?.position ?? a.getPosition();
+      out.push({ id: a.definition.id, pos: { x: p.x, z: p.z } });
+    }
+    return out;
+  }
+
+  /** Reach (m) of the player's pending surprise attack: firearm range / melee 1 m. */
+  /* istanbul ignore next — browser-only */
+  private surpriseRange(attackKind: 'melee' | 'ranged'): number {
+    return targetRangeFor(attackKind, weaponProfile(this.playerInventory.combatWeaponId));
+  }
+
+  /** Per-frame aim feedback: ring the NPC under the cursor (green = in reach). */
+  /* istanbul ignore next — browser-only pointer/rendering */
+  private handleSurpriseTargeting(dt: number): void {
+    if (this.inputSystem?.wasJustPressed('pause')) { this.clearSurpriseTargeting(); return; }
+    this.handleCameraKeys(dt); // Z/C orbit to line up the shot
+    const aim = this.surpriseTargeting;
+    const me = this.player?.getRoot().position;
+    const to = this.groundPointFromPointer();
+    if (!aim || !me || !to) { this.drawTargetRing(null, false); return; }
+    const cand = nearestToPoint(this.aimTargetsInScene(), to, GameWorldScene.TARGET_PICK_RADIUS);
+    const inRange = !!cand && distance2({ x: me.x, z: me.z }, cand.pos) <= this.surpriseRange(aim.attackKind);
+    this.drawTargetRing(cand ? cand.pos : null, inRange);
+  }
+
+  /** Click commit: ambush the NPC under the cursor if it is within reach. */
+  /* istanbul ignore next — browser-only pointer */
+  private commitSurpriseTargeting(): void {
+    const aim = this.surpriseTargeting;
+    const me = this.player?.getRoot().position;
+    const to = this.groundPointFromPointer();
+    if (!aim || !me || !to) return;
+    const cand = nearestToPoint(this.aimTargetsInScene(), to, GameWorldScene.TARGET_PICK_RADIUS);
+    if (!cand || distance2({ x: me.x, z: me.z }, cand.pos) > this.surpriseRange(aim.attackKind)) return;
+    const attackKind = aim.attackKind;
+    this.clearSurpriseTargeting();
+    this.beginCombat('player', cand.id, { ambush: true, openingAttack: attackKind });
+  }
+
+  /** Leave surprise aiming, clearing the ring. */
+  /* istanbul ignore next — browser-only */
+  private clearSurpriseTargeting(): void {
+    this.surpriseTargeting = null;
+    this.targetRing?.dispose();
+    this.targetRing = null;
   }
 
   /** Ground-plane (y=0) point under the cursor, or null if the ray is parallel. */
@@ -1409,6 +1750,34 @@ export class GameWorldScene extends BaseScene {
     this.dialog.open(t('dialog.openChannel'), seed);
   }
 
+  /**
+   * The ribbon's Talk button: open a conversation with a conversable NPC in reach,
+   * else open the global channel (the same outcomes as E / T, mouse-driven).
+   */
+  /* istanbul ignore next — browser-only ribbon action */
+  private openTalkFromRibbon(): void {
+    if (!this.dialog || this.dialog.isOpen() || (this.vehicle?.isOccupied() ?? false)) return;
+    const agent = this.player && this.npcManager ? this.npcManager.getConversableAgent(this.player.getPosition()) : null;
+    if (agent && !agent.isDefeated()) {
+      const seed: DialogLine[] = agent.conversation.getFullHistory().flatMap((ex) => [
+        { role: 'player' as const, text: ex.player },
+        { role: 'npc' as const, text: ex.npc },
+      ]);
+      this.chatMode = 'npc';
+      this.dialog.open(agent.getDisplayName(), seed);
+      const holder = this.npcHolderById.get(agent.definition.id);
+      if (holder && this.player) {
+        const pp = this.player.getPosition();
+        holder.rotation.y = Math.atan2(pp.x - holder.position.x, pp.z - holder.position.z);
+        this.cameraSystem?.enterConversationMode(holder);
+      }
+      return;
+    }
+    this.chatMode = 'global';
+    const seed: DialogLine[] = this.gossipLog.map((text) => ({ role: 'narration' as const, text }));
+    this.dialog.open(t('dialog.openChannel'), seed);
+  }
+
   /** Builds the world snapshot and routes a message to the conversable NPC (E). */
   async sendToActiveNPC(message: string): Promise<void> {
     if (!this.npcManager || !this.player || !this.dialog) return;
@@ -1702,6 +2071,37 @@ export class GameWorldScene extends BaseScene {
     if (this.inputSystem.wasJustPressed('inventory.open')) overlay.openManage(this.playerInventory);
   }
 
+  /** `O` toggles the Adjust tool for the currently equipped held prop. */
+  /* istanbul ignore next — browser-only camera/overlay wiring */
+  private handleAdjustInput(): void {
+    if (!this.inputSystem || !this.adjustOverlay) return;
+    const overlay = this.adjustOverlay;
+    if (overlay.isOpen()) {
+      if (this.inputSystem.wasJustPressed('adjust.toggle')) overlay.close();
+      return;
+    }
+    if (this.dialog?.isOpen() || this.pauseMenu?.isOpen() || this.gameOverMenu?.isOpen()
+      || this.inventoryOverlay?.isOpen()) return;
+    if (!this.inputSystem.wasJustPressed('adjust.toggle')) return;
+    // Tune the main-hand prop if present, else the back prop.
+    const equip = this.playerInventory.toState().equipped ?? {};
+    const slot: EquipSlot = equip.main_hand ? 'main_hand' : 'back';
+    const itemId = equip[slot];
+    if (itemId) this.openAdjustFor(itemId, slot);
+  }
+
+  /** Open the Adjust tool for an equipped prop (from the key or the inventory button). */
+  /* istanbul ignore next — browser-only camera/overlay wiring */
+  private openAdjustFor(itemId: string, slot: EquipSlot): void {
+    if (!this.adjustOverlay) return;
+    const base = resolveAttachWith(itemId, slot, this.heldAttach);
+    base.bone = boneFor(itemId, slot, this.heldAttach);
+    const bones = (this.player?.getSkeleton()?.bones ?? []).map((b) => b.name);
+    if (this.player) this.cameraSystem?.enterConversationMode(this.player.getRoot(), 4);
+    this.cameraSystem?.setWheelZoomEnabled(true); // free wheel zoom while tuning
+    this.adjustOverlay.open(itemId, slot, base, bones);
+  }
+
   private wirePauseMenu(): void {
     if (!this.pauseMenu) return;
     this.pauseMenu.setHandlers({
@@ -1722,8 +2122,31 @@ export class GameWorldScene extends BaseScene {
   private updateHud(dialogOpen: boolean): void {
     if (!this.hud) return;
 
+    this.hud.setHudTextVisible(true); // restored when not in combat
     this.hud.setVehicleStatus(this.deriveVehicleStatus());
     this.hud.setActionPrompt(this.deriveActionPrompt(dialogOpen));
+  }
+
+  /**
+   * Keep the action ribbon visible only during free, on-foot play and reflect the
+   * equipped firearm (gates Attack Ranged). Hidden while combat / a dialog / an
+   * overlay / surprise-aiming / the vehicle owns the screen.
+   */
+  /* istanbul ignore next — browser-only HUD glue (reads overlay visibility) */
+  private syncActionRibbon(): void {
+    if (!this.actionRibbon) return;
+    const busy = (this.combat?.isOpen() ?? false)
+      || (this.dialog?.isOpen() ?? false)
+      || (this.inventoryOverlay?.isOpen() ?? false)
+      || (this.adjustOverlay?.isOpen() ?? false)
+      || (this.pauseMenu?.isOpen() ?? false)
+      || (this.gameOverMenu?.isOpen() ?? false)
+      || this.gameOver
+      || !!this.surpriseTargeting
+      || (this.vehicle?.isOccupied() ?? false);
+    this.actionRibbon.setVisible(!busy);
+    const main = this.playerInventory.combatWeaponId;
+    this.actionRibbon.setFirearmEquipped(!!main && isFirearm(main));
   }
 
   /** Nave status line: destroyed / live HP% while relevant, else hidden. */

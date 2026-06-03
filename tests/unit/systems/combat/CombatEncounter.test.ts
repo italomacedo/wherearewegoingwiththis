@@ -247,6 +247,28 @@ describe('CombatEncounter — attacks', () => {
     expect(ok.kind).toBe('hit');
   });
 
+  it('ambusherId takes the first turn regardless of Dexterity (Phase 11 surprise)', () => {
+    // The player has LOWER Dex than the enemy, but as the ambusher it acts first.
+    const c: CombatantInit[] = [
+      { id: 'player', name: 'Hero', isPlayer: true, stats: stats({ destreza: 20 }), health: { current: 100, max: 100 } },
+      { id: 'zara', name: 'Zara', isPlayer: false, stats: stats({ destreza: 90 }), health: { current: 100, max: 100 } },
+    ];
+    expect(new CombatEncounter(c).activeId()).toBe('zara');                         // normal: Dex 90 first
+    expect(new CombatEncounter(c, { ambusherId: 'player' }).activeId()).toBe('player'); // ambush: player first
+    // An unknown ambusher id leaves the order untouched.
+    expect(new CombatEncounter(c, { ambusherId: 'ghost' }).activeId()).toBe('zara');
+  });
+
+  it('weaponOf returns the combatant profile, falling back to fists (Phase 11)', () => {
+    const gun = { attackKind: 'ranged' as const, damageBase: 18, variance: 6, range: 20 };
+    const c = makeCombatants();
+    c[0]!.weapon = gun;
+    const enc = new CombatEncounter(c);
+    expect(enc.weaponOf('player')).toEqual(gun);
+    expect(enc.weaponOf('zara').attackKind).toBe('melee'); // fist default
+    expect(enc.weaponOf('ghost').attackKind).toBe('melee'); // unknown → fist default
+  });
+
   it('defaults to a ranged attack on the lone opponent when no kind/target given', () => {
     const enc = new CombatEncounter(makeCombatants(), { rng: seq(0, 0) });
     const ev = enc.apply({ type: 'attack' });

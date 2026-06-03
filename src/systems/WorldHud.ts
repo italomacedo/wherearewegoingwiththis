@@ -19,7 +19,10 @@ export class WorldHud {
   private playerHpFraction = 1;
   private vehicleStatus: string | null = null;
 
+  private hudTextVisible = true;
+
   private gui: AdvancedDynamicTexture | null = null;
+  private controlsBlock: TextBlock | null = null;
   private promptBlock: TextBlock | null = null;
   private vehicleStatusBlock: TextBlock | null = null;
   private labels = new Map<string, { text: string; box: Rectangle | null; block: TextBlock | null }>();
@@ -61,6 +64,20 @@ export class WorldHud {
 
   getVehicleStatus(): string | null {
     return this.vehicleStatus;
+  }
+
+  /**
+   * Show/hide the bottom HUD text (control hint + contextual prompt). Hidden during
+   * combat so the centred combat action bar doesn't collide with the key hints.
+   */
+  setHudTextVisible(visible: boolean): void {
+    if (this.hudTextVisible === visible) return;
+    this.hudTextVisible = visible;
+    this.render();
+  }
+
+  isHudTextVisible(): boolean {
+    return this.hudTextVisible;
   }
 
   /** Attaches a floating name label above a node, tracked by `key`. */
@@ -109,6 +126,7 @@ export class WorldHud {
     controls.top = '-12px';
     controls.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
     gui.addControl(controls);
+    this.controlsBlock = controls;
 
     const prompt = new TextBlock('hud-prompt', '');
     prompt.color = '#00FFCC';
@@ -116,7 +134,9 @@ export class WorldHud {
     prompt.fontFamily = '"Courier New", monospace';
     prompt.fontStyle = 'bold';
     prompt.height = '30px';
-    prompt.top = '-44px';
+    // Above the control hint (-12) AND the action ribbon (-44, ~36px tall) so the
+    // three bottom bands never overlap (Phase 11).
+    prompt.top = '-92px';
     prompt.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
     prompt.isVisible = false;
     gui.addControl(prompt);
@@ -139,9 +159,10 @@ export class WorldHud {
 
   /* istanbul ignore next — browser GUI only */
   private renderBrowser(): void {
+    if (this.controlsBlock) this.controlsBlock.isVisible = this.hudTextVisible;
     if (this.promptBlock) {
       this.promptBlock.text = this.actionPrompt ?? '';
-      this.promptBlock.isVisible = this.actionPrompt !== null;
+      this.promptBlock.isVisible = this.hudTextVisible && this.actionPrompt !== null;
     }
     if (this.vehicleStatusBlock) {
       this.vehicleStatusBlock.text = this.vehicleStatus ?? '';

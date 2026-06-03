@@ -3,7 +3,7 @@ import {
   AdvancedDynamicTexture, Rectangle, TextBlock, Button, StackPanel, ScrollViewer, Control,
 } from '@babylonjs/gui';
 import { Inventory } from '@entities/Inventory';
-import { itemDef, isWeapon, ItemCategory } from '@entities/items/ItemCatalog';
+import { itemDef, isWeapon, itemModelPath, ItemCategory, EquipSlot } from '@entities/items/ItemCatalog';
 import { t } from '@systems/I18n';
 
 export interface InventoryOverlayHandlers {
@@ -11,8 +11,12 @@ export interface InventoryOverlayHandlers {
   onChange?: () => void;
   /** Apply a consumable's heal to the player. */
   onHeal?: (amount: number) => void;
+  /** Eat food: restore hunger (and trigger the eat animation + in-hand prop). */
+  onFeed?: (itemId: string, amount: number) => void;
   /** Called when the overlay closes (unfreeze the world). */
   onClose?: () => void;
+  /** Open the Adjust tool to calibrate an equipped prop's attach transform. */
+  onAdjust?: (itemId: string, slot: EquipSlot) => void;
 }
 
 export type InventoryMode = 'manage' | 'loot';
@@ -25,6 +29,10 @@ export interface InventoryRow {
   weapon: boolean;
   consumable: boolean;
   equipped: boolean;
+  /** The body slot this item is currently equipped in (for the Adjust button). */
+  equippedSlot?: EquipSlot;
+  /** Has a visible 3D prop → can be calibrated with the Adjust tool when equipped. */
+  hasModel: boolean;
 }
 
 /**
@@ -104,11 +112,12 @@ export class InventoryOverlay {
     this.refresh();
   }
 
-  /** Use one consumable: a medkit heals the player and is consumed. */
+  /** Use one consumable: heals (medkit) and/or restores hunger (food); consumed. */
   useItem(id: string): void {
     const def = itemDef(id);
     if (!def || def.category !== 'consumable' || !this.player.has(id)) return;
     if (def.heal && def.heal > 0) this.handlers.onHeal?.(def.heal);
+    if (def.hungerRestore && def.hungerRestore > 0) this.handlers.onFeed?.(id, def.hungerRestore);
     this.player.remove(id, 1);
     this.handlers.onChange?.();
     this.refresh();
@@ -123,6 +132,25 @@ export class InventoryOverlay {
   take(id: string): void {
     if (!this.source) return;
     if (this.source.transferTo(this.player, id, 1) > 0) { this.handlers.onChange?.(); this.refresh(); }
+  }
+
+  /** The slot an item is currently equipped in within an inventory, if any. */
+  private equippedSlotIn(inv: Inventory, id: string): EquipSlot | undefined {
+    const eq = inv.equipment;
+    return (Object.keys(eq) as EquipSlot[]).find((s) => eq[s] === id);
+  }
+
+  /** The slot the item is equipped in on the player (for the Adjust action). */
+  private equippedSlotOf(id: string): EquipSlot | undefined {
+    return this.equippedSlotIn(this.player, id);
+  }
+
+  /** Open the Adjust tool for an equipped prop (closes the inventory first). */
+  adjust(id: string): void {
+    const slot = this.equippedSlotOf(id);
+    if (!slot || !this.handlers.onAdjust) return;
+    this.handlers.onAdjust(id, slot);
+    this.close();
   }
 
   /** Loot everything the corpse carries (within capacity). */
@@ -148,6 +176,8 @@ export class InventoryOverlay {
         weapon: isWeapon(s.id),
         consumable: def?.category === 'consumable',
         equipped: inv.equippedWeaponId === s.id,
+        equippedSlot: this.equippedSlotIn(inv, s.id),
+        hasModel: !!itemModelPath(s.id),
       };
     });
   }
@@ -310,6 +340,10 @@ export class InventoryOverlay {
             : { key: 'eq', label: t('inventory.equip'), act: () => this.equip(row.id) });
         }
         if (row.consumable) actions.push({ key: 'use', label: t('inventory.use'), act: () => this.useItem(row.id) });
+        // Adjust the held-prop attach transform (only when equipped + has a model).
+        if (row.equippedSlot && row.hasModel && this.handlers.onAdjust) {
+          actions.push({ key: 'adj', label: t('inventory.adjust'), act: () => this.adjust(row.id) });
+        }
         actions.push({ key: 'drop', label: t('inventory.drop'), act: () => this.drop(row.id) });
         addRow(row, actions);
       }

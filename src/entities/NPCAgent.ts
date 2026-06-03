@@ -246,8 +246,8 @@ export class NPCAgent {
   /** The NPC's live inventory (mutated by looting). */
   getInventory(): Inventory { return this.inventory; }
 
-  /** The weapon the NPC fights with (its equipped loadout weapon), or null for fists. */
-  getCombatWeaponId(): string | null { return this.inventory.equippedWeaponId; }
+  /** The weapon the NPC fights with — melee OR firearm (Phase 11), or null for fists. */
+  getCombatWeaponId(): string | null { return this.inventory.combatWeaponId; }
 
   /** Serialize the inventory for persistence (so a looted corpse stays looted). */
   getInventoryState(): InventoryState { return this.inventory.toState(); }

@@ -176,7 +176,9 @@ export class CombatController {
       hpFraction: self.hp.max > 0 ? self.hp.current / self.hp.max : 0,
       cover: self.cover,
       prefersMelee: stats ? prefersMelee(stats) : true,
-      hasFirearm: this.caps.firearm,
+      // Per-combatant: an NPC shoots only if its OWN equipped weapon is ranged
+      // (so a knife-armed ally melees even when the player carries a gun).
+      hasFirearm: this.enc.weaponOf(actorId).attackKind === 'ranged',
       hasCover: this.caps.cover,
       tuning: this.enc.getTuning(),
     });

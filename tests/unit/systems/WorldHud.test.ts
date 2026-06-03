@@ -39,6 +39,15 @@ describe('WorldHud', () => {
     expect(hud.getActionPrompt()).toBe('x');
   });
 
+  it('tracks bottom-HUD text visibility (hidden during combat) idempotently', () => {
+    expect(hud.isHudTextVisible()).toBe(true);
+    hud.setHudTextVisible(false);
+    expect(hud.isHudTextVisible()).toBe(false);
+    expect(() => hud.setHudTextVisible(false)).not.toThrow(); // no-op when unchanged
+    hud.setHudTextVisible(true);
+    expect(hud.isHudTextVisible()).toBe(true);
+  });
+
   it('addLabel tracks text by key and setLabelText updates it', () => {
     const mesh = MeshBuilder.CreateBox('m', { size: 1 }, scene);
     expect(() => hud.addLabel(mesh, 'Unknown', 'npc')).not.toThrow();

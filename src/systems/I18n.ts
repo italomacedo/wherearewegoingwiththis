@@ -102,8 +102,8 @@ export const STRINGS: Record<string, Entry> = {
 
   // ─── HUD ──────────────────────────────────────────────────────────────────
   'hud.controls': e(
-    'WASD move · MMB-drag camera · E talk · F vehicle · ESC pause',
-    'WASD mover · arrastar c/ botão do meio gira a câmera · E falar · F veículo · ESC pausar'
+    'WASD move · Shift run · Z/C turn cam · E talk · T chat · I inventory · O adjust · F vehicle · Space/Ctrl altitude · ESC pause',
+    'WASD mover · Shift correr · Z/C girar câmera · E falar · T chat · I inventário · O ajustar · F veículo · Espaço/Ctrl altitude · ESC pausar'
   ),
   'hud.talk': e('[E] Interact', '[E] Interagir'),
   'hud.talkTo': e('[E] Interact with {name}', '[E] Interagir com {name}'),
@@ -113,6 +113,12 @@ export const STRINGS: Record<string, Entry> = {
   'hud.exitBike': e('[F] Exit bike', '[F] Sair da nave'),
   'hud.naveStatus': e('NAVE {pct}%', 'NAVE {pct}%'),
   'hud.naveDestroyed': e('NAVE DESTROYED', 'NAVE DESTRUÍDA'),
+
+  // ─── Action ribbon (Phase 11) ────────────────────────────────────────────────
+  'ribbon.attackRanged': e('Shoot', 'Atirar'),
+  'ribbon.attackMelee': e('Strike', 'Golpear'),
+  'ribbon.talk': e('Talk', 'Falar'),
+  'ribbon.inventory': e('Inventory', 'Inventário'),
 
   // ─── Inventory (Phase 9) ─────────────────────────────────────────────────────
   'inventory.title': e('Inventory', 'Inventário'),
@@ -125,6 +131,8 @@ export const STRINGS: Record<string, Entry> = {
   'inventory.drop': e('Drop', 'Largar'),
   'inventory.take': e('Take', 'Pegar'),
   'inventory.takeAll': e('Take all', 'Pegar tudo'),
+  'inventory.adjust': e('Adjust', 'Ajustar'),
+  'hunger.growl': e('Your stomach growls — you should eat something.', 'Seu estômago ronca — você devia comer algo.'),
   // Item names
   'item.fists': e('fists', 'punhos'),
   'item.knife': e('Knife', 'Faca'),

@@ -45,18 +45,17 @@ const NORTH_ROT = Math.PI;     // +Z-side buildings face −Z (toward the street
 const SOUTH_ROT = 0;           // −Z-side buildings face +Z
 const DEADEND_ROT = -Math.PI / 2; // far-left building faces +X, walling the street
 
-const ROAD_HALF = 4.5;  // road spans z ∈ [−4.5, 4.5] (9 wide, matches asphalt tile)
+// Road spans z ∈ [−4.5, 4.5] (9 wide). Sidewalks flank it out to the building front.
 const SIDEWALK_Z = 7.25; // sidewalk centre — fills road-edge (4.5) → building front (~10)
 const BUILDING_Z = 10;   // building facade line (front origin sits here)
 const BACKDROP_Z = 20;   // textured-pack backdrops behind the facade
 
-// --- Road: continuous asphalt. Tile origin is a corner ([-9,0]×[-9,0]); place at
-//     z = +ROAD_HALF so it spans [−4.5, 4.5], stepping 9 along X for a seamless strip. ---
-const ROADS: readonly WorldProp[] = [-22.5, -13.5, -4.5, 4.5, 13.5, 22.5].map((x, i) => ({
-  key: `road-${i}`,
-  model: `${DT}street_asphalt_9x9.glb`,
-  position: [x, 0.02, ROAD_HALF] as [number, number, number],
-}));
+// --- Road: the zone's lit ground plane IS the asphalt (see MercadoSombrasZone.
+//     buildGround). The MegaKit street tiles were dropped — that pack tile is
+//     directional + flat-normalled and tiled with gaps/black under the glTF import
+//     wrapper; a lit ground plane covers the street seamlessly and lights correctly.
+//     (Lane/crosswalk decals can be laid on top later.) ---
+const ROADS: readonly WorldProp[] = [];
 
 // --- Buildings lining both sides of the street, facades toward the road. ---
 const NORTH_BUILDINGS: ReadonlyArray<[number, string]> = [

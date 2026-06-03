@@ -95,6 +95,27 @@ describe('Inventory', () => {
     expect(inv.equippedWeaponId).toBeNull();
   });
 
+  it('combatWeaponId returns the main-hand weapon — melee OR firearm (Phase 11)', () => {
+    const inv = new Inventory();
+    inv.add('pistol', 1);
+    expect(inv.equip('pistol')).toBe(true);
+    expect(inv.equippedWeaponId).toBeNull();      // a firearm does NOT arm the melee fighter
+    expect(inv.combatWeaponId).toBe('pistol');    // but it IS the combat (ranged) weapon
+    inv.unequip();
+    inv.add('knife', 1);
+    inv.equip('knife');
+    expect(inv.combatWeaponId).toBe('knife');     // melee weapon counts too
+    inv.unequip();
+    expect(inv.combatWeaponId).toBeNull();         // empty hand → fists
+  });
+
+  it('combatWeaponId is null when the main hand holds a non-weapon (e.g. backpack on back)', () => {
+    const inv = new Inventory();
+    inv.add('backpack', 1);
+    inv.equip('backpack'); // goes to the back slot, not main hand
+    expect(inv.combatWeaponId).toBeNull();
+  });
+
   it('unequips automatically when the equipped weapon is fully removed', () => {
     const inv = new Inventory();
     inv.add('knife', 1);
@@ -161,5 +182,105 @@ describe('Inventory', () => {
     expect(inv.count('scrap')).toBe(0);
     expect(inv.equippedWeaponId).toBeNull();
     expect(inv.capacityWeight).toBe(0);
+  });
+
+  // ── Phase 10: equipment slots + effective capacity ──
+
+  describe('paper-doll slots (Phase 10)', () => {
+    it('equips items into their natural slot and reads them back', () => {
+      const inv = new Inventory();
+      inv.add('knife', 1);
+      inv.add('backpack', 1);
+      expect(inv.equipToSlot('main_hand', 'knife')).toBe(true);
+      expect(inv.equipToSlot('back', 'backpack')).toBe(true);
+      expect(inv.equippedIn('main_hand')).toBe('knife');
+      expect(inv.equippedIn('back')).toBe('backpack');
+      expect(inv.equipment).toEqual({ main_hand: 'knife', back: 'backpack' });
+    });
+
+    it('rejects equipping into the wrong slot or an unowned item', () => {
+      const inv = new Inventory();
+      inv.add('backpack', 1);
+      expect(inv.equipToSlot('main_hand', 'backpack')).toBe(false); // backpack is a back item
+      expect(inv.equipToSlot('back', 'knife')).toBe(false);          // not owned
+      expect(inv.equippedIn('back')).toBeNull();
+    });
+
+    it('a backpack on the back raises the effective capacity', () => {
+      const inv = new Inventory({ capacityWeight: 10 });
+      inv.add('backpack', 1);
+      expect(inv.effectiveCapacity()).toBe(10);          // not equipped yet
+      inv.equipToSlot('back', 'backpack');
+      expect(inv.effectiveCapacity()).toBe(30);          // +20 bonus
+      // The extra room is usable: 20 medkits (0.8 each = 16kg) now fit under 30.
+      expect(inv.acceptableQty('medkit', 5)).toBe(5);
+    });
+
+    it('the flashlight doubles as a melee weapon when held; swapping re-arms', () => {
+      const inv = new Inventory();
+      inv.add('flashlight', 1);
+      inv.equipToSlot('main_hand', 'flashlight');
+      expect(inv.equippedIn('main_hand')).toBe('flashlight');
+      expect(inv.equippedWeaponId).toBe('flashlight');    // bludgeon (melee)
+      inv.add('knife', 1);
+      inv.equipToSlot('main_hand', 'knife');              // replaces the flashlight
+      expect(inv.equippedWeaponId).toBe('knife');
+    });
+
+    it('a cosmetic firearm in hand does not arm the melee fighter', () => {
+      const inv = new Inventory();
+      inv.add('pistol', 1);
+      inv.equip('pistol'); // legacy convenience routes to main_hand (it is a weapon)
+      expect(inv.equippedIn('main_hand')).toBe('pistol');
+      expect(inv.equippedWeaponId).toBeNull(); // ranged → never the melee combat weapon
+    });
+
+    it('removing an equipped item clears every slot it occupied', () => {
+      const inv = new Inventory();
+      inv.add('backpack', 1);
+      inv.equipToSlot('back', 'backpack');
+      inv.remove('backpack', 1);
+      expect(inv.equippedIn('back')).toBeNull();
+      expect(inv.effectiveCapacity()).toBe(DEFAULT_CAPACITY_WEIGHT);
+    });
+
+    it('unequipSlot clears a specific slot', () => {
+      const inv = new Inventory();
+      inv.add('knife', 1);
+      inv.equipToSlot('main_hand', 'knife');
+      inv.unequipSlot('main_hand');
+      expect(inv.equippedIn('main_hand')).toBeNull();
+    });
+
+    it('round-trips the slot map through toState / fromState', () => {
+      const inv = new Inventory({ capacityWeight: 20 });
+      inv.add('knife', 1);
+      inv.add('backpack', 1);
+      inv.equipToSlot('main_hand', 'knife');
+      inv.equipToSlot('back', 'backpack');
+      const restored = Inventory.fromState(inv.toState());
+      expect(restored.equippedIn('main_hand')).toBe('knife');
+      expect(restored.equippedIn('back')).toBe('backpack');
+      expect(restored.equippedWeaponId).toBe('knife');
+      expect(restored.effectiveCapacity()).toBe(40);
+    });
+
+    it('restores from the legacy equippedWeaponId when no slot map is present', () => {
+      const inv = new Inventory({
+        items: [{ id: 'pipe', qty: 1 }],
+        equippedWeaponId: 'pipe',
+      });
+      expect(inv.equippedIn('main_hand')).toBe('pipe');
+      expect(inv.equippedWeaponId).toBe('pipe');
+    });
+
+    it('drops a slot entry whose item is not owned or is wrong for the slot', () => {
+      const inv = new Inventory({
+        items: [{ id: 'knife', qty: 1 }],
+        equipped: { main_hand: 'medkit', back: 'backpack' }, // neither valid
+      });
+      expect(inv.equippedIn('main_hand')).toBeNull();
+      expect(inv.equippedIn('back')).toBeNull();
+    });
   });
 });
