@@ -3,6 +3,14 @@
 This game uses CC0 (public domain) assets wherever possible. A few assets are
 licensed **CC-BY 4.0** and require attribution, listed below.
 
+## Audio — Music (freesound.org)
+
+### CC-BY 4.0 (attribution required)
+
+| Track | Source | Author | License |
+|---|---|---|---|
+| Menu / title theme | "Generic Futuristic Hero's Theme" — https://freesound.org/people/marcriver29/sounds/645691/ | Marc Armitage (marcriver29) | CC-BY 4.0 |
+
 ## Audio — Sound Effects (freesound.org)
 
 ### CC-BY 4.0 (attribution required)

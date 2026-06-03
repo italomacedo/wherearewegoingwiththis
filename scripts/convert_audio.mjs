@@ -41,6 +41,11 @@ const SFX = [
   { src: '420668__sypherzent__basic-melee-swing-miss-whoosh.wav', dest: 'sfx/whiff.ogg' },
 ];
 
+/** Looping background-music beds. Kept STEREO + higher bitrate, no trim. */
+const MUSIC = [
+  { src: '645691__marcriver29__generic-futuristic-heros-theme.flac', dest: 'music/menu.ogg' },
+];
+
 function findSource(basename) {
   const direct = join(DOWNLOADS, basename);
   if (existsSync(direct)) return direct;
@@ -73,6 +78,26 @@ for (const cue of SFX) {
 }
 
 console.log(`\nConverted ${ok}/${SFX.length} SFX cues → ${OUT_DIR}`);
+
+let mok = 0;
+for (const track of MUSIC) {
+  const src = findSource(track.src);
+  if (!src) {
+    missing.push(track.src);
+    continue;
+  }
+  const out = join(OUT_DIR, track.dest);
+  mkdirSync(dirname(out), { recursive: true });
+  // Stereo, loudnorm, Vorbis q5 (~160 kbps) — fuller than the mono SFX.
+  execFileSync(
+    ffmpegPath,
+    ['-y', '-i', src, '-af', 'loudnorm=I=-16:TP=-1.5:LRA=11', '-c:a', 'libvorbis', '-q:a', '5', out],
+    { stdio: 'pipe' },
+  );
+  mok++;
+  console.log(`✓ ${track.dest}`);
+}
+console.log(`Converted ${mok}/${MUSIC.length} music tracks → ${OUT_DIR}`);
 if (missing.length) {
   console.warn(`\n⚠ Missing sources in ${DOWNLOADS}:\n  ${missing.join('\n  ')}`);
   process.exitCode = 1;
