@@ -227,6 +227,16 @@ export const FIST_PROFILE: WeaponProfile = {
   range: MELEE_RANGE,
 };
 
+/**
+ * Effective reach for a player-chosen attack (Phase 11 targeting): a ranged attack
+ * reaches the firearm's `range`; a melee strike is gated at `MELEE_RANGE` regardless
+ * of the held profile (so you can't "pistol-whip" across the street). Used by the
+ * in-combat and surprise-attack targeting rings.
+ */
+export function targetRangeFor(kind: AttackKind, weapon: WeaponProfile): number {
+  return kind === 'ranged' ? weapon.range : MELEE_RANGE;
+}
+
 /** Damage on a hit using a weapon profile: damageBase + attribute scaling + d(0..variance-1). */
 export function rollWeaponDamage(stats: CharacterStats, profile: WeaponProfile, rng: RollFn = defaultRoll): number {
   const variance = Math.floor(rng() * Math.max(1, profile.variance));

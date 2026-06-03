@@ -57,7 +57,7 @@ import { combatClipFor, attackClipFor, CombatClipState } from '@assets/AvatarMes
 import { CombatEncounter, CombatantInit, CombatOutcome } from '@systems/combat/CombatEncounter';
 import {
   combatTuningFromSettings, CombatTuning, Point2, Pathfinder,
-  distance2, moveApCost, MELEE_RANGE, centroidOf,
+  distance2, moveApCost, MELEE_RANGE, centroidOf, targetRangeFor,
 } from '@systems/combat/CombatMath';
 import { buildWalkGrid, gridPathfinder } from '@systems/combat/CombatMovement';
 import { recruitSides, RecruitParticipant, SIDE_INITIATOR, SIDE_TARGET } from '@systems/combat/CombatRecruiter';
@@ -1254,7 +1254,8 @@ export class GameWorldScene extends BaseScene {
     // Attack mode: ring the combatant nearest the cursor; green if in melee range.
     if (this.moveTrail) { this.moveTrail.dispose(); this.moveTrail = null; }
     const cand = me && to ? this.combatantNearGround(to) : null;
-    const inRange = !!cand && !!me && distance2(me.pos, cand.pos) <= MELEE_RANGE;
+    const range = me && this.combatEnc ? targetRangeFor(targeting.attackKind ?? 'melee', this.combatEnc.weaponOf(me.id)) : MELEE_RANGE;
+    const inRange = !!cand && !!me && distance2(me.pos, cand.pos) <= range;
     this.drawTargetRing(cand ? cand.pos : null, inRange);
   }
 
@@ -1284,10 +1285,11 @@ export class GameWorldScene extends BaseScene {
     }
 
     // Attack: the combatant nearest the cursor's ground point is the target (robust —
-    // no fragile mesh pick); strike only if it is within melee range (≤1 m).
+    // no fragile mesh pick); strike only if within reach (melee ≤1 m / firearm range).
     const to = this.groundPointFromPointer();
     const cand = to ? this.combatantNearGround(to) : null;
-    if (!cand || distance2(me.pos, cand.pos) > MELEE_RANGE) return; // none / out of range → ignore
+    const range = this.combatEnc ? targetRangeFor(targeting.attackKind ?? 'melee', this.combatEnc.weaponOf(me.id)) : MELEE_RANGE;
+    if (!cand || distance2(me.pos, cand.pos) > range) return; // none / out of range → ignore
     this.clearCombatTargeting();
     this.combat?.submitPlayerAction({ type: 'attack', attackKind: targeting.attackKind, targetId: cand.id });
   }
