@@ -88,13 +88,15 @@ export class TTSService {
   /* istanbul ignore next — browser-only: lazy model load + synth + playback */
   private async synthesizeAndPlay(voice: string, text: string): Promise<void> {
     const myToken = ++this.token;
+    /* eslint-disable no-console */
     try {
+      console.warn(`[TTS] speak voice=${voice} "${text.slice(0, 48)}"`);
       const model = await this.ensureModel();
       if (!model || myToken !== this.token) return; // failed, or superseded
       const audio = await this.generate(model, voice, text);
       if (!audio || myToken !== this.token) return;
       const gain = this.voiceGain();
-      if (gain <= 0) return; // muted
+      if (gain <= 0) { console.warn('[TTS] voice bus muted/zero — check Options › Sound (Voice volume + TTS on, master not muted)'); return; }
       const url = URL.createObjectURL(audio.toBlob());
       const el = new Audio(url);
       el.volume = gain;
@@ -103,9 +105,11 @@ export class TTSService {
       el.addEventListener('ended', cleanup, { once: true });
       el.addEventListener('error', cleanup, { once: true });
       void el.play().catch(() => cleanup());
-    } catch {
+    } catch (err) {
       this.failed = true; // fail-open: never throw into the game loop
+      console.warn('[TTS] synth/playback failed:', err);
     }
+    /* eslint-enable no-console */
   }
 
   /* istanbul ignore next — browser-only model load (network/disk) */
@@ -114,26 +118,46 @@ export class TTSService {
     if (this.failed) return null;
     if (!this.loading) {
       this.loading = (async (): Promise<KokoroLike | null> => {
+        /* eslint-disable no-console */
         try {
-          // Prefer a vendored offline model under /models, fall back to the HF
-          // hub on first run (cached by the browser thereafter).
+          // Use a vendored offline model under /models ONLY if it's actually
+          // present — otherwise the dev server answers /models/... with
+          // index.html (200, text/html), which transformers.js would mistake
+          // for the model. Probe config.json; fall back to the HF hub on first
+          // run (then the browser caches it).
+          let useLocal = false;
+          try {
+            const probe = await fetch(`/models/${KOKORO_MODEL_ID}/config.json`);
+            const ct = probe.headers.get('content-type') ?? '';
+            useLocal = probe.ok && ct.includes('json');
+          } catch { /* offline probe failed → remote */ }
           try {
             const tf = await import('@huggingface/transformers');
             const env = (tf as { env?: { allowLocalModels?: boolean; localModelPath?: string } }).env;
-            if (env) { env.allowLocalModels = true; env.localModelPath = '/models/'; }
-          } catch { /* optional: remote-only is fine */ }
+            if (env) { env.allowLocalModels = useLocal; if (useLocal) env.localModelPath = '/models/'; }
+          } catch { /* remote-only is fine */ }
+          console.warn(`[TTS] loading Kokoro model (${useLocal ? 'vendored /models' : 'Hugging Face hub'}, ${KOKORO_DTYPE}/wasm) — first run downloads ~80MB…`);
           // @ts-ignore — kokoro-js resolves under the build tsconfig; ts-jest's
           // resolver can't read its `exports` types map (this path is browser-only).
           const { KokoroTTS } = await import('kokoro-js');
           const model = await KokoroTTS.from_pretrained(KOKORO_MODEL_ID, {
-            dtype: KOKORO_DTYPE as 'q8', device: 'wasm',
+            dtype: KOKORO_DTYPE as 'q8',
+            device: 'wasm',
+            progress_callback: (p: { status?: string; progress?: number; file?: string }) => {
+              if (p?.status === 'progress' && typeof p.progress === 'number') {
+                console.warn(`[TTS] downloading ${p.file ?? ''} ${Math.round(p.progress)}%`);
+              }
+            },
           });
           this.tts = model as unknown as KokoroLike;
+          console.warn('[TTS] Kokoro model ready');
           return this.tts;
-        } catch {
+        } catch (err) {
           this.failed = true;
+          console.warn('[TTS] model load failed (voice disabled this session):', err);
           return null;
         }
+        /* eslint-enable no-console */
       })();
     }
     return this.loading;
