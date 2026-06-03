@@ -405,10 +405,7 @@ export class GameWorldScene extends BaseScene {
     this.adjustOverlay.setHandlers({
       onApply: (slot, attach) => this.adjustPreview(slot, attach),
       onSave: (itemId, _slot, attach) => this.adjustSave(itemId, attach),
-      onClose: () => {
-        this.cameraSystem?.setWheelZoomEnabled(false);
-        this.cameraSystem?.exitConversationMode();
-      },
+      onClose: () => { /* camera unchanged while adjusting — nothing to restore */ },
     });
 
     // Main action ribbon (Phase 11): Attack Ranged / Melee / Talk / Inventory.
@@ -708,11 +705,10 @@ export class GameWorldScene extends BaseScene {
       return;
     }
 
-    // Adjust tool (O) — freezes movement but keeps camera orbit/zoom so you can
-    // inspect the held prop from any angle while tuning it.
+    // Adjust tool (O) — freezes movement; the default close camera frames the
+    // hero (no orbit/zoom override, to keep the on-foot view consistent).
     this.handleAdjustInput();
     if (this.adjustOverlay?.isOpen()) {
-      this.handleCameraKeys(dt);
       this.cameraSystem?.update();
       this.inputSystem?.endFrame();
       return;
@@ -2178,8 +2174,7 @@ export class GameWorldScene extends BaseScene {
     const base = resolveAttachWith(itemId, slot, this.heldAttach);
     base.bone = boneFor(itemId, slot, this.heldAttach);
     const bones = (this.player?.getSkeleton()?.bones ?? []).map((b) => b.name);
-    if (this.player) this.cameraSystem?.enterConversationMode(this.player.getRoot(), 4);
-    this.cameraSystem?.setWheelZoomEnabled(true); // free wheel zoom while tuning
+    // Camera stays as the default close follow view — no zoom/orbit override.
     this.adjustOverlay.open(itemId, slot, base, bones);
   }
 
