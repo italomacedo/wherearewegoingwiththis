@@ -29,6 +29,11 @@ const CREATOR_LABEL_KEY: Record<string, string> = {
   'Skin Tone': 'creator.skinTone',
   'Eye Color': 'creator.eyeColor',
   Outfit: 'creator.outfitLabel',
+  Head: 'creator.partHead',
+  Top: 'creator.partTop',
+  Bottom: 'creator.partBottom',
+  'Top Color': 'creator.topColor',
+  'Bottom Color': 'creator.bottomColor',
   'Hair Color': 'creator.hairColor',
 };
 
