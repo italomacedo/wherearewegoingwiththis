@@ -1,6 +1,6 @@
 import {
   ITEM_REGISTRY, WEAPON_REGISTRY,
-  itemDef, weaponDef, isWeapon, isMeleeWeapon, itemWeight, itemMaxStack, weaponProfile,
+  itemDef, weaponDef, isWeapon, isMeleeWeapon, isFirearm, itemWeight, itemMaxStack, weaponProfile,
   itemEquipSlot, itemCapacityBonus, itemHungerRestore, itemModelPath, itemAttach,
 } from '../../../../src/entities/items/ItemCatalog';
 import { FIST_PROFILE } from '../../../../src/systems/combat/CombatMath';
@@ -27,6 +27,8 @@ describe('ItemCatalog', () => {
     expect(ITEM_REGISTRY.pistol.category).toBe('misc');
     expect(isMeleeWeapon('pistol')).toBe(false); // never arms the melee fighter
     expect(isMeleeWeapon('knife')).toBe(true);
+    expect(isFirearm('pistol')).toBe(true);
+    expect(isFirearm('knife')).toBe(false);
   });
 
   it('equip slots / capacity bonus / hunger / model path expose Phase 10 fields', () => {

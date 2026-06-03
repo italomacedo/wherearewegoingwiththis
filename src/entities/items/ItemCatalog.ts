@@ -140,6 +140,11 @@ export function isMeleeWeapon(id: string): boolean {
   return WEAPON_BY_ID.get(id)?.attackKind === 'melee';
 }
 
+/** True when the item is a firearm (ranged weapon) — cosmetic only this phase. */
+export function isFirearm(id: string): boolean {
+  return WEAPON_BY_ID.get(id)?.attackKind === 'ranged';
+}
+
 /** GLB model path for the item's visible held/worn prop (undefined if it has none). */
 export function itemModelPath(id: string): string | undefined { return ITEM_BY_ID.get(id)?.modelPath; }
 

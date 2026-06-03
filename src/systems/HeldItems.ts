@@ -12,7 +12,7 @@
 
 import type { Scene, Skeleton, AbstractMesh } from '@babylonjs/core';
 import {
-  EquipSlot, ItemAttach, itemModelPath, itemAttach,
+  EquipSlot, ItemAttach, itemModelPath, itemAttach, isFirearm,
 } from '@entities/items/ItemCatalog';
 
 /** Rig bone a slot's prop attaches to (Quaternius Ultimate Modular). */
@@ -88,6 +88,12 @@ export function heldPropsFor(
 /** True when the flashlight is the held main-hand item (light on + aim pose). */
 export function flashlightActive(equipped: Partial<Record<EquipSlot, string>> | undefined): boolean {
   return equipped?.main_hand === 'flashlight';
+}
+
+/** True when the held main-hand item is aimed two-handed (flashlight or a firearm). */
+export function holdsAimPose(equipped: Partial<Record<EquipSlot, string>> | undefined): boolean {
+  const main = equipped?.main_hand;
+  return main === 'flashlight' || (!!main && isFirearm(main));
 }
 
 /* istanbul ignore next — entire browser rig is GPU/Electron only */

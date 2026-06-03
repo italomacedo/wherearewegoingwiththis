@@ -28,7 +28,7 @@ import { CharacterAppearance, DEFAULT_APPEARANCE } from '@entities/CharacterData
 import { Inventory, defaultInventoryState } from '@entities/Inventory';
 import { weaponProfile, itemDef, isMeleeWeapon } from '@entities/items/ItemCatalog';
 import { InventoryOverlay } from '@systems/InventoryOverlay';
-import { HeldItemRig, resolveAttachWith, boneFor, AttachOverrides, flashlightActive } from '@systems/HeldItems';
+import { HeldItemRig, resolveAttachWith, boneFor, AttachOverrides, flashlightActive, holdsAimPose } from '@systems/HeldItems';
 import { AdjustOverlay } from '@systems/AdjustOverlay';
 import { EquipSlot, ItemAttach } from '@entities/items/ItemCatalog';
 import { NPCManager, NPCMemoryMap, AutonomyContext, AutonomyJob } from '@systems/NPCManager';
@@ -838,8 +838,10 @@ export class GameWorldScene extends BaseScene {
   /* istanbul ignore next — browser-only light + pose */
   private updateHeldEffects(): void {
     if (typeof document === 'undefined' || !this.player) return;
-    const on = flashlightActive(this.playerInventory.toState().equipped);
-    this.player.setIdleOverride(on ? 'aim' : null);
+    const equipped = this.playerInventory.toState().equipped;
+    // Aim pose for a flashlight OR a firearm held in the main hand; light only for the flashlight.
+    this.player.setIdleOverride(holdsAimPose(equipped) ? 'aim' : null);
+    const on = flashlightActive(equipped);
     if (on) {
       if (!this.flashlightLight) {
         const light = new SpotLight(

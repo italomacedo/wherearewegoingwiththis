@@ -1,6 +1,6 @@
 import {
   attachBoneNameFor, resolveAttach, resolveAttachWith, boneFor, heldPropsFor,
-  DEFAULT_ATTACH, VISIBLE_SLOTS, AttachOverrides, flashlightActive,
+  DEFAULT_ATTACH, VISIBLE_SLOTS, AttachOverrides, flashlightActive, holdsAimPose,
 } from '../../../src/systems/HeldItems';
 
 describe('HeldItems (pure decision logic)', () => {
@@ -51,6 +51,14 @@ describe('HeldItems (pure decision logic)', () => {
     expect(flashlightActive({ main_hand: 'knife' })).toBe(false);
     expect(flashlightActive({ back: 'flashlight' } as never)).toBe(false);
     expect(flashlightActive(undefined)).toBe(false);
+  });
+
+  it('holdsAimPose for a held flashlight or firearm, not a melee weapon', () => {
+    expect(holdsAimPose({ main_hand: 'flashlight' })).toBe(true);
+    expect(holdsAimPose({ main_hand: 'pistol' })).toBe(true);   // cosmetic firearm
+    expect(holdsAimPose({ main_hand: 'shotgun' })).toBe(true);
+    expect(holdsAimPose({ main_hand: 'knife' })).toBe(false);   // melee → no aim pose
+    expect(holdsAimPose(undefined)).toBe(false);
   });
 
   describe('save overrides (Adjust tool)', () => {
