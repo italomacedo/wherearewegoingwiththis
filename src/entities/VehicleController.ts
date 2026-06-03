@@ -85,6 +85,12 @@ export class VehicleController {
   private destroyed = false;
   private smoking = false;
   private lastImpactDamage = 0;
+  /**
+   * Optional probe for the world surface (Y) directly under the nave at (x,z) —
+   * a downward raycast against the level geometry, injected by the scene. Lets
+   * the nave hover over / land on rooftops. Null (headless/tests) → flat ground.
+   */
+  private floorProvider: ((x: number, z: number) => number) | null = null;
 
   constructor(scene: Scene, config?: Partial<VehicleConfig>) {
     this.scene = scene;
@@ -104,7 +110,8 @@ export class VehicleController {
     input: VehicleFlightInput,
     cameraYaw: number,
     dt: number,
-    config: VehicleConfig = DEFAULT_VEHICLE_CONFIG
+    config: VehicleConfig = DEFAULT_VEHICLE_CONFIG,
+    surfaceFloor = 0
   ): VehicleFlightResult {
     const engineOn = input.engineOn !== false;
     const velocity = state.velocity.clone();
@@ -140,8 +147,12 @@ export class VehicleController {
     // Integrate position
     const position = state.position.add(velocity.scale(dt));
 
-    // Clamp altitude; detect a landing (downward crossing of the floor)
-    const floor = engineOn ? config.hoverHeight : config.groundRestHeight;
+    // Clamp altitude; detect a landing (downward crossing of the floor). The
+    // floor sits relative to whatever surface is directly under the nave
+    // (`surfaceFloor`, 0 = street level) so it can hover over / rest on a
+    // rooftop instead of phasing through it. Powered → hover clearance; off →
+    // ground rest clearance above that surface.
+    const floor = surfaceFloor + (engineOn ? config.hoverHeight : config.groundRestHeight);
     let landed = false;
     let impactSpeed = 0;
     if (position.y < floor) {
@@ -175,6 +186,15 @@ export class VehicleController {
   static setUseGltf(enabled: boolean): void { VehicleController.useGltf = enabled; }
   /** True when SceneLoader is available (browser/Electron only). */
   static canLoadGltf(): boolean { return typeof document !== 'undefined'; }
+
+  /**
+   * Inject a surface-height probe `(x,z) → worldY` (the level geometry directly
+   * under the nave). Enables hovering over / landing on rooftops. Pass null to
+   * revert to flat ground. Browser-only (the probe raycasts the scene).
+   */
+  setFloorProvider(fn: ((x: number, z: number) => number) | null): void {
+    this.floorProvider = fn;
+  }
 
   /** Builds the placeholder bike and parks it (resting on the ground). */
   spawn(position: Vector3): void {
@@ -231,7 +251,11 @@ export class VehicleController {
   update(dt: number, input: VehicleFlightInput, cameraYaw: number): void {
     if (this.destroyed) return;
     const engineOn = this.occupied;
-    const restFloor = this.config.groundRestHeight;
+    // Surface directly under the nave (rooftop or street); flat ground headlessly.
+    const surfaceY = this.floorProvider
+      ? this.floorProvider(this.state.position.x, this.state.position.z)
+      : 0;
+    const restFloor = surfaceY + this.config.groundRestHeight;
     const airborne = this.state.position.y > restFloor + 1e-3;
     const movingVertically = Math.abs(this.state.velocity.y) > 1e-4;
     if (!engineOn && !airborne && !movingVertically) return; // parked at rest
@@ -241,7 +265,7 @@ export class VehicleController {
       : { axis: { x: 0, z: 0 }, vertical: 0, engineOn: false };
 
     const result = VehicleController.computeFlightStep(
-      this.state, stepInput, cameraYaw, dt, this.config
+      this.state, stepInput, cameraYaw, dt, this.config, surfaceY
     );
     this.state = { position: result.position, velocity: result.velocity };
     this.root.position = this.state.position.clone();
