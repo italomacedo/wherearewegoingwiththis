@@ -213,7 +213,8 @@ export class CharacterAssembler {
       const donorContainer = containers.get(donor.outfitKey)!;
       donorContainer.addAllToScene();
       skeleton = donorContainer.skeletons[0] ?? null;
-      const donorRoot = this.containerRoot(donorContainer.meshes);
+      const donorRoot: Node | null =
+        (donorContainer.rootNodes[0] as Node | undefined) ?? this.containerRoot(donorContainer.meshes);
 
       // 2) Keep + rename the loco + combat clips on the donor; dispose the rest.
       const byName = new Map(donorContainer.animationGroups.map((g) => [g.name, g]));
@@ -227,33 +228,40 @@ export class CharacterAssembler {
       for (const g of donorContainer.animationGroups) { if (!kept.includes(g)) g.dispose(); }
       animationGroups = kept;
 
-      // 3) For each source: keep its assigned region meshes (rebind borrowed ones
-      //    to the donor skeleton + reparent to the donor root), strip weapons, tint
-      //    by region, and dispose everything else (incl. extra skeletons/clips).
+      // 3) For each source: keep its assigned region meshes. CRITICAL ORDER —
+      //    borrowed meshes must be REPARENTED onto the donor root *before* the
+      //    foreign container is disposed, otherwise disposing the foreign
+      //    `__root__` (in container.meshes) recursively disposes the kept child
+      //    too (it would only render when its outfit == the donor's). So the
+      //    donor disposes unused meshes inline, but each non-donor is reparented
+      //    first and then disposed wholesale.
       for (const item of plan) {
         const c = containers.get(item.outfitKey)!;
         const isDonor = item.outfitKey === donor.outfitKey;
         if (!isDonor) c.addAllToScene();
         for (const mesh of [...c.meshes]) {
-          if (isStrippableMesh(mesh.name)) { mesh.dispose(); continue; } // pistol/sword/backpack
           const region = this.regionOfMeshNode(mesh);
-          const keep = region !== null && item.regions.includes(region);
+          const keep = region !== null && item.regions.includes(region) && !isStrippableMesh(mesh.name);
           if (keep) {
             if (!isDonor) {
               if (skeleton) mesh.skeleton = skeleton;     // rebind by bone index (identical order)
-              if (donorRoot) mesh.parent = donorRoot;     // re-home under the kept root
+              if (donorRoot) mesh.setParent(donorRoot);   // re-home (preserve world) before dispose
+              mesh.alwaysSelectAsActiveMesh = true;        // re-skinned bounds may be stale → never false-cull
             }
             this.tintRegionMesh(mesh, region, item.outfitKey, colors);
             meshes.push(mesh);
-          } else if (region === null && isDonor) {
-            meshes.push(mesh);                            // keep the donor's root/transform nodes
-          } else {
-            mesh.dispose();                               // unused region mesh / foreign root node
+          } else if (isDonor) {
+            if (region === null) meshes.push(mesh);        // keep the donor's root/transform nodes
+            else mesh.dispose(true);                       // donor's unused region mesh / weapon
           }
+          // non-donor non-kept meshes are left for the wholesale dispose below
         }
         if (!isDonor) {
-          c.skeletons.forEach((s) => s.dispose());        // we animate via the donor skeleton only
+          // Everything not reparented out goes with the foreign container: its
+          // root hierarchy (unused regions, weapons, foreign bones), clips, skeleton.
           c.animationGroups.forEach((g) => g.dispose());
+          c.skeletons.forEach((s) => s.dispose());         // we animate via the donor skeleton only
+          c.rootNodes.forEach((n) => { if (n !== donorRoot) n.dispose(); });
         }
       }
       console.warn(
