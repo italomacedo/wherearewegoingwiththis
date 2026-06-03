@@ -170,6 +170,13 @@ process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL
 let win: BrowserWindow | null;
 const claudeProcesses = new Map<string, ChildProcess>();
 
+// Safety net: a single-player desktop game's MAIN process should never die from a
+// stray async error (e.g. a broken child-process pipe). Log and keep running.
+/* eslint-disable no-console */
+process.on('uncaughtException', (err) => console.error('[main] uncaughtException (kept alive):', err));
+process.on('unhandledRejection', (reason) => console.error('[main] unhandledRejection:', reason));
+/* eslint-enable no-console */
+
 function createWindow() {
   win = new BrowserWindow({
     width: 1920,
@@ -241,8 +248,18 @@ ipcMain.handle(
 
       claudeProcesses.set(npcId, proc);
 
-      proc.stdin?.write(prompt);
-      proc.stdin?.end();
+      // CRITICAL: a failed/early-closed child makes the stdin pipe emit 'error'
+      // (EPIPE/ENOENT). An UNHANDLED stream 'error' is an uncaught exception that
+      // crashes the whole Electron MAIN process (observed: app dies after an
+      // autonomous NPC call, no renderer stack). Handle it + guard the write;
+      // the child's own 'error'/'close' below still rejects the promise.
+      proc.stdin?.on('error', () => { /* swallowed — handled via proc 'error'/'close' */ });
+      try {
+        proc.stdin?.write(prompt);
+        proc.stdin?.end();
+      } catch {
+        /* child already gone — proc 'error'/'close' handles the rejection */
+      }
 
       let stderrBuf = '';
 
