@@ -73,6 +73,41 @@ describe('CharacterCreatorScene (Quaternius outfits)', () => {
     expect(scene.getOutfit()).toBe(outfitsForGender('male')[0]!.key);
   });
 
+  it('setPart composes head/top/bottom independently; top re-anchors gender', async () => {
+    await scene.onEnter();
+    await scene.setPart('head', 'suit');
+    await scene.setPart('bottom', 'adventurer');
+    await scene.setPart('top', 'punk');
+    expect(scene.getPart('head')).toBe('suit');
+    expect(scene.getPart('top')).toBe('punk');
+    expect(scene.getPart('bottom')).toBe('adventurer');
+    const pieces = scene.getCharacterData().appearance.avatarPieces;
+    expect(pieces).toMatchObject({ head: 'suit', top: 'punk', bottom: 'adventurer' });
+    expect(scene.getCharacterData().appearance.bodyBase).toBe('punk'); // top anchors gender
+    expect(scene.getGender()).toBe('male');
+  });
+
+  it('cyclePart walks the current gender outfits for one region and wraps', async () => {
+    await scene.onEnter();
+    const keys = outfitsForGender('male').map((o) => o.key);
+    await scene.setPart('head', keys[0]!);
+    await scene.cyclePart('head', 1);
+    expect(scene.getPart('head')).toBe(keys[1]);
+    await scene.setPart('head', keys[0]!);
+    await scene.cyclePart('head', -1);
+    expect(scene.getPart('head')).toBe(keys[keys.length - 1]);
+  });
+
+  it('setOutfit resets the modular composition to a whole outfit', async () => {
+    await scene.onEnter();
+    await scene.setPart('head', 'suit');
+    await scene.setOutfit('punk');
+    expect(scene.getPart('head')).toBe('punk');
+    expect(scene.getPart('top')).toBe('punk');
+    expect(scene.getPart('bottom')).toBe('punk');
+    expect(scene.getCharacterData().appearance.avatarPieces).toEqual({});
+  });
+
   it('setSkinTone / setHairColor / setColorValue update colours', async () => {
     await scene.onEnter();
     await scene.setSkinTone('#FF0000');
@@ -169,10 +204,12 @@ describe('buildCreatorSchema (pure)', () => {
     expect(schema[0]!.controls.map((c) => c.kind)).toEqual(['gender', 'color', 'color']);
   });
 
-  it('Outfit category has an outfit cycler + hair colour', () => {
-    const kinds = schema.find((c) => c.title === 'Outfit')!.controls.map((c) => c.kind);
-    expect(kinds).toContain('outfit');
-    expect(kinds).toContain('color');
+  it('Outfit category has three modular part cyclers + top/bottom/hair colours', () => {
+    const controls = schema.find((c) => c.title === 'Outfit')!.controls;
+    const parts = controls.filter((c) => c.kind === 'part');
+    expect(parts.map((c) => (c.kind === 'part' ? c.region : null))).toEqual(['head', 'top', 'bottom']);
+    const colorKeys = controls.flatMap((c) => (c.kind === 'color' ? [c.colorKey] : []));
+    expect(colorKeys).toEqual(expect.arrayContaining(['top', 'bottom', 'hair']));
   });
 
   it('every colour control has a non-empty preset palette', () => {

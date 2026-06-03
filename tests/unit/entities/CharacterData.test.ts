@@ -3,7 +3,7 @@ import {
   SLOT_REGISTRY, MORPH_REGISTRY, EXCLUSIVE_GROUPS,
   applySlot, resolveLayers, clampMorph, cloneAppearance, migrateAppearance,
   getSkinTone, getHair, getHairColor, getBaseTop, getOuterwear, getBottom, getFootwear,
-  bodyBaseKey, parseGender, parseEthnicity,
+  bodyBaseKey, parseGender, parseEthnicity, resolveAvatarParts,
 } from '../../../src/entities/CharacterData';
 
 describe('CharacterData', () => {
@@ -266,6 +266,36 @@ describe('CharacterData', () => {
       expect(a.slots).toEqual({});
       expect(a.accessories).toEqual([]);
       expect(a.colors.skin).toBe(DEFAULT_COLORS.skin);
+    });
+  });
+
+  describe('resolveAvatarParts (modular composition)', () => {
+    it('inherits bodyBase for every region when avatarPieces is empty', () => {
+      const a: CharacterAppearance = { ...DEFAULT_APPEARANCE, bodyBase: 'suit', avatarPieces: {} };
+      expect(resolveAvatarParts(a)).toEqual({ head: 'suit', top: 'suit', bottom: 'suit' });
+    });
+
+    it('uses per-region overrides and falls back to bodyBase for the rest', () => {
+      const a: CharacterAppearance = {
+        ...DEFAULT_APPEARANCE,
+        bodyBase: 'punk',
+        avatarPieces: { head: 'suit', bottom: 'adventurer' },
+      };
+      expect(resolveAvatarParts(a)).toEqual({ head: 'suit', top: 'punk', bottom: 'adventurer' });
+    });
+
+    it('treats null/empty-string overrides as inherit', () => {
+      const a: CharacterAppearance = {
+        ...DEFAULT_APPEARANCE,
+        bodyBase: 'worker',
+        avatarPieces: { head: null, top: '', bottom: 'king' },
+      };
+      expect(resolveAvatarParts(a)).toEqual({ head: 'worker', top: 'worker', bottom: 'king' });
+    });
+
+    it('a migrated legacy save renders the whole-outfit look (all = bodyBase)', () => {
+      const a = migrateAppearance({ bodyBase: 'w_punk' });
+      expect(resolveAvatarParts(a)).toEqual({ head: 'w_punk', top: 'w_punk', bottom: 'w_punk' });
     });
   });
 });

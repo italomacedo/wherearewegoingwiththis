@@ -161,3 +161,114 @@ export function tintRoleForMaterial(materialName: string): 'skin' | 'eye' | 'hai
   if (/^eyebrow/i.test(materialName) || /^hair/i.test(materialName)) return 'hair';
   return null;
 }
+
+// ─── Modular composition (Fase 12) ──────────────────────────────────────────────
+
+/**
+ * Region of a Quaternius character mesh, by its node name. Every outfit GLB ships
+ * 4 region meshes `{Name}_Head/_Body/_Legs/_Feet` (+ optional weapon/accessory),
+ * all skinned to the same shared rig — so a modular avatar borrows `Head` from one
+ * outfit, `Body` (top) from another and `Legs`+`Feet` (lower) from a third.
+ */
+export type MeshRegion = 'head' | 'top' | 'lower' | 'weapon' | 'accessory';
+
+/** Colour role a material maps to once region is known (clothing → top/bottom). */
+export type TintRole = 'skin' | 'eye' | 'hair' | 'top' | 'bottom';
+
+/**
+ * Classify a mesh node by region from its name suffix (case-insensitive):
+ * `_Head`→head, `_Body`→top, `_Legs`/`_Feet`→lower; `Pistol`/`Sword`/…→weapon;
+ * `Backpack`→accessory. Skeleton/root nodes (no region suffix) → null.
+ */
+export function partRegionOf(meshName: string): MeshRegion | null {
+  // Token-boundary match so Babylon's `<node>_primitiveN` split meshes (multi-
+  // material nodes) still classify by their node name.
+  const n = meshName.toLowerCase();
+  if (/(^|_)head(_|$)/.test(n)) return 'head';
+  if (/(^|_)body(_|$)/.test(n)) return 'top';
+  if (/(^|_)(legs|feet)(_|$)/.test(n)) return 'lower';
+  if (/(pistol|revolver|shotgun|rifle|sword|gun|weapon)/.test(n)) return 'weapon';
+  if (/(backpack|bag)/.test(n)) return 'accessory';
+  return null;
+}
+
+/** Meshes that are removed on load (weapons in hand; carried accessories). */
+export function isStrippableMesh(meshName: string): boolean {
+  const r = partRegionOf(meshName);
+  return r === 'weapon' || r === 'accessory';
+}
+
+/**
+ * Themed molds whose hair/mohawk uses named colour materials instead of a generic
+ * `Hair`/`Eyebrows` material — so a name-based tint silently misses them. Mapping
+ * these to the hair role lets the hair-colour slider recolour them too. Keyed by
+ * outfit key (note the women's `w_` prefix). Owner-approved override (Fase 12).
+ */
+export const HAIR_MATERIAL_OVERRIDES: Record<string, string[]> = {
+  punk: ['Red', 'Red_Dark'],
+  w_punk: ['Hair_Brown', 'Brown'],
+};
+
+/**
+ * The colour role for a material, accounting for which region mesh carries it and
+ * any per-outfit hair override. Resolution order:
+ *   1. semantic by name (Skin/Eye/Hair/Eyebrows) — exposed skin on a Body/Legs mesh
+ *      therefore stays skin, never clothing;
+ *   2. per-outfit hair override (themed mohawk materials → hair);
+ *   3. clothing by region: a `top` mesh → 'top', a `lower` mesh → 'bottom'.
+ * Anything else (head accessories, weapons, unknown) keeps its authored colour (null).
+ */
+export function tintRoleForMaterialInRegion(
+  materialName: string,
+  region: MeshRegion | null,
+  outfitKey?: string,
+): TintRole | null {
+  const base = tintRoleForMaterial(materialName);
+  if (base) return base;
+  if (outfitKey && (HAIR_MATERIAL_OVERRIDES[outfitKey] ?? []).includes(materialName)) return 'hair';
+  if (region === 'top') return 'top';
+  if (region === 'lower') return 'bottom';
+  return null;
+}
+
+/** One source GLB to load for a modular avatar + which region meshes to keep from it. */
+export interface ModularLoadItem {
+  outfitKey: string;
+  /** GLB path relative to /assets/. */
+  path: string;
+  /** Region meshes to keep from this container. */
+  regions: MeshRegion[];
+  /** Keep this container's skeleton + animation clips (the others' are discarded). */
+  isSkeletonDonor: boolean;
+}
+
+/**
+ * Plan the (deduplicated) set of source GLBs to load for a modular composition.
+ * The `top` outfit donates the shared skeleton + animation clips (`isSkeletonDonor`);
+ * `head`→head mesh, `top`→body (top) mesh, `bottom`→legs+feet (lower) meshes. When
+ * picks repeat the same outfit, they collapse to one load carrying multiple regions
+ * (so all-equal picks = a single GLB load, identical to the legacy whole-outfit path).
+ * Unknown keys fall back to the default outfit's GLB. Pure + testable.
+ */
+export function planModularLoad(
+  parts: { head: string; top: string; bottom: string },
+): ModularLoadItem[] {
+  const order: Array<[string, MeshRegion]> = [
+    [parts.top, 'top'],     // donor first
+    [parts.head, 'head'],
+    [parts.bottom, 'lower'],
+  ];
+  const byKey = new Map<string, ModularLoadItem>();
+  const items: ModularLoadItem[] = [];
+  for (const [key, region] of order) {
+    let item = byKey.get(key);
+    if (!item) {
+      const path = (outfitByKey(key) ?? outfitByKey(DEFAULT_OUTFIT)!).path;
+      item = { outfitKey: key, path, regions: [], isSkeletonDonor: key === parts.top };
+      byKey.set(key, item);
+      items.push(item);
+    }
+    if (!item.regions.includes(region)) item.regions.push(region);
+  }
+  return items;
+}
