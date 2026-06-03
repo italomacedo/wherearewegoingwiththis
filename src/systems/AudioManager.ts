@@ -2,6 +2,7 @@ import type { Scene } from '@babylonjs/core';
 import type { EventBus } from '@core/EventBus';
 import { SettingsService, type GameSettings } from './SettingsService';
 import { sfxSpec } from './SfxCatalog';
+import { musicSpec, musicForScene, fadeStep, MUSIC_FADE_MS } from './MusicCatalog';
 
 /**
  * Audio mixing buses. `master` scales every other bus; `music`/`sfx`/`voice`
@@ -86,12 +87,22 @@ export class AudioManager {
   private engineCtx: AudioContext | null = null;
   private engineOsc: OscillatorNode | null = null;
   private engineGain: GainNode | null = null;
+  /** Looping background-music element + the track id it's playing (music bus). */
+  private musicEl: HTMLAudioElement | null = null;
+  private musicTrack: string | null = null;
+  private musicFadeTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(eventBus?: EventBus) {
     this.mixer = mixerFromSettings(SettingsService.load());
     if (eventBus) {
       this.unsubscribes.push(eventBus.on('settings:changed', () => this.refreshFromSettings()));
       this.unsubscribes.push(eventBus.on('audio:sfx', ({ cue }) => this.playCue(cue)));
+      // Swap the background music to match each loaded scene (null = stop).
+      this.unsubscribes.push(eventBus.on('scene:loaded', ({ sceneName }) => {
+        const track = musicForScene(sceneName);
+        if (track) this.playMusic(track);
+        else this.stopMusic();
+      }));
     }
   }
 
@@ -118,13 +129,61 @@ export class AudioManager {
     /* reserved */
   }
 
-  /* istanbul ignore next — browser-only: re-apply bus volume to live loops + engine */
+  /* istanbul ignore next — browser-only: re-apply bus volume to live loops + engine + music */
   private applyToLiveSounds(): void {
     this.loops.forEach((el, cueId) => {
       const spec = sfxSpec(cueId);
       el.volume = clampVolume(this.effective(spec?.bus ?? 'sfx'));
     });
     if (this.engineGain) this.engineGain.gain.value = this.engineGainValue();
+    if (this.musicEl) this.musicEl.volume = clampVolume(this.effective('music'));
+  }
+
+  /**
+   * Play a looping background track on the music bus, crossfading from any
+   * current track. No-op if the track is already playing or unregistered.
+   * Browser-only; safe no-op outside the DOM.
+   */
+  /* istanbul ignore next — browser-only music playback */
+  playMusic(trackId: string): void {
+    if (typeof document === 'undefined' || typeof Audio === 'undefined') return;
+    if (this.musicTrack === trackId && this.musicEl) return;
+    const spec = musicSpec(trackId);
+    if (!spec) return;
+    const old = this.musicEl;
+    const next = new Audio(spec.path);
+    next.loop = true;
+    next.volume = 0;
+    this.musicEl = next;
+    this.musicTrack = trackId;
+    void next.play().catch(() => {});
+    this.runMusicFade(old, next);
+  }
+
+  /** Crossfade: ramp the new bed up to the music-bus volume, the old one to 0. */
+  /* istanbul ignore next — browser-only fade loop */
+  private runMusicFade(oldEl: HTMLAudioElement | null, newEl: HTMLAudioElement): void {
+    if (this.musicFadeTimer) clearInterval(this.musicFadeTimer);
+    const stepMs = 50;
+    this.musicFadeTimer = setInterval(() => {
+      const target = clampVolume(this.effective('music'));
+      newEl.volume = fadeStep(newEl.volume, target, stepMs, MUSIC_FADE_MS);
+      if (oldEl) oldEl.volume = fadeStep(oldEl.volume, 0, stepMs, MUSIC_FADE_MS);
+      const fadedIn = Math.abs(newEl.volume - target) < 1e-3;
+      const fadedOut = !oldEl || oldEl.volume <= 1e-3;
+      if (fadedIn && fadedOut) {
+        if (oldEl) oldEl.pause();
+        if (this.musicFadeTimer) { clearInterval(this.musicFadeTimer); this.musicFadeTimer = null; }
+      }
+    }, stepMs);
+  }
+
+  /** Stop the background music (no fade). Browser-only. */
+  /* istanbul ignore next — browser-only */
+  stopMusic(): void {
+    if (this.musicFadeTimer) { clearInterval(this.musicFadeTimer); this.musicFadeTimer = null; }
+    if (this.musicEl) { this.musicEl.pause(); this.musicEl = null; }
+    this.musicTrack = null;
   }
 
   /** Base gain of the engine drone, scaled by the (master×sfx) bus. */
@@ -244,5 +303,7 @@ export class AudioManager {
     this.active.clear();
     /* istanbul ignore next — browser-only Web Audio teardown */
     this.stopEngineTone();
+    /* istanbul ignore next — browser-only music teardown */
+    this.stopMusic();
   }
 }

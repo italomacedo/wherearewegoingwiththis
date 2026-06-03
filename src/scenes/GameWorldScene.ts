@@ -1122,6 +1122,7 @@ export class GameWorldScene extends BaseScene {
     });
     this.combat.setPortraitSources(sources);
     this.combat.start(controller);
+    (this.audio ??= ServiceLocator.tryGet<AudioManager>('audio'))?.playMusic('combat');
     // Seed each combatant facing its nearest foe so the fight opens looking engaged,
     // and the per-frame pin keeps it (Bug A).
     this.combatFacing.clear();
@@ -1570,6 +1571,7 @@ export class GameWorldScene extends BaseScene {
   /** Apply a resolved combat outcome to the world (player HP, defeat, disposition). */
   /* istanbul ignore next — browser-only combat wiring */
   private endCombat(outcome: CombatOutcome): void {
+    (this.audio ??= ServiceLocator.tryGet<AudioManager>('audio'))?.playMusic('world'); // back to the street bed
     const state = this.combat?.getController()?.getState();
     const me = state?.combatants.find((c) => c.isPlayer);
     if (me) {

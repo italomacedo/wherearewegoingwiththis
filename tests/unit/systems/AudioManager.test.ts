@@ -136,4 +136,15 @@ describe('AudioManager — instance + settings wiring', () => {
     am.dispose();
     expect(bus.listenerCount('audio:sfx')).toBe(0);
   });
+
+  it('subscribes to scene:loaded; emitting a scene swaps/stops music safely; dispose clears it', () => {
+    const bus = new EventBus();
+    const am = new AudioManager(bus);
+    expect(bus.listenerCount('scene:loaded')).toBe(1);
+    // No DOM → playMusic/stopMusic are safe no-ops (must not throw).
+    expect(() => bus.emit('scene:loaded', { sceneName: 'main-menu' })).not.toThrow(); // → music track
+    expect(() => bus.emit('scene:loaded', { sceneName: 'splash' })).not.toThrow();    // → stop
+    am.dispose();
+    expect(bus.listenerCount('scene:loaded')).toBe(0);
+  });
 });
