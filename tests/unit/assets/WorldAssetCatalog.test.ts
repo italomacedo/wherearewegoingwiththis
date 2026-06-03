@@ -21,13 +21,19 @@ describe('WorldAssetCatalog — downtown city block (pure)', () => {
     for (const p of MERCADO_PROPS) expect(within(p)).toBe(true);
   });
 
-  it('lays a continuous asphalt road along the street axis', () => {
+  it('lays textured 4-lane road tiles along the street axis', () => {
     const road = byKey(/^road-\d+$/);
-    expect(road.length).toBeGreaterThanOrEqual(3);
-    for (const r of road) expect(r.model).toMatch(/asphalt/);
-    // Tiles step evenly along X for a seamless strip.
+    expect(road.length).toBeGreaterThanOrEqual(2);
+    // Textured MegaKit road (slab + lane markings), rotated to run along X, scaled to fill.
+    for (const r of road) {
+      expect(r.model).toMatch(/street_4lane/);
+      expect(r.rotationY).toBeCloseTo(Math.PI / 2);
+      expect(r.scale).toBe(1.5);
+      expect(r.position[2]).toBe(0); // centred across the corridor
+    }
+    // Two 27-long tiles meet at x=0 to cover the X span [-27, 27].
     const xs = road.map((r) => r.position[0]).sort((a, b) => a - b);
-    for (let i = 1; i < xs.length; i += 1) expect(xs[i]! - xs[i - 1]!).toBeCloseTo(9);
+    for (let i = 1; i < xs.length; i += 1) expect(xs[i]! - xs[i - 1]!).toBeCloseTo(27);
   });
 
   it('lines both sides of the street with buildings + a left dead end', () => {
