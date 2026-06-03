@@ -3,6 +3,14 @@
 This game uses CC0 (public domain) assets wherever possible. A few assets are
 licensed **CC-BY 4.0** and require attribution, listed below.
 
+## Voice / TTS — Kokoro (Apache-2.0)
+
+Neural text-to-speech is provided by **Kokoro** (`kokoro-js`, model
+`onnx-community/Kokoro-82M-v1.0-ONNX`), licensed **Apache-2.0** — free for
+commercial use. It runs 100% locally in the renderer (transformers.js /
+onnxruntime-web). The model is fetched from the Hugging Face hub on first run
+(or vendored offline under `public/models/`).
+
 ## Audio — Music (freesound.org)
 
 ### CC-BY 4.0 (attribution required)

@@ -1,7 +1,7 @@
-# ADR-0025 — Game audio (SFX + Music) + Voice/TTS plan
+# ADR-0025 — Game audio (SFX + Music) + Voice/TTS
 
-**Status:** Accepted — 13A/13B/13C implemented & owner-validated on branch `feat/audio-system`
-(NOT merged). 13D (Voice/TTS via Kokoro) planned, not started.
+**Status:** Accepted — 13A/13B/13C/**13D** implemented on branch `feat/audio-system` (NOT merged).
+13A–C owner-validated in Electron; 13D (Voice/TTS via Kokoro) code-complete, awaiting Electron playtest.
 
 ## Context
 
@@ -36,16 +36,36 @@ get its own voice, plus a narrator that voices select events (e.g. critical hits
 - **Settings:** existing volume fields are now read; added `ttsEnabled`/`musicEnabled`/`sfxEnabled`.
   Options gains a Sound tab (volume cyclers + mute/TTS toggles); the tab filter was wired (it rendered
   all tabs before).
-- **TTS = Kokoro via `kokoro-js`** (planned 13D): runs 100% local (transformers.js/onnxruntime-web),
-  no Python install; per-character voices + a narrator; gated by `ttsEnabled`, fail-open. (Anthropic
-  has no TTS API — its own voice mode uses ElevenLabs.)
+- **TTS = Kokoro via `kokoro-js`** (13D, implemented): runs 100% local in the renderer
+  (transformers.js / onnxruntime-web, WASM), no Python install; per-character voices + a narrator;
+  gated by `ttsEnabled`, **fail-open** (any load/synth error is a silent no-op). (Anthropic has no TTS
+  API — its own voice mode uses ElevenLabs.) Apache-2.0, free, 54 voices.
+  - **`VoiceAssigner` (pure):** maps speakers → Kokoro voice ids. Named-cast override (`FIXED_VOICES`:
+    Zara=`af_bella`, Mback=`am_onyx`) wins; otherwise a deterministic pick from the gender pool
+    (`FEMALE_VOICES`/`MALE_VOICES`) via an FNV-1a hash of the speaker id (stable per session). Narrator
+    = `bm_george`. NPC gender from `genderOfOutfit(appearance.bodyBase)`. 100% tested.
+  - **`TTSService` (browser-only synth, pure helpers):** lazy-loads `KokoroTTS.from_pretrained` once on
+    first use (q8/WASM), behind `ttsEnabled`; `generate` → `RawAudio.toBlob()` → `HTMLAudioElement` at
+    the **voice-bus** gain (`AudioManager.effective('voice')`). An incrementing token cancels stale
+    utterances; `cancel()` on dialog close. Pure `ttsSpeechText` (strip `*emotes*`) + `shouldSpeak`
+    tested; load/synth/playback `istanbul ignore`d.
+  - **Hooks (GameWorldScene):** NPC reply (full text, emotes stripped) → `speakNpc`; cinematic
+    narration (ambient / check-time / self-exam condition / action outcome / melee blow / combat
+    **critical** line) → `speakNarration`. Frequent background gossip is **not** voiced.
+  - **Model delivery:** prefers a vendored offline copy under `public/models/` (transformers.js
+    `env.localModelPath='/models/'`, vendored by the optional `scripts/copy-kokoro-model.mjs` from
+    `~/Downloads/Kokoro-82M-v1.0-ONNX`); otherwise falls back to the HF hub on first run (browser-
+    cached thereafter). `public/models/` is gitignored. `kokoro-js` + `@huggingface/transformers` are
+    lazy dynamic imports → Vite code-splits them into separate chunks (not in the main bundle).
 
 ## Files
 
-`src/systems/AudioManager.ts`, `SfxCatalog.ts`, `MusicCatalog.ts`, `UiSound.ts`; `scripts/convert_audio.mjs`;
-`public/assets/audio/{sfx,music}/*.ogg`; `CREDITS.md`; wiring in `GameWorldScene.ts`, `OptionsScene.ts`,
-`SettingsService.ts`, `EventBus.ts`, `electron/main.ts` (autoplay + crash logging), `GameManager.ts`
-(registers `audio`). Planned: `TTSService.ts`, `VoiceAssigner.ts`, `scripts/copy-kokoro-model.mjs`.
+`src/systems/AudioManager.ts`, `SfxCatalog.ts`, `MusicCatalog.ts`, `UiSound.ts`, **`VoiceAssigner.ts`,
+`TTSService.ts`**; `scripts/convert_audio.mjs`, **`scripts/copy-kokoro-model.mjs`**;
+`public/assets/audio/{sfx,music}/*.ogg`; `CREDITS.md`; wiring in `GameWorldScene.ts` (SFX + **TTS
+speakNpc/speakNarration hooks**), `OptionsScene.ts`, `SettingsService.ts`, `EventBus.ts`,
+`electron/main.ts` (autoplay + crash logging), `GameManager.ts` (registers `audio` + **`tts`**),
+`package.json` (`kokoro-js` dep + `copy:kokoro` pre-hook).
 
 ## Consequences
 

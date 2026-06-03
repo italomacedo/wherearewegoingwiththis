@@ -34,6 +34,7 @@ import { ActionRibbon } from '@systems/ActionRibbon';
 import { AimTarget, nearestToPoint } from '@systems/SurpriseTargeting';
 import { createMuzzleFlash } from '@systems/ParticleEffects';
 import type { AudioManager } from '@systems/AudioManager';
+import type { TTSService } from '@systems/TTSService';
 import { sfxForBeat, footstepInterval } from '@systems/SfxCatalog';
 import { EquipSlot, ItemAttach } from '@entities/items/ItemCatalog';
 import { NPCManager, NPCMemoryMap, AutonomyContext, AutonomyJob } from '@systems/NPCManager';
@@ -58,7 +59,7 @@ import { t, getLocale, languageName } from '@systems/I18n';
 import { SettingsService } from '@systems/SettingsService';
 import { CombatOverlay } from '@systems/combat/CombatOverlay';
 import { CombatController, CombatLogEntry } from '@systems/combat/CombatController';
-import { combatClipFor, attackClipFor, CombatClipState } from '@assets/AvatarMeshCatalog';
+import { combatClipFor, attackClipFor, CombatClipState, genderOfOutfit } from '@assets/AvatarMeshCatalog';
 import { CombatEncounter, CombatantInit, CombatOutcome } from '@systems/combat/CombatEncounter';
 import {
   combatTuningFromSettings, CombatTuning, Point2, Pathfinder,
@@ -94,6 +95,7 @@ export class GameWorldScene extends BaseScene {
   private inventoryOverlay: InventoryOverlay | null = null;
   /** Cached AudioManager (resolved lazily) + footstep cadence accumulator. */
   private audio: AudioManager | null = null;
+  private tts: TTSService | null = null;
   private footstepTimer = 0;
   /** Last frame's fall-damage reading, to fire the landing thud once per impact. */
   private prevFallDamage = 0;
@@ -831,6 +833,20 @@ export class GameWorldScene extends BaseScene {
     (this.audio ??= ServiceLocator.tryGet<AudioManager>('audio'))?.playCue(cue);
   }
 
+  /** Speak an NPC's line in its assigned voice (Kokoro TTS; fail-open). */
+  /* istanbul ignore next — thin browser glue over the unit-tested TTSService */
+  private speakNpc(agent: NPCAgent, text: string): void {
+    const gender = genderOfOutfit(agent.definition.appearance?.bodyBase ?? 'punk');
+    (this.tts ??= ServiceLocator.tryGet<TTSService>('tts') ?? null)
+      ?.speakSubject({ id: agent.definition.id, gender }, text);
+  }
+
+  /** Voice a cinematic narration line in the narrator voice (fail-open). */
+  /* istanbul ignore next — thin browser glue over the unit-tested TTSService */
+  private speakNarration(text: string): void {
+    (this.tts ??= ServiceLocator.tryGet<TTSService>('tts') ?? null)?.speakNarrator(text);
+  }
+
   /**
    * Footstep cadence: accumulate dt and fire the footstep cue at the interval
    * for the current loco state (silent when idle). Pure timing in footstepInterval.
@@ -1149,7 +1165,11 @@ export class GameWorldScene extends BaseScene {
 
     const language = languageName(getLocale());
     this.combat.setHandlers({
-      narrate: (beat) => this.npcManager?.narrateCombat(beat, language) ?? Promise.resolve(beat),
+      narrate: async (beat) => {
+        const line = await (this.npcManager?.narrateCombat(beat, language) ?? Promise.resolve(beat));
+        this.speakNarration(line); // voice the critical-hit line (narrator, TTS fail-open)
+        return line;
+      },
       onEnd: (outcome) => this.endCombat(outcome),
       onBeat: (entry) => this.onCombatBeat(entry),
       onRequestTarget: (attackKind) => { this.combatTargeting = { mode: 'attack', attackKind }; },
@@ -1836,6 +1856,8 @@ export class GameWorldScene extends BaseScene {
   private closeDialog(): void {
     this.dialog?.close();
     this.cameraSystem?.exitConversationMode();
+    /* istanbul ignore next — thin browser glue */
+    (this.tts ??= ServiceLocator.tryGet<TTSService>('tts') ?? null)?.cancel();
   }
 
   private wireDialog(): void {
@@ -1947,7 +1969,9 @@ export class GameWorldScene extends BaseScene {
     } else {
       this.dialog.setThinking(true);
       const narration = await this.npcManager.narrateAmbient(spoken, this.formatGameTime(), GameWorldScene.SURROUNDINGS, languageName(getLocale()));
-      this.dialog.addNarrationLine(narration || 'The street murmurs on, indifferent.');
+      const line = narration || 'The street murmurs on, indifferent.';
+      this.dialog.addNarrationLine(line);
+      this.speakNarration(line);
     }
   }
 
@@ -1964,6 +1988,7 @@ export class GameWorldScene extends BaseScene {
       } else {
         this.dialog.setNpcText(reply);
         if (agent.revealNameIfMentioned(reply)) this.dialog.setNpcName(agent.definition.name);
+        this.speakNpc(agent, reply); // voice the NPC's spoken words (TTS, fail-open)
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -1984,9 +2009,9 @@ export class GameWorldScene extends BaseScene {
     if (!hasEmote(message)) return false;
 
     if (isCheckTimeEmote(message)) {
-      this.dialog.addNarrationLine(
-        narrateTime(this.clock.label(this.gameTimeSeconds), this.clock.period(this.gameTimeSeconds))
-      );
+      const timeLine = narrateTime(this.clock.label(this.gameTimeSeconds), this.clock.period(this.gameTimeSeconds));
+      this.dialog.addNarrationLine(timeLine);
+      this.speakNarration(timeLine);
       return true;
     }
 
@@ -1997,7 +2022,9 @@ export class GameWorldScene extends BaseScene {
       if (result.success) {
         this.playerStats = applySkillUse(this.playerStats, 'medicina', SettingsService.get('skillGainMultiplier'));
       }
-      this.dialog.addNarrationLine(describeCondition(this.player.getHealth().fraction(), result.success));
+      const condLine = describeCondition(this.player.getHealth().fraction(), result.success);
+      this.dialog.addNarrationLine(condLine);
+      this.speakNarration(condLine);
       return true;
     }
 
@@ -2025,7 +2052,11 @@ export class GameWorldScene extends BaseScene {
     }
 
     const narration = await this.npcManager.narrateOutcome(message, result.success, languageName(getLocale()));
-    this.dialog.addNarrationLine(narration || (result.success ? 'You pull it off.' : "It doesn't go your way."));
+    {
+      const outcomeLine = narration || (result.success ? 'You pull it off.' : "It doesn't go your way.");
+      this.dialog.addNarrationLine(outcomeLine);
+      this.speakNarration(outcomeLine);
+    }
 
     // The addressed NPC reacts to the action.
     if (agent) {
@@ -2049,7 +2080,11 @@ export class GameWorldScene extends BaseScene {
     }
     agent.onHostilePlayerAction();
     const narration = await this.npcManager.narrateOutcome(message, result.success, languageName(getLocale()));
-    this.dialog.addNarrationLine(narration || (result.success ? 'Your blow lands hard.' : 'They reel back, snarling.'));
+    {
+      const blowLine = narration || (result.success ? 'Your blow lands hard.' : 'They reel back, snarling.');
+      this.dialog.addNarrationLine(blowLine);
+      this.speakNarration(blowLine);
+    }
 
     if (agent.shouldInitiateCombat(true)) {
       this.dialog.close();
