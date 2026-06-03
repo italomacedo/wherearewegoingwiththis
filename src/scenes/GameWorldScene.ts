@@ -937,7 +937,10 @@ export class GameWorldScene extends BaseScene {
    * initiator/target, or a live spectator autopilot otherwise (8B). Browser-only.
    */
   /* istanbul ignore next — browser-only combat wiring (pure logic is tested) */
-  private beginCombat(initiatorId: string, targetId: string): void {
+  private beginCombat(
+    initiatorId: string, targetId: string,
+    opts: { ambush?: boolean; openingAttack?: 'melee' | 'ranged' } = {},
+  ): void {
     if (typeof document === 'undefined' || !this.combat || this.combat.isOpen()) return;
     const mgr = this.npcManager;
     if (!mgr) return;
@@ -995,7 +998,9 @@ export class GameWorldScene extends BaseScene {
     if (combatants.length < 2 || new Set(combatants.map((c) => c.side)).size < 2) return;
 
     this.combatPlayerSide = sides['player'] ?? null;
-    const enc = new CombatEncounter(combatants, { tuning, pathfind: this.combatPathfind });
+    // Phase 11 ambush: a surprise attack grants the player the very first turn.
+    const ambusherId = opts.ambush && playerInvolved ? 'player' : undefined;
+    const enc = new CombatEncounter(combatants, { tuning, pathfind: this.combatPathfind, ambusherId });
     this.combatEnc = enc;
     // Phase 11: the player's loadout drives caps — a firearm in hand enables Shoot;
     // melee/fists keep the Strike menu. (No scenery cover yet.) NPCs decide ranged vs
@@ -1036,6 +1041,12 @@ export class GameWorldScene extends BaseScene {
       const live = this.combatEnc.getState().combatants.filter((x) => x.alive && !x.removed);
       const ctr = centroidOf(live.map((x) => x.pos));
       this.cameraSystem.enterFreeMode(new Vector3(ctr.x, 0, ctr.z), GameWorldScene.COMBAT_CAMERA_RADIUS + 6);
+    }
+    // Phase 11 surprise blow: with the ambusher acting first, immediately resolve the
+    // opening strike/shot against the ambushed target (plays the swing/muzzle-flash,
+    // deals damage, spends AP); the player keeps the rest of their first turn.
+    if (opts.openingAttack && playerInvolved) {
+      this.combat.submitPlayerAction({ type: 'attack', attackKind: opts.openingAttack, targetId });
     }
   }
 

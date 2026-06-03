@@ -153,7 +153,7 @@ export class CombatEncounter {
 
   constructor(
     combatants: CombatantInit[],
-    opts: { tuning?: CombatTuning; rng?: RollFn; initialDistance?: number; pathfind?: Pathfinder } = {},
+    opts: { tuning?: CombatTuning; rng?: RollFn; initialDistance?: number; pathfind?: Pathfinder; ambusherId?: string } = {},
   ) {
     if (combatants.length < 2) {
       throw new Error('CombatEncounter needs at least two combatants');
@@ -171,6 +171,12 @@ export class CombatEncounter {
       weaponName: c.weaponName,
     }));
     this.order = initiativeOrder(combatants.map((c) => ({ id: c.id, dexterity: c.stats.attributes.destreza })));
+    // Phase 11 ambush: the surprise attacker takes the very first turn regardless of
+    // Dexterity; the rest of the order keeps its initiative ranking behind them.
+    if (opts.ambusherId) {
+      const i = this.order.indexOf(opts.ambusherId);
+      if (i > 0) { this.order.splice(i, 1); this.order.unshift(opts.ambusherId); }
+    }
     this.beginTurn(this.order[this.activeIdx]!);
   }
 
