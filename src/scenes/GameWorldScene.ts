@@ -669,6 +669,7 @@ export class GameWorldScene extends BaseScene {
 
     // Turn-based combat owns the screen: freeze the world, only the camera lives.
     if (this.combat?.isOpen()) {
+      this.hud?.setHudTextVisible(false); // combat bar owns the bottom; hide key hints
       this.handleCombatCameraKeys(dt);
       this.tickCombat(dt);
       this.stepNpcWalks(dt); // advance any in-progress combat move
@@ -2119,6 +2120,7 @@ export class GameWorldScene extends BaseScene {
   private updateHud(dialogOpen: boolean): void {
     if (!this.hud) return;
 
+    this.hud.setHudTextVisible(true); // restored when not in combat
     this.hud.setVehicleStatus(this.deriveVehicleStatus());
     this.hud.setActionPrompt(this.deriveActionPrompt(dialogOpen));
   }
