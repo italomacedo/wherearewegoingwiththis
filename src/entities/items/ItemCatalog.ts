@@ -83,7 +83,7 @@ const hold = (scale: number, pos: [number, number, number] = [0, 0, 0], rot: [nu
 
 export const ITEM_REGISTRY: Readonly<Record<string, ItemDef>> = Object.freeze({
   // ── Melee weapons (Phase 9 legacy + Phase 10 Survival Pack models) ──
-  knife:   { id: 'knife',   nameKey: 'item.knife',   category: 'melee', weight: 0.6, stackable: false, maxStack: 1, modelPath: 'items/knife.glb', attach: hold(0.38) },
+  knife:   { id: 'knife',   nameKey: 'item.knife',   category: 'melee', weight: 0.6, stackable: false, maxStack: 1, modelPath: 'items/knife.glb', attach: hold(0.34, [-0.02, 0.06, -0.02], [0, 0, Math.PI / 6]) },
   pipe:    { id: 'pipe',    nameKey: 'item.pipe',    category: 'melee', weight: 2.0, stackable: false, maxStack: 1 }, // legacy, no pack model
   bat:     { id: 'bat',     nameKey: 'item.bat',     category: 'melee', weight: 1.4, stackable: false, maxStack: 1 }, // legacy, no pack model
   axe:     { id: 'axe',     nameKey: 'item.axe',     category: 'melee', weight: 2.4, stackable: false, maxStack: 1, modelPath: 'items/axe.glb', attach: hold(0.03) },
