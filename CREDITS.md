@@ -9,7 +9,6 @@ licensed **CC-BY 4.0** and require attribution, listed below.
 
 | Cue | Source | Author | License |
 |---|---|---|---|
-| Footsteps | "Footsteps_Leather_Wood_Walk04.wav" — https://freesound.org/people/marb7e/sounds/620334/ | marb7e | CC-BY 4.0 |
 | Punch | "Cyber Punch 03" — https://freesound.org/people/JohnLoser/sounds/573378/ | JohnLoser | CC-BY 4.0 |
 | Knife stab | "Stab, Metal Knife in Lettuce, E.wav" — https://freesound.org/people/InspectorJ/sounds/413497/ | InspectorJ (Jonathan Shaw) | CC-BY 4.0 |
 
@@ -17,6 +16,7 @@ licensed **CC-BY 4.0** and require attribution, listed below.
 
 | Cue | Source | Author |
 |---|---|---|
+| Footsteps | https://freesound.org/people/kretopi/sounds/406750/ | kretopi |
 | Sword swing | https://freesound.org/people/Nomagician/sounds/840717/ | Nomagician |
 | UI click | https://freesound.org/people/vacuumfan7072/sounds/394159/ | vacuumfan7072 |
 | Pistol gunshot | https://freesound.org/people/morganpurkis/sounds/392229/ | morganpurkis |

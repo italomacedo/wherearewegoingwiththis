@@ -26,7 +26,7 @@ const OUT_DIR = join(ROOT, 'public', 'assets', 'audio');
 
 /** Source basename (in ~/Downloads) → cue spec. */
 const SFX = [
-  { src: '620334__marb7e__footsteps_leather_wood_walk04.wav', dest: 'sfx/footstep.ogg' },
+  { src: '406750__kretopi__steponwood-014.wav', dest: 'sfx/footstep.ogg' },
   { src: '573378__johnloser__cyber-punch-03.wav', dest: 'sfx/punch.ogg' },
   { src: '413497__inspectorj__stab-metal-knife-in-lettuce-e.wav', dest: 'sfx/stab.ogg' },
   { src: '840717__nomagician__sword-swing-3.mp3', dest: 'sfx/swing.ogg' },
