@@ -1047,10 +1047,7 @@ export class GameWorldScene extends BaseScene {
       }
     }
     // Need at least two distinct sides among the recruited combatants.
-    if (combatants.length < 2 || new Set(combatants.map((c) => c.side)).size < 2) {
-      console.warn('[Combat] not enough sides', { count: combatants.length, sides });
-      return;
-    }
+    if (combatants.length < 2 || new Set(combatants.map((c) => c.side)).size < 2) return;
 
     this.combatPlayerSide = sides['player'] ?? null;
     // Phase 11 ambush: a surprise attack grants the player the very first turn.
@@ -1436,12 +1433,9 @@ export class GameWorldScene extends BaseScene {
     const aim = this.surpriseTargeting;
     const me = this.player?.getRoot().position;
     const to = this.groundPointFromPointer();
-    if (!aim || !me || !to) { console.warn('[Surprise] no aim/player/ground', { aim, hasMe: !!me, to }); return; }
+    if (!aim || !me || !to) return;
     const cand = nearestToPoint(this.aimTargetsInScene(), to, GameWorldScene.TARGET_PICK_RADIUS);
-    const dist = cand ? distance2({ x: me.x, z: me.z }, cand.pos) : Infinity;
-    const reach = this.surpriseRange(aim.attackKind);
-    console.warn('[Surprise] commit', { to, cand: cand?.id ?? null, dist, reach });
-    if (!cand || dist > reach) return;
+    if (!cand || distance2({ x: me.x, z: me.z }, cand.pos) > this.surpriseRange(aim.attackKind)) return;
     const attackKind = aim.attackKind;
     this.clearSurpriseTargeting();
     this.beginCombat('player', cand.id, { ambush: true, openingAttack: attackKind });
