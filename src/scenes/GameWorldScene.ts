@@ -31,6 +31,7 @@ import { InventoryOverlay } from '@systems/InventoryOverlay';
 import { HeldItemRig, resolveAttachWith, boneFor, AttachOverrides, flashlightActive, holdsAimPose } from '@systems/HeldItems';
 import { AdjustOverlay } from '@systems/AdjustOverlay';
 import { AimTarget, nearestToPoint } from '@systems/SurpriseTargeting';
+import { createMuzzleFlash } from '@systems/ParticleEffects';
 import { EquipSlot, ItemAttach } from '@entities/items/ItemCatalog';
 import { NPCManager, NPCMemoryMap, AutonomyContext, AutonomyJob } from '@systems/NPCManager';
 import { ClaudeCallQueue, queueConfigFromSettings } from '@systems/ClaudeCallQueue';
@@ -1167,6 +1168,12 @@ export class GameWorldScene extends BaseScene {
       this.meleeLunge(entry.actorId, entry.targetId);
     } else {
       this.playCombatClip(entry.actorId, combatClipFor(entry.attackKind), false);
+      // Ranged shot → muzzle flash at the shooter's hand height, toward the target.
+      if (entry.attackKind === 'ranged' && attackerNode) {
+        const muzzle = attackerNode.position.add(new Vector3(0, 1.3, 0));
+        const dir = targetNode ? targetNode.position.subtract(attackerNode.position) : new Vector3(0, 0, 1);
+        void createMuzzleFlash(this.babylonScene, muzzle, dir);
+      }
     }
   }
 
