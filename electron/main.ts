@@ -192,6 +192,15 @@ function createWindow() {
     win?.webContents.send('main-process-message', new Date().toISOString());
   });
 
+  // Surface hard crashes (renderer/GPU/native) in the terminal log — these never
+  // produce a JS stack in the DevTools console, so capture the reason here.
+  /* eslint-disable no-console */
+  win.webContents.on('render-process-gone', (_e, details) => {
+    console.error('[CRASH] render-process-gone:', JSON.stringify(details));
+  });
+  win.webContents.on('unresponsive', () => console.error('[CRASH] renderer unresponsive (hang)'));
+  /* eslint-enable no-console */
+
   if (VITE_DEV_SERVER_URL) {
     win.loadURL(VITE_DEV_SERVER_URL);
     win.webContents.openDevTools({ mode: 'detach' });
@@ -292,6 +301,9 @@ ipcMain.handle('window-close', () => win?.close());
 ipcMain.handle('open-external', (_event, url: string) => {
   shell.openExternal(url);
 });
+
+/* eslint-disable-next-line no-console */
+app.on('child-process-gone', (_e, details) => console.error('[CRASH] child-process-gone:', JSON.stringify(details)));
 
 app.on('window-all-closed', () => {
   claudeProcesses.forEach((proc) => proc.kill());
