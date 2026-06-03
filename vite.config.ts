@@ -41,7 +41,20 @@ export default defineConfig({
       '@systems': path.resolve(__dirname, 'src/systems'),
       '@ui': path.resolve(__dirname, 'src/ui'),
       '@assets': path.resolve(__dirname, 'src/assets'),
+      // Force the BROWSER build of transformers.js (Kokoro TTS dep). The
+      // electron-renderer plugin prefers Node conditions, which otherwise pull
+      // transformers.node.cjs → `Dynamic require of "path"` crash in the
+      // renderer. The web build runs on onnxruntime-web (WASM). (Lesson 38.)
+      '@huggingface/transformers': path.resolve(
+        __dirname,
+        'node_modules/@huggingface/transformers/dist/transformers.web.js'
+      ),
     },
+  },
+  optimizeDeps: {
+    // Pre-bundle the TTS deps from their web entry so the dev server doesn't
+    // re-resolve them to the Node build on first dynamic import.
+    include: ['kokoro-js', '@huggingface/transformers'],
   },
   build: {
     outDir: 'dist',
