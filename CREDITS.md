@@ -9,7 +9,13 @@ licensed **CC-BY 4.0** and require attribution, listed below.
 
 | Track | Source | Author | License |
 |---|---|---|---|
-| Menu / title theme | "Generic Futuristic Hero's Theme" — https://freesound.org/people/marcriver29/sounds/645691/ | Marc Armitage (marcriver29) | CC-BY 4.0 |
+| Opening theme (splash/studio/publisher) | "Generic Futuristic Hero's Theme" — https://freesound.org/people/marcriver29/sounds/645691/ | Marc Armitage (marcriver29) | CC-BY 4.0 |
+
+### CC0 1.0 (public domain — no attribution required, listed for provenance)
+
+| Track | Source | Author |
+|---|---|---|
+| Street ambience bed (world) | https://freesound.org/people/OSFX/sounds/410592/ | OSFX |
 
 ## Audio — Sound Effects (freesound.org)
 

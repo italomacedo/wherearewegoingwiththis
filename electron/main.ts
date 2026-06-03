@@ -182,6 +182,9 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
+      // Single-player desktop game: let the branding/menu music start before
+      // the first user gesture (Chromium blocks audio autoplay by default).
+      autoplayPolicy: 'no-user-gesture-required',
     },
   });
 

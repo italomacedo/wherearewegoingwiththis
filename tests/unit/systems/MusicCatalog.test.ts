@@ -9,7 +9,7 @@ import {
 
 describe('MusicCatalog', () => {
   it('every track has a path under /assets/audio/music', () => {
-    const ids: MusicTrack[] = ['menu', 'creator', 'world', 'combat'];
+    const ids: MusicTrack[] = ['theme', 'world', 'combat'];
     for (const id of ids) {
       expect(MUSIC_TRACKS[id].path).toMatch(/^\/assets\/audio\/music\/.+\.ogg$/);
     }
@@ -17,22 +17,24 @@ describe('MusicCatalog', () => {
 
   it('musicSpec resolves known tracks and rejects unknown', () => {
     expect(musicSpec('combat')?.path).toContain('combat.ogg');
+    expect(musicSpec('theme')?.path).toContain('theme.ogg');
     expect(musicSpec('nope')).toBeNull();
   });
 
   describe('musicForScene', () => {
-    it('maps menu-family scenes to the menu theme', () => {
-      expect(musicForScene('main-menu')).toBe('menu');
-      expect(musicForScene('load-game')).toBe('menu');
-      expect(musicForScene('options')).toBe('menu');
+    it('plays the theme over the opening branding sequence', () => {
+      expect(musicForScene('splash')).toBe('theme');
+      expect(musicForScene('studio')).toBe('theme');
+      expect(musicForScene('publisher')).toBe('theme');
     });
-    it('maps creator and world scenes', () => {
-      expect(musicForScene('character-creator')).toBe('creator');
+    it('plays the street ambience bed in the world', () => {
       expect(musicForScene('game-world')).toBe('world');
     });
-    it('returns null (silent) for branding/unknown scenes', () => {
-      expect(musicForScene('splash')).toBeNull();
-      expect(musicForScene('studio')).toBeNull();
+    it('is silent on menu / load / options / creator / unknown', () => {
+      expect(musicForScene('main-menu')).toBeNull();
+      expect(musicForScene('load-game')).toBeNull();
+      expect(musicForScene('options')).toBeNull();
+      expect(musicForScene('character-creator')).toBeNull();
       expect(musicForScene('whatever')).toBeNull();
     });
   });

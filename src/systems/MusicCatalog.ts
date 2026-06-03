@@ -1,5 +1,5 @@
 /** Background-music tracks, one looping bed per context. */
-export type MusicTrack = 'menu' | 'creator' | 'world' | 'combat';
+export type MusicTrack = 'theme' | 'world' | 'combat';
 
 export interface MusicSpec {
   /** Public URL (served from /assets/audio/music). */
@@ -10,9 +10,8 @@ const BASE = '/assets/audio/music';
 
 /** Registered looping music beds. All on the `music` bus. */
 export const MUSIC_TRACKS: Record<MusicTrack, MusicSpec> = {
-  menu: { path: `${BASE}/menu.ogg` },
-  creator: { path: `${BASE}/creator.ogg` },
-  world: { path: `${BASE}/world.ogg` }, // doubles as the street ambience bed
+  theme: { path: `${BASE}/theme.ogg` }, // opening branding sequence
+  world: { path: `${BASE}/world.ogg` }, // street ambience bed
   combat: { path: `${BASE}/combat.ogg` },
 };
 
@@ -21,19 +20,22 @@ export function musicSpec(id: string): MusicSpec | null {
   return (MUSIC_TRACKS as Record<string, MusicSpec>)[id] ?? null;
 }
 
-/** Background track for a scene (null = stop music, e.g. splash/branding). Pure. */
+/**
+ * Background track for a scene (null = stop music). The hero's theme plays over
+ * the opening branding sequence; the street ambience bed plays in the world.
+ * Menu / load / options / creator are intentionally silent (owner's call).
+ * Combat is driven explicitly by the scene, not here. Pure.
+ */
 export function musicForScene(scene: string): MusicTrack | null {
   switch (scene) {
-    case 'main-menu':
-    case 'load-game':
-    case 'options':
-      return 'menu';
-    case 'character-creator':
-      return 'creator';
+    case 'splash':
+    case 'studio':
+    case 'publisher':
+      return 'theme';
     case 'game-world':
       return 'world';
     default:
-      return null; // splash / studio / publisher → silent
+      return null; // main-menu / load / options / character-creator → silent
   }
 }
 

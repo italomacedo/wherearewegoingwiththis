@@ -43,7 +43,8 @@ const SFX = [
 
 /** Looping background-music beds. Kept STEREO + higher bitrate, no trim. */
 const MUSIC = [
-  { src: '645691__marcriver29__generic-futuristic-heros-theme.flac', dest: 'music/menu.ogg' },
+  { src: '645691__marcriver29__generic-futuristic-heros-theme.flac', dest: 'music/theme.ogg' },
+  { src: '410592__osfx__outside-an-urban-rave.wav', dest: 'music/world.ogg' },
 ];
 
 function findSource(basename) {
