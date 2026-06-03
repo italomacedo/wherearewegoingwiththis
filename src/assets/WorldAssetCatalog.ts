@@ -52,11 +52,12 @@ const BACKDROP_Z = 20;   // textured-pack backdrops behind the facade
 
 // --- Road: textured MegaKit 4-lane tiles (proper slab w/ lane markings + correct
 //     normals — the old flat street_asphalt_9x9 plane rendered black under light).
-//     The tile is 6 wide × 18 long, centred, top face at y=0, lanes along its length.
-//     Rotate 90° so the lanes run along the street (X); scale ×1.5 → 9 wide (fills the
-//     z∈[−4.5,4.5] corridor) × 27 long, so 2 tiles cover the X span [−27, 27]. ---
-const ROAD_SCALE = 1.5;
-const ROADS: readonly WorldProp[] = [-13.5, 13.5].map((x, i) => ({
+//     The tile is 6 wide (X) × 18 long (Z), centred, top face at y=0; lanes run along
+//     its length. Rotate 90° so the lanes run ALONG the street (X) like the sidewalks;
+//     per-axis scale [1.5,1,1] widens it to 9 (fills z∈[−4.5,4.5]) and keeps the 18
+//     length (no texture stretch). Three tiles step 18 along X to cover [−27, 27]. ---
+const ROAD_SCALE: [number, number, number] = [1.5, 1, 1];
+const ROADS: readonly WorldProp[] = [-18, 0, 18].map((x, i) => ({
   key: `road-${i}`,
   model: `${DT}street_4lane.glb`,
   position: [x, 0, 0] as [number, number, number],
