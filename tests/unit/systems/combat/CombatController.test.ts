@@ -178,13 +178,31 @@ describe('CombatController', () => {
     expect(ctrl.outcome()).toBe('player_won');
   });
 
-  it('stepNextAiTurn drives a gunner enemy to shoot', () => {
-    const { ctrl, enc } = mkController({ enemyDex: 40, rng: seq(0, 0) });
+  it('stepNextAiTurn drives a firearm-armed enemy to SHOOT (per-actor weapon)', () => {
+    // The enemy's OWN weapon is ranged → it shoots regardless of the controller caps.
+    const gun = { attackKind: 'ranged' as const, damageBase: 18, variance: 6, range: 20 };
+    const player: CombatantInit = { id: 'player', name: 'Hero', isPlayer: true, stats: stats({ destreza: 60, melee: 80 }), health: { current: 100, max: 100 } };
+    const enemy: CombatantInit = { id: 'zara', name: 'Zara', isPlayer: false, stats: stats({ destreza: 40, firearms: 70, melee: 10, perception: 20 }), health: { current: 100, max: 100 }, weapon: gun };
+    const enc = new CombatEncounter([player, enemy], { rng: seq(0, 0), initialDistance: 6 });
+    const ctrl = new CombatController(enc, NAMES, 'player');
     enc.apply({ type: 'end_turn' }); // pass to the enemy
-    expect(ctrl.isPlayerTurn()).toBe(false);
     const entries = ctrl.stepNextAiTurn();
-    expect(entries.some((e) => e.actorId === 'zara')).toBe(true);
-    expect(ctrl.isPlayerTurn()).toBe(true); // enemy ended its turn
+    expect(entries.some((e) => e.attackKind === 'ranged')).toBe(true); // shoots from 6 m
+    expect(ctrl.isPlayerTurn()).toBe(true);
+  });
+
+  it('a knife-armed NPC MELEES even when the player carries a gun (per-actor firearm)', () => {
+    const knife = { attackKind: 'melee' as const, damageBase: 12, variance: 6, range: 1 };
+    // Player has a firearm (caps.firearm true) but the enemy only has a knife.
+    const player: CombatantInit = { id: 'player', name: 'Hero', isPlayer: true, stats: stats({ destreza: 60, firearms: 80 }), health: { current: 100, max: 100 } };
+    const enemy: CombatantInit = { id: 'zara', name: 'Zara', isPlayer: false, stats: stats({ destreza: 40, firearms: 90, melee: 10, perception: 20 }), health: { current: 100, max: 100 }, weapon: knife };
+    const enc = new CombatEncounter([player, enemy], { rng: seq(0, 0), initialDistance: 8 });
+    const ctrl = new CombatController(enc, NAMES, 'player', { firearm: true, cover: false });
+    enc.apply({ type: 'end_turn' }); // enemy's turn
+    const entries = ctrl.stepNextAiTurn();
+    // Forced into melee: it closes the gap, never shoots.
+    expect(entries.some((e) => e.attackKind === 'ranged')).toBe(false);
+    expect(entries.some((e) => e.kind === 'move' || e.attackKind === 'melee')).toBe(true);
   });
 
   it('melee-only caps: options omit Shoot, and a gun-statted enemy melees anyway', () => {

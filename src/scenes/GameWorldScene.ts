@@ -26,7 +26,7 @@ import { WorldZone } from '@entities/WorldZone';
 import { GameClock, DayPeriod } from '@systems/GameClock';
 import { CharacterAppearance, DEFAULT_APPEARANCE } from '@entities/CharacterData';
 import { Inventory, defaultInventoryState } from '@entities/Inventory';
-import { weaponProfile, itemDef, isMeleeWeapon } from '@entities/items/ItemCatalog';
+import { weaponProfile, itemDef, isMeleeWeapon, isFirearm } from '@entities/items/ItemCatalog';
 import { InventoryOverlay } from '@systems/InventoryOverlay';
 import { HeldItemRig, resolveAttachWith, boneFor, AttachOverrides, flashlightActive, holdsAimPose } from '@systems/HeldItems';
 import { AdjustOverlay } from '@systems/AdjustOverlay';
@@ -52,7 +52,7 @@ import { resolveCheck } from '@systems/SkillCheck';
 import { t, getLocale, languageName } from '@systems/I18n';
 import { SettingsService } from '@systems/SettingsService';
 import { CombatOverlay } from '@systems/combat/CombatOverlay';
-import { CombatController, CombatLogEntry, MELEE_ONLY_CAPS } from '@systems/combat/CombatController';
+import { CombatController, CombatLogEntry } from '@systems/combat/CombatController';
 import { combatClipFor, attackClipFor, CombatClipState } from '@assets/AvatarMeshCatalog';
 import { CombatEncounter, CombatantInit, CombatOutcome } from '@systems/combat/CombatEncounter';
 import {
@@ -974,8 +974,9 @@ export class GameWorldScene extends BaseScene {
       const side = sides[id]!;
       if (id === 'player') {
         const p = this.player?.getRoot().position ?? Vector3.Zero();
-        combatants.push({ id, name: this.playerName, isPlayer: true, stats: this.playerStats, health: this.playerHealthState, pos: { x: p.x, z: p.z }, side, weapon: weaponProfile(this.playerInventory.equippedWeaponId), weaponName: this.weaponLabel(this.playerInventory.equippedWeaponId) });
-        this.combatWeaponId.set(id, this.playerInventory.equippedWeaponId);
+        const pw = this.playerInventory.combatWeaponId; // melee OR firearm (Phase 11)
+        combatants.push({ id, name: this.playerName, isPlayer: true, stats: this.playerStats, health: this.playerHealthState, pos: { x: p.x, z: p.z }, side, weapon: weaponProfile(pw), weaponName: this.weaponLabel(pw) });
+        this.combatWeaponId.set(id, pw);
         names[id] = this.playerName;
         if (this.player) sources[id] = this.player.getRoot();
       } else {
@@ -996,8 +997,12 @@ export class GameWorldScene extends BaseScene {
     this.combatPlayerSide = sides['player'] ?? null;
     const enc = new CombatEncounter(combatants, { tuning, pathfind: this.combatPathfind });
     this.combatEnc = enc;
-    // Melee-only for now (no firearms/cover). Player id '__none__' for a spectator fight.
-    const controller = new CombatController(enc, names, playerInvolved ? 'player' : '__none__', MELEE_ONLY_CAPS);
+    // Phase 11: the player's loadout drives caps — a firearm in hand enables Shoot;
+    // melee/fists keep the Strike menu. (No scenery cover yet.) NPCs decide ranged vs
+    // melee per their OWN weapon inside the controller. '__none__' = spectator fight.
+    const playerMain = this.playerInventory.combatWeaponId;
+    const caps = { firearm: playerInvolved && !!playerMain && isFirearm(playerMain), cover: false };
+    const controller = new CombatController(enc, names, playerInvolved ? 'player' : '__none__', caps);
 
     const language = languageName(getLocale());
     this.combat.setHandlers({

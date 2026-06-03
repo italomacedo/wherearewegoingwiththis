@@ -186,6 +186,8 @@ export class CombatEncounter {
   posOf(id: string): Point2 { const p = this.slots.get(id)!.pos; return { ...p }; }
   sideOf(id: string): string | null { return this.slots.get(id)?.side ?? null; }
   statsOf(id: string): CharacterStats | null { return this.slots.get(id)?.init.stats ?? null; }
+  /** The combatant's weapon profile (fists if unknown) — drives ranged vs melee AI + reach. */
+  weaponOf(id: string): WeaponProfile { return this.slots.get(id)?.weapon ?? FIST_PROFILE; }
   isRemoved(id: string): boolean { return this.slots.get(id)?.removed ?? false; }
 
   /** Still in the fight: known, alive, and not fled. */

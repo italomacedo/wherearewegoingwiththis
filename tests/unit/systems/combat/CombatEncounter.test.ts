@@ -247,6 +247,16 @@ describe('CombatEncounter — attacks', () => {
     expect(ok.kind).toBe('hit');
   });
 
+  it('weaponOf returns the combatant profile, falling back to fists (Phase 11)', () => {
+    const gun = { attackKind: 'ranged' as const, damageBase: 18, variance: 6, range: 20 };
+    const c = makeCombatants();
+    c[0]!.weapon = gun;
+    const enc = new CombatEncounter(c);
+    expect(enc.weaponOf('player')).toEqual(gun);
+    expect(enc.weaponOf('zara').attackKind).toBe('melee'); // fist default
+    expect(enc.weaponOf('ghost').attackKind).toBe('melee'); // unknown → fist default
+  });
+
   it('defaults to a ranged attack on the lone opponent when no kind/target given', () => {
     const enc = new CombatEncounter(makeCombatants(), { rng: seq(0, 0) });
     const ev = enc.apply({ type: 'attack' });

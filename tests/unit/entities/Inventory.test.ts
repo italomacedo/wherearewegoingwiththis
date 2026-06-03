@@ -95,6 +95,27 @@ describe('Inventory', () => {
     expect(inv.equippedWeaponId).toBeNull();
   });
 
+  it('combatWeaponId returns the main-hand weapon — melee OR firearm (Phase 11)', () => {
+    const inv = new Inventory();
+    inv.add('pistol', 1);
+    expect(inv.equip('pistol')).toBe(true);
+    expect(inv.equippedWeaponId).toBeNull();      // a firearm does NOT arm the melee fighter
+    expect(inv.combatWeaponId).toBe('pistol');    // but it IS the combat (ranged) weapon
+    inv.unequip();
+    inv.add('knife', 1);
+    inv.equip('knife');
+    expect(inv.combatWeaponId).toBe('knife');     // melee weapon counts too
+    inv.unequip();
+    expect(inv.combatWeaponId).toBeNull();         // empty hand → fists
+  });
+
+  it('combatWeaponId is null when the main hand holds a non-weapon (e.g. backpack on back)', () => {
+    const inv = new Inventory();
+    inv.add('backpack', 1);
+    inv.equip('backpack'); // goes to the back slot, not main hand
+    expect(inv.combatWeaponId).toBeNull();
+  });
+
   it('unequips automatically when the equipped weapon is fully removed', () => {
     const inv = new Inventory();
     inv.add('knife', 1);

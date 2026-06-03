@@ -74,6 +74,16 @@ export class Inventory {
     return main && isMeleeWeapon(main) ? main : null;
   }
 
+  /**
+   * The main-hand item when it is ANY wieldable weapon — melee OR firearm (else
+   * null → bare fists). Drives the combat weapon profile: a melee weapon arms the
+   * brawler, a firearm arms the gunner (ranged). Phase 11 (real ranged firing).
+   */
+  get combatWeaponId(): string | null {
+    const main = this.slots.get('main_hand') ?? null;
+    return main && isWeapon(main) ? main : null;
+  }
+
   /** The item equipped in a given body slot (null if empty). */
   equippedIn(slot: EquipSlot): string | null { return this.slots.get(slot) ?? null; }
 
