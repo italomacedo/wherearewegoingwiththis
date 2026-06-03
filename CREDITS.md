@@ -23,7 +23,6 @@ licensed **CC-BY 4.0** and require attribution, listed below.
 | Pistol gunshot | https://freesound.org/people/morganpurkis/sounds/392229/ | morganpurkis |
 | Explosion | https://freesound.org/people/Anomaex/sounds/490266/ | Anomaex |
 | Body fall | https://freesound.org/people/leonelmail/sounds/504626/ | leonelmail |
-| Nave engine loop | https://freesound.org/people/Sojan/sounds/407540/ | Sojan |
 | UI open / notification | https://freesound.org/people/LilMati/sounds/657945/ | LilMati |
 | UI error | https://freesound.org/people/steaq/sounds/594210/ | steaq |
 | Eating | https://freesound.org/people/Erbsland-Music/sounds/634123/ | Erbsland-Music |

@@ -10,7 +10,6 @@ export type SfxCue =
   | 'gunshot'
   | 'explosion'
   | 'bodyfall'
-  | 'engine'
   | 'ui_click'
   | 'ui_open'
   | 'ui_error'
@@ -40,7 +39,6 @@ export const SFX_CUES: Record<SfxCue, SfxSpec> = {
   gunshot: { path: `${BASE}/gunshot.ogg`, bus: 'sfx' },
   explosion: { path: `${BASE}/explosion.ogg`, bus: 'sfx' },
   bodyfall: { path: `${BASE}/bodyfall.ogg`, bus: 'sfx' },
-  engine: { path: `${BASE}/engine.ogg`, bus: 'sfx', loop: true },
   ui_click: { path: `${BASE}/ui_click.ogg`, bus: 'sfx', cap: 3 },
   ui_open: { path: `${BASE}/ui_open.ogg`, bus: 'sfx', cap: 3 },
   ui_error: { path: `${BASE}/ui_error.ogg`, bus: 'sfx', cap: 3 },

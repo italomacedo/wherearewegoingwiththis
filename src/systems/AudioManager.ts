@@ -58,6 +58,18 @@ export function canPlayMore(active: number, cap: number): boolean {
 /** Default ceiling of simultaneous instances per SFX cue (prevents audio pile-ups). */
 export const DEFAULT_SFX_INSTANCE_CAP = 4;
 
+/** Procedural nave engine tone (sine): idle pitch, moving pitch, and base gain. */
+export const ENGINE_IDLE_HZ = 180;
+export const ENGINE_MOVE_HZ = 220;
+export const ENGINE_TONE_GAIN = 0.12; // keep the drone subtle relative to other SFX
+/** Glide time-constant (s) for the pitch ramp between idle and moving. */
+export const ENGINE_GLIDE_TAU = 0.18;
+
+/** Target engine pitch (Hz) for the current throttle state. Pure. */
+export function engineTargetHz(moving: boolean): number {
+  return moving ? ENGINE_MOVE_HZ : ENGINE_IDLE_HZ;
+}
+
 /**
  * Owns the audio mixer state and (in the browser) the live Babylon sounds.
  * The mixer math is pure + fully tested; the playback layer is browser-only
@@ -70,6 +82,10 @@ export class AudioManager {
   /** Currently-playing looping audio elements, keyed by cue id. */
   private loops = new Map<string, HTMLAudioElement>();
   private unsubscribes: Array<() => void> = [];
+  /** Procedural nave-engine tone nodes (Web Audio), live only while piloting. */
+  private engineCtx: AudioContext | null = null;
+  private engineOsc: OscillatorNode | null = null;
+  private engineGain: GainNode | null = null;
 
   constructor(eventBus?: EventBus) {
     this.mixer = mixerFromSettings(SettingsService.load());
@@ -102,12 +118,63 @@ export class AudioManager {
     /* reserved */
   }
 
-  /* istanbul ignore next — browser-only: re-apply bus volume to live loops */
+  /* istanbul ignore next — browser-only: re-apply bus volume to live loops + engine */
   private applyToLiveSounds(): void {
     this.loops.forEach((el, cueId) => {
       const spec = sfxSpec(cueId);
       el.volume = clampVolume(this.effective(spec?.bus ?? 'sfx'));
     });
+    if (this.engineGain) this.engineGain.gain.value = this.engineGainValue();
+  }
+
+  /** Base gain of the engine drone, scaled by the (master×sfx) bus. */
+  /* istanbul ignore next — browser-only (reached only from Web Audio paths) */
+  private engineGainValue(): number {
+    return clampVolume(this.effective('sfx')) * ENGINE_TONE_GAIN;
+  }
+
+  /**
+   * Start the procedural nave engine: a sine oscillator droning at the idle pitch.
+   * Idempotent. Browser-only (Web Audio); safe no-op outside the DOM.
+   */
+  /* istanbul ignore next — browser-only Web Audio synthesis */
+  startEngineTone(): void {
+    if (typeof window === 'undefined' || this.engineOsc) return;
+    const Ctor = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!Ctor) return;
+    const ctx = this.engineCtx ?? new Ctor();
+    this.engineCtx = ctx;
+    void ctx.resume?.();
+    const osc = ctx.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(ENGINE_IDLE_HZ, ctx.currentTime);
+    const gain = ctx.createGain();
+    gain.gain.value = this.engineGainValue();
+    osc.connect(gain).connect(ctx.destination);
+    osc.start();
+    this.engineOsc = osc;
+    this.engineGain = gain;
+  }
+
+  /** Glide the engine pitch toward the idle/moving target (180 ↔ 220 Hz). Browser-only. */
+  /* istanbul ignore next — browser-only Web Audio */
+  setEngineThrottle(moving: boolean): void {
+    if (!this.engineOsc || !this.engineCtx) return;
+    this.engineOsc.frequency.setTargetAtTime(engineTargetHz(moving), this.engineCtx.currentTime, ENGINE_GLIDE_TAU);
+  }
+
+  /** Stop the engine drone (keeps the AudioContext for reuse). Browser-only. */
+  /* istanbul ignore next — browser-only Web Audio */
+  stopEngineTone(): void {
+    if (this.engineOsc) {
+      try { this.engineOsc.stop(); } catch { /* already stopped */ }
+      this.engineOsc.disconnect();
+      this.engineOsc = null;
+    }
+    if (this.engineGain) {
+      this.engineGain.disconnect();
+      this.engineGain = null;
+    }
   }
 
   /**
@@ -171,9 +238,11 @@ export class AudioManager {
   dispose(): void {
     this.unsubscribes.forEach((u) => u());
     this.unsubscribes = [];
-    /* istanbul ignore next — browser-only loop teardown */
+    /* istanbul ignore next — browser-only teardown */
     this.loops.forEach((el) => el.pause());
     this.loops.clear();
     this.active.clear();
+    /* istanbul ignore next — browser-only Web Audio teardown */
+    this.stopEngineTone();
   }
 }

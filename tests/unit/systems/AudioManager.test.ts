@@ -5,6 +5,9 @@ import {
   effectiveVolume,
   canPlayMore,
   DEFAULT_SFX_INSTANCE_CAP,
+  engineTargetHz,
+  ENGINE_IDLE_HZ,
+  ENGINE_MOVE_HZ,
   type MixerState,
 } from '../../../src/systems/AudioManager';
 import { EventBus } from '../../../src/core/EventBus';
@@ -77,6 +80,13 @@ describe('AudioManager — pure mixer math', () => {
     expect(canPlayMore(4, 4)).toBe(false);
     expect(canPlayMore(99, 0)).toBe(true); // unlimited
     expect(DEFAULT_SFX_INSTANCE_CAP).toBeGreaterThan(0);
+  });
+
+  it('engineTargetHz: 180 Hz idle, 220 Hz moving', () => {
+    expect(ENGINE_IDLE_HZ).toBe(180);
+    expect(ENGINE_MOVE_HZ).toBe(220);
+    expect(engineTargetHz(false)).toBe(180);
+    expect(engineTargetHz(true)).toBe(220);
   });
 });
 

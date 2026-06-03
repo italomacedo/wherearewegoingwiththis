@@ -33,7 +33,6 @@ const SFX = [
   { src: '392229__morganpurkis__single-pistol-gunshot-33.wav', dest: 'sfx/gunshot.ogg' },
   { src: '490266__anomaex__sci-fi_explosion_2.wav', dest: 'sfx/explosion.ogg' },
   { src: '504626__leonelmail__body-fall-v-hvy-dirt.mp3', dest: 'sfx/bodyfall.ogg' },
-  { src: '407540__sojan__sci-fi-engine-loop.flac', dest: 'sfx/engine.ogg', loop: true },
   { src: '394159__vacuumfan7072__uiclick5.wav', dest: 'sfx/ui_click.ogg' },
   { src: '657945__lilmati__scifi-inspect-sound-ui-or-in-game-notification-01.wav', dest: 'sfx/ui_open.ogg' },
   { src: '594210__steaq__robo-nope-16bit-flac.flac', dest: 'sfx/ui_error.ogg' },

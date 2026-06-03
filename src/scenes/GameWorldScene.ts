@@ -589,8 +589,8 @@ export class GameWorldScene extends BaseScene {
     // Autosave before tearing anything down (npcManager is disposed below) —
     // but NOT on game over, or we'd overwrite the save with the dead state.
     if (!this.gameOver) this.persistSession();
-    /* istanbul ignore next — stop the looping engine SFX on world exit */
-    this.audio?.stopLoop('engine');
+    /* istanbul ignore next — stop the procedural engine drone on world exit */
+    this.audio?.stopEngineTone();
     this.detachInput?.();
     this.player?.dispose();
     this.vehicle?.dispose();
@@ -2066,9 +2066,17 @@ export class GameWorldScene extends BaseScene {
       : { axis: { x: 0, z: 0 }, vertical: 0 };
     this.vehicle.update(dt, input, this.cameraSystem.getYaw());
 
-    // Engine loop while piloting; explosion the moment the nave is destroyed.
-    if (driving) this.sfx('engine');
-    else (this.audio ??= ServiceLocator.tryGet<AudioManager>('audio'))?.stopLoop('engine');
+    // Procedural engine drone while piloting: a 180 Hz sine that glides to 220 Hz
+    // when the player feeds movement input and back to 180 Hz when idle.
+    const audio = (this.audio ??= ServiceLocator.tryGet<AudioManager>('audio'));
+    if (driving) {
+      audio?.startEngineTone();
+      const moving = input.axis.x !== 0 || input.axis.z !== 0 || input.vertical !== 0;
+      audio?.setEngineThrottle(moving);
+    } else {
+      audio?.stopEngineTone();
+    }
+    // Explosion the moment the nave is destroyed.
     const destroyed = this.vehicle.isDestroyed();
     if (destroyed && !this.naveWasDestroyed) this.sfx('explosion');
     this.naveWasDestroyed = destroyed;

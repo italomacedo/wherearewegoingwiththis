@@ -15,11 +15,6 @@ describe('SfxCatalog', () => {
     }
   });
 
-  it('the engine cue loops; the rest are one-shots', () => {
-    expect(SFX_CUES.engine.loop).toBe(true);
-    expect(SFX_CUES.gunshot.loop).toBeUndefined();
-  });
-
   it('sfxSpec resolves known cues and rejects unknown', () => {
     expect(sfxSpec('gunshot')?.path).toContain('gunshot.ogg');
     expect(sfxSpec('does_not_exist')).toBeNull();
@@ -75,7 +70,7 @@ describe('SfxCatalog', () => {
   it('all SfxCue ids are present in the registry', () => {
     const cues: SfxCue[] = [
       'footstep', 'punch', 'stab', 'swing', 'whiff', 'gunshot', 'explosion',
-      'bodyfall', 'engine', 'ui_click', 'ui_open', 'ui_error', 'eat', 'growl',
+      'bodyfall', 'ui_click', 'ui_open', 'ui_error', 'eat', 'growl',
     ];
     for (const c of cues) expect(SFX_CUES[c]).toBeDefined();
   });
