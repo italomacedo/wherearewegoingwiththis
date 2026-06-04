@@ -90,6 +90,10 @@ export class AudioManager {
   /** Looping background-music element + the track id it's playing (music bus). */
   private musicEl: HTMLAudioElement | null = null;
   private musicTrack: string | null = null;
+  /** Every displaced track still fading out — ALL get paused when silent (or on
+   * stop). Tracking the full set (not just one) is what stops a rapid sequence of
+   * track changes from orphaning an element that loops forever. */
+  private fadingOut: HTMLAudioElement[] = [];
   private musicFadeTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(eventBus?: EventBus) {
@@ -150,39 +154,48 @@ export class AudioManager {
     if (this.musicTrack === trackId && this.musicEl) return;
     const spec = musicSpec(trackId);
     if (!spec) return;
-    const old = this.musicEl;
+    // Retire the current bed into the fade-out set BEFORE swapping, so an interrupted
+    // fade can never orphan it (the bug: combat→gameover→menu in quick succession left
+    // the combat bed looping forever, surviving into the main menu).
+    if (this.musicEl) this.fadingOut.push(this.musicEl);
     const next = new Audio(spec.path);
     next.loop = true;
     next.volume = 0;
     this.musicEl = next;
     this.musicTrack = trackId;
     void next.play().catch(() => {});
-    this.runMusicFade(old, next);
+    this.runMusicFade();
   }
 
-  /** Crossfade: ramp the new bed up to the music-bus volume, the old one to 0. */
+  /** Crossfade: ramp the target bed up to the music-bus volume; fade EVERY retired
+   * bed to 0, pausing + dropping each as it reaches silence. One timer for all. */
   /* istanbul ignore next — browser-only fade loop */
-  private runMusicFade(oldEl: HTMLAudioElement | null, newEl: HTMLAudioElement): void {
+  private runMusicFade(): void {
     if (this.musicFadeTimer) clearInterval(this.musicFadeTimer);
     const stepMs = 50;
     this.musicFadeTimer = setInterval(() => {
       const target = clampVolume(this.effective('music'));
-      newEl.volume = fadeStep(newEl.volume, target, stepMs, MUSIC_FADE_MS);
-      if (oldEl) oldEl.volume = fadeStep(oldEl.volume, 0, stepMs, MUSIC_FADE_MS);
-      const fadedIn = Math.abs(newEl.volume - target) < 1e-3;
-      const fadedOut = !oldEl || oldEl.volume <= 1e-3;
-      if (fadedIn && fadedOut) {
-        if (oldEl) oldEl.pause();
+      const newEl = this.musicEl;
+      if (newEl) newEl.volume = fadeStep(newEl.volume, target, stepMs, MUSIC_FADE_MS);
+      this.fadingOut = this.fadingOut.filter((el) => {
+        el.volume = fadeStep(el.volume, 0, stepMs, MUSIC_FADE_MS);
+        if (el.volume <= 1e-3) { el.pause(); return false; }
+        return true;
+      });
+      const fadedIn = !newEl || Math.abs(newEl.volume - clampVolume(this.effective('music'))) < 1e-3;
+      if (fadedIn && this.fadingOut.length === 0) {
         if (this.musicFadeTimer) { clearInterval(this.musicFadeTimer); this.musicFadeTimer = null; }
       }
     }, stepMs);
   }
 
-  /** Stop the background music (no fade). Browser-only. */
+  /** Stop ALL background music immediately (current + everything fading out). */
   /* istanbul ignore next — browser-only */
   stopMusic(): void {
     if (this.musicFadeTimer) { clearInterval(this.musicFadeTimer); this.musicFadeTimer = null; }
     if (this.musicEl) { this.musicEl.pause(); this.musicEl = null; }
+    this.fadingOut.forEach((el) => el.pause());
+    this.fadingOut = [];
     this.musicTrack = null;
   }
 
