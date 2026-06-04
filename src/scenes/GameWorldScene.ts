@@ -270,6 +270,7 @@ export class GameWorldScene extends BaseScene {
       health: { ...DEFAULT_VEHICLE_STATE.health }, destroyed: false,
     };
     if (session.world?.zone) this.startZoneId = session.world.zone;
+    if (typeof session.world?.worldSeed === 'number') this.worldSeed = session.world.worldSeed;
     const [x, y, z] = session.world?.position ?? [0, 0, 0];
     // Treat an all-zero saved position as "use the zone's spawn point".
     if (x !== 0 || y !== 0 || z !== 0) {
@@ -285,10 +286,13 @@ export class GameWorldScene extends BaseScene {
 
     const memory = this.npcManager?.serializeMemory() ?? {};
     const pos = this.player?.getPosition();
+    const ct = this.worldStreamer?.getCurrentTile();
     const world = {
       zone: this.startZoneId,
       position: (pos ? [pos.x, pos.y, pos.z] : [0, 0, 0]) as [number, number, number],
       rotation: 0,
+      worldSeed: this.worldSeed,
+      currentTile: (ct ? [ct.tx, ct.tz] : [0, 0]) as [number, number],
     };
     const playerHealth = this.player?.getHealth().toState() ?? this.playerHealthState;
     const vehicle: VehicleSaveState = this.vehicle

@@ -13,6 +13,10 @@ export interface WorldState {
   zone: string;
   position: [number, number, number];
   rotation: number;
+  /** Seed for deterministic procedural tile generation (Fase 17). */
+  worldSeed: number;
+  /** The mosaic tile [tx,tz] the player was last in (Fase 17). */
+  currentTile: [number, number];
 }
 
 /**
@@ -30,7 +34,7 @@ export class GameSession {
     public saveId: string,
     public character: CharacterData,
     public npcMemory: NPCMemory = {},
-    public world: WorldState = { zone: 'mercado_sombras', position: [0, 0, 0], rotation: 0 },
+    public world: WorldState = { zone: 'mercado_sombras', position: [0, 0, 0], rotation: 0, worldSeed: 1, currentTile: [0, 0] },
     public gameTimeSeconds: number = 0,
     public playerHealth: HealthState = { ...DEFAULT_PLAYER_HEALTH },
     public vehicle: VehicleSaveState = {
@@ -48,7 +52,7 @@ export class GameSession {
       save.saveId,
       save.character,
       save.npcMemory ?? {},
-      { ...save.world },
+      { ...save.world, worldSeed: save.world?.worldSeed ?? 1, currentTile: save.world?.currentTile ?? [0, 0] },
       save.gameTimeSeconds,
       save.playerHealth ?? { ...DEFAULT_PLAYER_HEALTH },
       save.vehicle ?? { health: { ...DEFAULT_VEHICLE_STATE.health }, destroyed: false },

@@ -43,6 +43,10 @@ export interface SaveGame {
     zone: string;
     position: [number, number, number];
     rotation: number;
+    /** Seed for deterministic procedural tile generation (Fase 17). */
+    worldSeed: number;
+    /** The mosaic tile [tx,tz] the player was last in (Fase 17). */
+    currentTile: [number, number];
   };
   playerHealth: HealthState;
   playerHunger: HungerState;
@@ -86,6 +90,8 @@ export class SaveService {
         zone: 'mercado_sombras',
         position: [0, 0, 0],
         rotation: 0,
+        worldSeed: SaveService.seedFrom(saveId),
+        currentTile: [0, 0],
       },
       playerHealth: { ...DEFAULT_PLAYER_HEALTH },
       playerHunger: { ...DEFAULT_PLAYER_HUNGER },
@@ -236,7 +242,23 @@ export class SaveService {
     if (!save.inventory) save.inventory = defaultInventoryState();
     if (!save.heldAttach) save.heldAttach = {};
     if (!save.missions) save.missions = [];
+    // Fase 17: backfill the procedural-world seed (derived stably from the saveId
+    // so a legacy save always regenerates the same world) + the current tile.
+    if (save.world) {
+      if (typeof save.world.worldSeed !== 'number') save.world.worldSeed = SaveService.seedFrom(save.saveId);
+      if (!save.world.currentTile) save.world.currentTile = [0, 0];
+    }
     return save;
+  }
+
+  /** Deterministic 32-bit world seed from a save id (stable across reloads). */
+  private static seedFrom(saveId: string): number {
+    let h = 2166136261;
+    for (let i = 0; i < saveId.length; i++) {
+      h ^= saveId.charCodeAt(i);
+      h = Math.imul(h, 16777619);
+    }
+    return h >>> 0;
   }
 
   private static generateId(): string {
