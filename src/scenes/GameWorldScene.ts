@@ -24,9 +24,9 @@ import { VehicleController } from '@entities/VehicleController';
 import { MercadoSombrasZone } from '@entities/zones/MercadoSombrasZone';
 import { WorldZone } from '@entities/WorldZone';
 import { GameClock, DayPeriod } from '@systems/GameClock';
-import { CharacterAppearance, DEFAULT_APPEARANCE } from '@entities/CharacterData';
+import { CharacterAppearance, DEFAULT_APPEARANCE, applyArmorOverlay } from '@entities/CharacterData';
 import { Inventory, defaultInventoryState } from '@entities/Inventory';
-import { weaponProfile, itemDef, isMeleeWeapon, isFirearm } from '@entities/items/ItemCatalog';
+import { weaponProfile, itemDef, isMeleeWeapon, isFirearm, armorOverlayParts } from '@entities/items/ItemCatalog';
 import { InventoryOverlay } from '@systems/InventoryOverlay';
 import { HeldItemRig, resolveAttachWith, boneFor, AttachOverrides, flashlightActive, holdsAimPose } from '@systems/HeldItems';
 import { AdjustOverlay } from '@systems/AdjustOverlay';
@@ -371,6 +371,8 @@ export class GameWorldScene extends BaseScene {
       this.babylonScene, this.player.getSkeleton(), this.player.getRenderParts()[0] ?? null,
     );
     void this.syncPlayerHeldItems();
+    // If the save has armor equipped, swap the avatar's regions to match (Phase 15).
+    if (this.playerInventory.equippedArmorIds().length > 0) void this.rebuildPlayerArmor();
 
     // Park a flying motorcycle near the spawn point. Confine it to the closed
     // street (flying out of bounds and back was crashing the game).
@@ -403,6 +405,8 @@ export class GameWorldScene extends BaseScene {
       onClose: () => this.cameraSystem?.exitConversationMode(),
       // "Adjust" button on an equipped row → open the calibration tool for it.
       onAdjust: (itemId, slot) => this.openAdjustFor(itemId, slot),
+      // Armor equipped/removed → swap the avatar's region mesh (Phase 15).
+      onEquipArmor: () => { void this.rebuildPlayerArmor(); },
     });
 
     // Adjust tool (Phase 10.4b): live-calibrate a held prop's attach transform.
@@ -946,6 +950,25 @@ export class GameWorldScene extends BaseScene {
     this.npcHeldRigById.set(npc.id, rig);
     if (agent) void rig.sync(agent.getInventoryState().equipped);
     return assembled.rootMesh;
+  }
+
+  /**
+   * Rebuild the hero avatar to reflect worn armor (Phase 15): overlay the
+   * equipped armor molds onto the base appearance and re-assemble the rig, then
+   * re-attach held props (the skeleton is new). No-op without a spawned player.
+   */
+  /* istanbul ignore next — browser-only avatar reassembly */
+  private async rebuildPlayerArmor(): Promise<void> {
+    if (!this.player) return;
+    const gender = genderOfOutfit(this.appearance.bodyBase);
+    const parts = armorOverlayParts(this.playerInventory.equippedArmorIds(), gender);
+    await this.player.rebuildAppearance(applyArmorOverlay(this.appearance, parts));
+    // The skeleton changed — recreate the held-prop rig against the new rig.
+    this.playerHeldRig?.dispose();
+    this.playerHeldRig = new HeldItemRig(
+      this.babylonScene, this.player.getSkeleton(), this.player.getRenderParts()[0] ?? null,
+    );
+    await this.syncPlayerHeldItems();
   }
 
   /** Re-attach the hero's visible props to match its current inventory slots. */
