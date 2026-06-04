@@ -12,8 +12,12 @@
 
 import {
   itemWeight, itemMaxStack, isWeapon, isMeleeWeapon, itemEquipSlot, itemCapacityBonus,
+  itemDamageReduction, ARMOR_SLOTS,
   type EquipSlot,
 } from '@entities/items/ItemCatalog';
+
+/** Damage reduction never fully negates a hit (so combat can't stalemate). */
+export const MAX_DAMAGE_REDUCTION = 0.9;
 
 export interface InventoryStack {
   id: string;
@@ -86,6 +90,22 @@ export class Inventory {
 
   /** The item equipped in a given body slot (null if empty). */
   equippedIn(slot: EquipSlot): string | null { return this.slots.get(slot) ?? null; }
+
+  /** Equipped armor piece ids (head/top/bottom slots), in render order. */
+  equippedArmorIds(): string[] {
+    return ARMOR_SLOTS.map((s) => this.slots.get(s)).filter((id): id is string => !!id);
+  }
+
+  /**
+   * Total damage-reduction fraction from worn armor (sum of each piece's reduction),
+   * capped at MAX_DAMAGE_REDUCTION. 0 with no armor. Tiers sum proportionally — a full
+   * tactical set = 0.25, a full space set = 0.5, a mix sums each piece's third.
+   */
+  totalDamageReduction(): number {
+    let r = 0;
+    for (const id of this.equippedArmorIds()) r += itemDamageReduction(id);
+    return Math.min(MAX_DAMAGE_REDUCTION, r);
+  }
 
   /** All occupied slots → item id (a shallow copy). */
   get equipment(): Partial<Record<EquipSlot, string>> {

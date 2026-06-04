@@ -20,15 +20,19 @@ export function attachBoneNameFor(slot: EquipSlot): string {
   return slot === 'back' ? 'Chest' : 'Wrist.R';
 }
 
-/** Default hand/back transform per slot when an item gives no explicit `attach`. */
-export const DEFAULT_ATTACH: Readonly<Record<EquipSlot, ItemAttach>> = Object.freeze({
+/**
+ * Default hand/back transform per slot when an item gives no explicit `attach`.
+ * Only the prop-bearing slots (main_hand/back) need a default; armor slots
+ * (head/top/bottom) swap the avatar region and carry no held prop.
+ */
+export const DEFAULT_ATTACH: Readonly<Partial<Record<EquipSlot, ItemAttach>>> = Object.freeze({
   main_hand: { pos: [0, 0, 0], rot: [0, 0, 0], scale: 1 },
   back: { pos: [0, -0.05, -0.12], rot: [0, 0, 0], scale: 1 },
 });
 
 /** Resolve the attach transform: the item's own override, else the slot default. */
 export function resolveAttach(itemId: string, slot: EquipSlot): ItemAttach {
-  return itemAttach(itemId) ?? DEFAULT_ATTACH[slot];
+  return itemAttach(itemId) ?? DEFAULT_ATTACH[slot] ?? DEFAULT_ATTACH.main_hand!;
 }
 
 /**

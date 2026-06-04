@@ -2,6 +2,8 @@ import {
   ITEM_REGISTRY, WEAPON_REGISTRY,
   itemDef, weaponDef, isWeapon, isMeleeWeapon, isFirearm, itemWeight, itemMaxStack, weaponProfile,
   itemEquipSlot, itemCapacityBonus, itemHungerRestore, itemModelPath, itemAttach,
+  isArmor, itemArmorTier, itemArmorRegion, itemDamageReduction, armorPieceReduction, armorMoldFor,
+  ARMOR_SLOTS, ARMOR_OUTFIT_KEYS, ARMOR_FULL_SET_REDUCTION,
 } from '../../../../src/entities/items/ItemCatalog';
 import { FIST_PROFILE } from '../../../../src/systems/combat/CombatMath';
 
@@ -83,5 +85,60 @@ describe('ItemCatalog', () => {
     expect(weaponProfile(undefined)).toBe(FIST_PROFILE);
     expect(weaponProfile('medkit')).toBe(FIST_PROFILE); // not a weapon
     expect(weaponProfile('ghost')).toBe(FIST_PROFILE);   // unknown
+  });
+
+  describe('armor (Phase 15)', () => {
+    it('defines 6 armor pieces (3 regions × 2 tiers) in the armor category', () => {
+      const armor = Object.values(ITEM_REGISTRY).filter((d) => d.category === 'armor');
+      expect(armor).toHaveLength(6);
+      for (const d of armor) {
+        expect(d.armorTier).toBeDefined();
+        expect(d.armorRegion).toBeDefined();
+        expect(d.equipSlot).toBe(d.armorRegion); // armor equips to its own region slot
+        expect(d.modelPath).toBeUndefined();     // armor swaps the avatar region, not a held prop
+      }
+    });
+
+    it('armor equips into its region slot (head/top/bottom)', () => {
+      expect(itemEquipSlot('armor_tac_head')).toBe('head');
+      expect(itemEquipSlot('armor_tac_top')).toBe('top');
+      expect(itemEquipSlot('armor_spc_legs')).toBe('bottom');
+      expect(ARMOR_SLOTS).toEqual(['head', 'top', 'bottom']);
+    });
+
+    it('isArmor / itemArmorTier / itemArmorRegion classify pieces', () => {
+      expect(isArmor('armor_spc_top')).toBe(true);
+      expect(isArmor('knife')).toBe(false);
+      expect(itemArmorTier('armor_tac_head')).toBe('tactical');
+      expect(itemArmorTier('armor_spc_head')).toBe('space');
+      expect(itemArmorTier('knife')).toBeUndefined();
+      expect(itemArmorRegion('armor_tac_top')).toBe('top');
+      expect(itemArmorRegion('knife')).toBeUndefined();
+    });
+
+    it('per-piece reduction = full set ÷ 3; full set sums back to the tier value', () => {
+      expect(armorPieceReduction('tactical')).toBeCloseTo(0.25 / 3, 6);
+      expect(armorPieceReduction('space')).toBeCloseTo(0.5 / 3, 6);
+      expect(armorPieceReduction('tactical') * 3).toBeCloseTo(ARMOR_FULL_SET_REDUCTION.tactical, 6);
+      expect(armorPieceReduction('space') * 3).toBeCloseTo(ARMOR_FULL_SET_REDUCTION.space, 6);
+    });
+
+    it('itemDamageReduction returns the piece reduction (0 for non-armor)', () => {
+      expect(itemDamageReduction('armor_tac_head')).toBeCloseTo(0.25 / 3, 6);
+      expect(itemDamageReduction('armor_spc_legs')).toBeCloseTo(0.5 / 3, 6);
+      expect(itemDamageReduction('knife')).toBe(0);
+      expect(itemDamageReduction('ghost')).toBe(0);
+    });
+
+    it('armorMoldFor resolves the gender-correct Quaternius mold', () => {
+      expect(armorMoldFor('tactical', 'male')).toBe('swat');
+      expect(armorMoldFor('tactical', 'female')).toBe('w_soldier');
+      expect(armorMoldFor('space', 'male')).toBe('spacesuit');
+      expect(armorMoldFor('space', 'female')).toBe('w_scifi');
+    });
+
+    it('ARMOR_OUTFIT_KEYS lists exactly the molds removed from the creator', () => {
+      expect([...ARMOR_OUTFIT_KEYS].sort()).toEqual(['spacesuit', 'swat', 'w_scifi', 'w_soldier']);
+    });
   });
 });

@@ -283,4 +283,47 @@ describe('Inventory', () => {
       expect(inv.equippedIn('back')).toBeNull();
     });
   });
+
+  // ── Phase 15: armor slots + damage reduction ──
+
+  describe('armor (Phase 15)', () => {
+    it('equips armor into its region slot and lists worn pieces', () => {
+      const inv = new Inventory();
+      inv.add('armor_tac_head', 1);
+      inv.add('armor_tac_top', 1);
+      expect(inv.equipToSlot('head', 'armor_tac_head')).toBe(true);
+      expect(inv.equipToSlot('top', 'armor_tac_top')).toBe(true);
+      expect(inv.equippedArmorIds()).toEqual(['armor_tac_head', 'armor_tac_top']);
+    });
+
+    it('a full tactical set reduces 25%, a full space set 50%', () => {
+      const tac = new Inventory({ items: [{ id: 'armor_tac_head', qty: 1 }, { id: 'armor_tac_top', qty: 1 }, { id: 'armor_tac_legs', qty: 1 }] });
+      tac.equipToSlot('head', 'armor_tac_head');
+      tac.equipToSlot('top', 'armor_tac_top');
+      tac.equipToSlot('bottom', 'armor_tac_legs');
+      expect(tac.totalDamageReduction()).toBeCloseTo(0.25, 6);
+
+      const spc = new Inventory({ items: [{ id: 'armor_spc_head', qty: 1 }, { id: 'armor_spc_top', qty: 1 }, { id: 'armor_spc_legs', qty: 1 }] });
+      spc.equipToSlot('head', 'armor_spc_head');
+      spc.equipToSlot('top', 'armor_spc_top');
+      spc.equipToSlot('bottom', 'armor_spc_legs');
+      expect(spc.totalDamageReduction()).toBeCloseTo(0.5, 6);
+    });
+
+    it('mixed tiers sum each piece; no armor = 0', () => {
+      const inv = new Inventory({ items: [{ id: 'armor_tac_head', qty: 1 }, { id: 'armor_spc_top', qty: 1 }] });
+      inv.equipToSlot('head', 'armor_tac_head');
+      inv.equipToSlot('top', 'armor_spc_top');
+      expect(inv.totalDamageReduction()).toBeCloseTo(0.25 / 3 + 0.5 / 3, 6);
+      expect(new Inventory().totalDamageReduction()).toBe(0);
+    });
+
+    it('round-trips armor slots through toState / fromState', () => {
+      const inv = new Inventory({ items: [{ id: 'armor_spc_head', qty: 1 }] });
+      inv.equipToSlot('head', 'armor_spc_head');
+      const restored = Inventory.fromState(inv.toState());
+      expect(restored.equippedIn('head')).toBe('armor_spc_head');
+      expect(restored.totalDamageReduction()).toBeCloseTo(0.5 / 3, 6);
+    });
+  });
 });
