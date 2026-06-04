@@ -59,6 +59,11 @@ export default defineConfig({
     // re-resolve them to the Node build on first dynamic import.
     include: ['kokoro-js', '@huggingface/transformers'],
   },
+  worker: {
+    // ES-module worker output so the TTS worker can code-split its dynamic
+    // imports (kokoro-js / transformers). The default 'iife' rejects splitting.
+    format: 'es',
+  },
   build: {
     outDir: 'dist',
     sourcemap: true,
