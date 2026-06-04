@@ -1,7 +1,8 @@
 # ADR-0025 — Game audio (SFX + Music) + Voice/TTS
 
-**Status:** Accepted — 13A/13B/13C/**13D** implemented on branch `feat/audio-system` (NOT merged).
-13A–C owner-validated in Electron; 13D (Voice/TTS via Kokoro) code-complete, awaiting Electron playtest.
+**Status:** Accepted — 13A/13B/13C/**13D all implemented & owner-validated in Electron** on branch
+`feat/audio-system` (NOT merged). 13D (Voice/TTS via Kokoro) runs in a Web Worker with sentence-
+streaming playback (gapless, in-order, all sentences); see the TTS decisions + Lesson 39.
 
 ## Context
 
