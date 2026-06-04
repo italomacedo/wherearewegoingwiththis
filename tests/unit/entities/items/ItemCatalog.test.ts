@@ -4,6 +4,7 @@ import {
   itemEquipSlot, itemCapacityBonus, itemHungerRestore, itemModelPath, itemAttach,
   isArmor, itemArmorTier, itemArmorRegion, itemDamageReduction, armorPieceReduction, armorMoldFor,
   armorOverlayParts, ARMOR_SLOTS, ARMOR_OUTFIT_KEYS, ARMOR_FULL_SET_REDUCTION,
+  itemValue,
 } from '../../../../src/entities/items/ItemCatalog';
 import { FIST_PROFILE } from '../../../../src/systems/combat/CombatMath';
 
@@ -128,6 +129,13 @@ describe('ItemCatalog', () => {
       expect(itemDamageReduction('armor_spc_legs')).toBeCloseTo(0.5 / 3, 6);
       expect(itemDamageReduction('knife')).toBe(0);
       expect(itemDamageReduction('ghost')).toBe(0);
+    });
+
+    it('itemValue returns the fixed credit value (0 for currency/unknown)', () => {
+      expect(itemValue('knife')).toBe(12);
+      expect(itemValue('armor_spc_top')).toBe(140);
+      expect(itemValue('credstick')).toBe(0); // currency itself is not merchandise
+      expect(itemValue('ghost')).toBe(0);
     });
 
     it('armorMoldFor resolves the gender-correct Quaternius mold', () => {

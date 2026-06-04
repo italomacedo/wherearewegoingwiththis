@@ -69,6 +69,9 @@ export interface ItemDef {
   armorTier?: ArmorTier;
   /** Avatar region this armor piece swaps when worn (also its equip slot). */
   armorRegion?: ArmorRegion;
+  // ── Phase 16: economy ──
+  /** Fixed base value in credits (no market fluctuation). 0/undefined = not sold. */
+  value?: number;
 }
 
 export interface WeaponDef {
@@ -199,6 +202,23 @@ export const WEAPON_REGISTRY: Readonly<Record<string, WeaponDef>> = Object.freez
   shotgun: { id: 'shotgun', attackKind: 'ranged', skill: 'armas_de_fogo', damageBase: 30, variance: 12, range: 12 },
 });
 
+/**
+ * Fixed base value in credits per item (Phase 16 economy — no market fluctuation).
+ * The `credstick` is the currency itself (1 credit each) so it is never merchandise.
+ * Items absent here are worth 0 (not sold). Kept as a map to avoid bloating every
+ * registry row; `itemValue` prefers an explicit `ItemDef.value` if one is authored.
+ */
+export const ITEM_VALUES: Readonly<Record<string, number>> = Object.freeze({
+  knife: 12, pipe: 8, bat: 8, axe: 20, shovel: 15, flashlight: 10,
+  pistol: 60, revolver: 80, shotgun: 120,
+  backpack: 40, phone: 25,
+  medkit: 20,
+  burger: 8, cheeseburger: 10, hotdog: 6, apple: 3, banana: 3, bread: 4, donut: 4, sushi: 7,
+  armor_tac_head: 40, armor_tac_top: 70, armor_tac_legs: 55,
+  armor_spc_head: 90, armor_spc_top: 140, armor_spc_legs: 110,
+  scrap: 2,
+});
+
 const ITEM_BY_ID = new Map<string, ItemDef>(Object.values(ITEM_REGISTRY).map((d) => [d.id, d]));
 const WEAPON_BY_ID = new Map<string, WeaponDef>(Object.values(WEAPON_REGISTRY).map((d) => [d.id, d]));
 
@@ -231,6 +251,11 @@ export function itemArmorRegion(id: string): ArmorRegion | undefined { return IT
 export function itemDamageReduction(id: string): number {
   const tier = ITEM_BY_ID.get(id)?.armorTier;
   return tier ? armorPieceReduction(tier) : 0;
+}
+
+/** Fixed base value in credits (Phase 16). 0 = not sold. Explicit `value` wins. */
+export function itemValue(id: string): number {
+  return ITEM_BY_ID.get(id)?.value ?? ITEM_VALUES[id] ?? 0;
 }
 
 /** GLB model path for the item's visible held/worn prop (undefined if it has none). */
