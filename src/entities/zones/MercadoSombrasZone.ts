@@ -5,6 +5,7 @@ import {
 } from '@babylonjs/core';
 import { WorldZone, ZoneBounds } from '@entities/WorldZone';
 import { MERCADO_PROPS, EXIT_WALL, CORRIDOR_COLLIDERS, ZONE_HALF, ANIMAL_MODELS, TRASH_MODELS } from '@assets/WorldAssetCatalog';
+import { borderWallColliders } from '@systems/world/WorldGrid';
 import { DayPeriod, paletteForPeriod } from '@systems/GameClock';
 import { DOG_SPAWNS, DOG_BOUNDS, BEGGAR_SPOTS, TRASH_SPOTS, stepDog, DogState } from '@entities/AmbientLife';
 import type { Observer } from '@babylonjs/core';
@@ -227,6 +228,9 @@ export class MercadoSombrasZone extends WorldZone {
     await import('@babylonjs/loaders/glTF');
     let ok = 0;
     for (const p of MERCADO_PROPS) {
+      // Mosaic mode (Fase 17): the brick perimeter walls that closed gaps between
+      // buildings are obsolete — only the world borders matter now. Skip them.
+      if (this.openEast && p.key.startsWith('wall-')) continue;
       try {
         const c = await SceneLoader.LoadAssetContainerAsync('/assets/', p.model, scene);
         c.addAllToScene();
@@ -366,14 +370,18 @@ export class MercadoSombrasZone extends WorldZone {
   private buildColliders(scene: Scene): void {
     // Floor — gives the character controller ground to stand on.
     this.addBoxCollider(scene, 'col-floor', new Vector3(0, -0.5, 0), new Vector3(ZONE_HALF * 2, 1, ZONE_HALF * 2));
-    // Perimeter (side walls + ends). In mosaic mode the east wall (col-e) is dropped
-    // so the street opens into tile (1,0); west/north/south still cap their sides.
-    for (const c of CORRIDOR_COLLIDERS) {
-      if (this.openEast && c.key === 'col-e') continue;
-      this.addBoxCollider(scene, c.key, new Vector3(c.position[0], c.position[1], c.position[2]), new Vector3(c.size[0], c.size[1], c.size[2]));
-    }
-    // Black exit wall — only in standalone (closed) mode.
-    if (!this.openEast) {
+    if (this.openEast) {
+      // Mosaic mode: this is the SW-corner tile (0,0) — only its WORLD-border edges
+      // (west −X, south −Z) get a wall. North (→ tile 0,1) and east (→ tile 1,0)
+      // stay open; the buildings remain solid obstacles, no gap-filler walls.
+      for (const c of borderWallColliders(0, 0)) {
+        this.addBoxCollider(scene, c.key, new Vector3(c.position[0], c.position[1], c.position[2]), new Vector3(c.size[0], c.size[1], c.size[2]));
+      }
+    } else {
+      // Standalone (legacy) closed street: full perimeter + black exit wall.
+      for (const c of CORRIDOR_COLLIDERS) {
+        this.addBoxCollider(scene, c.key, new Vector3(c.position[0], c.position[1], c.position[2]), new Vector3(c.size[0], c.size[1], c.size[2]));
+      }
       this.addBoxCollider(scene, 'col-exit', new Vector3(EXIT_WALL.position[0], EXIT_WALL.position[1], EXIT_WALL.position[2]), new Vector3(EXIT_WALL.size[0], EXIT_WALL.size[1], EXIT_WALL.size[2]));
     }
     // Solid loaded props (buildings, walls, shelf, bollards, AC, planter) → box
