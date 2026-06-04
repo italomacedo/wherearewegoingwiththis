@@ -170,6 +170,13 @@ process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL
 let win: BrowserWindow | null;
 const claudeProcesses = new Map<string, ChildProcess>();
 
+// Safety net: a single-player desktop game's MAIN process should never die from a
+// stray async error (e.g. a broken child-process pipe). Log and keep running.
+/* eslint-disable no-console */
+process.on('uncaughtException', (err) => console.error('[main] uncaughtException (kept alive):', err));
+process.on('unhandledRejection', (reason) => console.error('[main] unhandledRejection:', reason));
+/* eslint-enable no-console */
+
 function createWindow() {
   win = new BrowserWindow({
     width: 1920,
@@ -182,12 +189,24 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
+      // Single-player desktop game: let the branding/menu music start before
+      // the first user gesture (Chromium blocks audio autoplay by default).
+      autoplayPolicy: 'no-user-gesture-required',
     },
   });
 
   win.webContents.on('did-finish-load', () => {
     win?.webContents.send('main-process-message', new Date().toISOString());
   });
+
+  // Surface hard crashes (renderer/GPU/native) in the terminal log — these never
+  // produce a JS stack in the DevTools console, so capture the reason here.
+  /* eslint-disable no-console */
+  win.webContents.on('render-process-gone', (_e, details) => {
+    console.error('[CRASH] render-process-gone:', JSON.stringify(details));
+  });
+  win.webContents.on('unresponsive', () => console.error('[CRASH] renderer unresponsive (hang)'));
+  /* eslint-enable no-console */
 
   if (VITE_DEV_SERVER_URL) {
     win.loadURL(VITE_DEV_SERVER_URL);
@@ -229,8 +248,18 @@ ipcMain.handle(
 
       claudeProcesses.set(npcId, proc);
 
-      proc.stdin?.write(prompt);
-      proc.stdin?.end();
+      // CRITICAL: a failed/early-closed child makes the stdin pipe emit 'error'
+      // (EPIPE/ENOENT). An UNHANDLED stream 'error' is an uncaught exception that
+      // crashes the whole Electron MAIN process (observed: app dies after an
+      // autonomous NPC call, no renderer stack). Handle it + guard the write;
+      // the child's own 'error'/'close' below still rejects the promise.
+      proc.stdin?.on('error', () => { /* swallowed — handled via proc 'error'/'close' */ });
+      try {
+        proc.stdin?.write(prompt);
+        proc.stdin?.end();
+      } catch {
+        /* child already gone — proc 'error'/'close' handles the rejection */
+      }
 
       let stderrBuf = '';
 
@@ -289,6 +318,9 @@ ipcMain.handle('window-close', () => win?.close());
 ipcMain.handle('open-external', (_event, url: string) => {
   shell.openExternal(url);
 });
+
+/* eslint-disable-next-line no-console */
+app.on('child-process-gone', (_e, details) => console.error('[CRASH] child-process-gone:', JSON.stringify(details)));
 
 app.on('window-all-closed', () => {
   claudeProcesses.forEach((proc) => proc.kill());

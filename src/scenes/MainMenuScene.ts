@@ -8,6 +8,7 @@ import { t } from '@systems/I18n';
 import { BaseScene } from './BaseScene';
 import { SceneManager } from '@core/SceneManager';
 import { ServiceLocator } from '@core/ServiceLocator';
+import { playSfxCue } from '@systems/UiSound';
 
 export class MainMenuScene extends BaseScene {
   constructor(engine: Engine) {
@@ -222,7 +223,7 @@ export class MainMenuScene extends BaseScene {
       btn.background = 'transparent';
       btn.thickness = 0;
       btn.height = '48px';
-      btn.onPointerUpObservable.add(action);
+      btn.onPointerUpObservable.add(() => { playSfxCue('ui_click'); action(); });
       btn.onPointerEnterObservable.add(() => {
         container.color = '#00FFCC';
         btn.color = '#FFFFFF';

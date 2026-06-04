@@ -6,12 +6,14 @@
   "private": true,
   "scripts": {
     "copy:havok": "node scripts/copy-havok-wasm.mjs",
-    "predev": "npm run copy:havok",
+    "copy:kokoro": "node scripts/copy-kokoro-model.mjs",
+    "copy:assets": "npm run copy:havok && npm run copy:kokoro",
+    "predev": "npm run copy:assets",
     "dev": "vite",
-    "prebuild": "npm run copy:havok",
+    "prebuild": "npm run copy:assets",
     "build": "npm run typecheck && vite build",
     "preview": "vite preview",
-    "preelectron:dev": "npm run copy:havok",
+    "preelectron:dev": "npm run copy:assets",
     "electron:dev": "vite",
     "electron:build": "npm run build && electron-builder",
     "test": "jest",
@@ -29,6 +31,7 @@
     "@babylonjs/loaders": "^7.35.0",
     "@babylonjs/materials": "^7.35.0",
     "electron-store": "^10.0.0",
+    "kokoro-js": "^1.2.1",
     "uuid": "^11.0.3"
   },
   "devDependencies": {
@@ -45,6 +48,7 @@
     "electron": "^33.2.0",
     "electron-builder": "^25.1.8",
     "eslint": "^9.15.0",
+    "ffmpeg-static": "^5.3.0",
     "jest": "^29.7.0",
     "jest-environment-node": "^29.7.0",
     "ts-jest": "^29.2.5",

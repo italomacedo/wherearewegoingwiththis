@@ -2,6 +2,8 @@ import { Engine, NullEngine } from '@babylonjs/core';
 import { SceneManager } from './SceneManager';
 import { ServiceLocator } from './ServiceLocator';
 import { EventBus } from './EventBus';
+import { AudioManager } from '@systems/AudioManager';
+import { TTSService } from '@systems/TTSService';
 import { SplashScene } from '@scenes/SplashScene';
 import { StudioScene } from '@scenes/StudioScene';
 import { PublisherScene } from '@scenes/PublisherScene';
@@ -47,7 +49,10 @@ export class GameManager {
 
   private setupServices(): void {
     ServiceLocator.register('engine', this.engine!);
-    ServiceLocator.register('eventBus', new EventBus());
+    const eventBus = new EventBus();
+    ServiceLocator.register('eventBus', eventBus);
+    ServiceLocator.register('audio', new AudioManager(eventBus));
+    ServiceLocator.register('tts', new TTSService());
     this.sceneManager = new SceneManager(this.engine!);
     ServiceLocator.register('sceneManager', this.sceneManager);
   }

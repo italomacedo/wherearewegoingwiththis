@@ -49,6 +49,43 @@ describe('VehicleController.computeFlightStep (pure flight model)', () => {
     expect(next.velocity.y).toBe(0);
   });
 
+  it('rests on a raised surface (rooftop) at surfaceFloor + clearance, not the global floor', () => {
+    const roof = 8;
+    // Engine off (no pilot), descending onto a rooftop at y=8.
+    const start: VehicleFlightState = {
+      position: new Vector3(0, roof + DEFAULT_VEHICLE_CONFIG.groundRestHeight, 0),
+      velocity: new Vector3(0, -5, 0),
+    };
+    const next = VehicleController.computeFlightStep(
+      start, { axis: { x: 0, z: 0 }, vertical: 0, engineOn: false }, 0, 0.2, DEFAULT_VEHICLE_CONFIG, roof
+    );
+    expect(next.position.y).toBeCloseTo(roof + DEFAULT_VEHICLE_CONFIG.groundRestHeight);
+    expect(next.velocity.y).toBe(0);
+    expect(next.landed).toBe(true);
+  });
+
+  it('hovers above a rooftop at surfaceFloor + hoverHeight while powered', () => {
+    const roof = 8;
+    const start: VehicleFlightState = {
+      position: new Vector3(0, roof + 0.2, 0), // below the rooftop hover clearance
+      velocity: new Vector3(0, -3, 0),
+    };
+    const next = VehicleController.computeFlightStep(
+      start, { axis: { x: 0, z: 0 }, vertical: -1 }, 0, 0.2, DEFAULT_VEHICLE_CONFIG, roof
+    );
+    expect(next.position.y).toBeCloseTo(roof + DEFAULT_VEHICLE_CONFIG.hoverHeight);
+    expect(next.velocity.y).toBe(0);
+  });
+
+  it('defaults surfaceFloor to 0 (street-level floor unchanged)', () => {
+    const start: VehicleFlightState = {
+      position: new Vector3(0, DEFAULT_VEHICLE_CONFIG.hoverHeight, 0),
+      velocity: new Vector3(0, -5, 0),
+    };
+    const next = VehicleController.computeFlightStep(start, { axis: { x: 0, z: 0 }, vertical: -1 }, 0, 0.2);
+    expect(next.position.y).toBeCloseTo(DEFAULT_VEHICLE_CONFIG.hoverHeight);
+  });
+
   it('clamps to the ceiling (maxAltitude) and kills upward velocity', () => {
     const start: VehicleFlightState = {
       position: new Vector3(0, DEFAULT_VEHICLE_CONFIG.maxAltitude, 0),
@@ -73,6 +110,24 @@ describe('VehicleController.computeFlightStep (pure flight model)', () => {
     const start: VehicleFlightState = { position: new Vector3(0, 5, 0), velocity: new Vector3(5, 0, 0) };
     const next = VehicleController.computeFlightStep(start, { axis: { x: 0, z: 0 }, vertical: 0 }, 0, 0.2);
     expect(Math.abs(next.velocity.x)).toBeLessThan(5);
+  });
+
+  it('confines X/Z to horizontalHalfExtent and zeroes the velocity into the wall', () => {
+    const cfg = { ...DEFAULT_VEHICLE_CONFIG, horizontalHalfExtent: 30 };
+    // Past the +X edge, moving outward → clamped to +30, x-velocity zeroed.
+    const out: VehicleFlightState = { position: new Vector3(35, 5, -40), velocity: new Vector3(5, 0, -5) };
+    const next = VehicleController.computeFlightStep(out, { axis: { x: 0, z: 0 }, vertical: 0 }, 0, 0.1, cfg);
+    expect(next.position.x).toBeLessThanOrEqual(30 + 1e-6);
+    expect(next.position.z).toBeGreaterThanOrEqual(-30 - 1e-6);
+    expect(next.velocity.x).toBe(0); // velocity into the +X wall is cancelled
+    expect(next.velocity.z).toBe(0); // velocity into the -Z wall is cancelled
+  });
+
+  it('does not confine when horizontalHalfExtent is Infinity (default)', () => {
+    const start: VehicleFlightState = { position: new Vector3(100, 5, 100), velocity: Vector3.Zero() };
+    const next = VehicleController.computeFlightStep(start, { axis: { x: 0, z: 0 }, vertical: 0 }, 0, 0.1);
+    expect(next.position.x).toBeCloseTo(100, 5);
+    expect(next.position.z).toBeCloseTo(100, 5);
   });
 });
 
@@ -153,6 +208,16 @@ describe('VehicleController instance', () => {
     expect(vehicle.isOccupied()).toBe(false);
     vehicle.update(0.5, { axis: { x: 0, z: 1 }, vertical: 0 }, 0);
     expect(vehicle.getPosition().z).toBeCloseTo(parked.z);
+  });
+
+  it('an abandoned bike rests on the surface from the floor provider (rooftop), not the ground', () => {
+    vehicle.spawn(new Vector3(0, 0, 0));
+    vehicle.setFloorProvider(() => 8); // a rooftop 8 units up under the nave
+    climb(40);
+    fall(160);
+    // Comes to rest on the rooftop (8 + ground rest clearance), never the street.
+    expect(vehicle.getPosition().y).toBeCloseTo(8 + DEFAULT_VEHICLE_CONFIG.groundRestHeight, 1);
+    expect(vehicle.getPosition().y).toBeGreaterThan(DEFAULT_VEHICLE_CONFIG.groundRestHeight + 1);
   });
 
   it('canEnter is true within radius and false outside', () => {

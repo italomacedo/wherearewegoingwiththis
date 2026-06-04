@@ -1,7 +1,7 @@
 import {
   Engine, Color4, Color3, Vector3, Matrix, AbstractMesh, TransformNode, MeshBuilder,
   PhysicsAggregate, PhysicsShapeType, PhysicsMotionType, AnimationGroup, Animation, LinesMesh,
-  SpotLight,
+  SpotLight, Ray, Node,
 } from '@babylonjs/core';
 import { BaseScene } from './BaseScene';
 import { ServiceLocator } from '@core/ServiceLocator';
@@ -33,6 +33,9 @@ import { AdjustOverlay } from '@systems/AdjustOverlay';
 import { ActionRibbon } from '@systems/ActionRibbon';
 import { AimTarget, nearestToPoint } from '@systems/SurpriseTargeting';
 import { createMuzzleFlash } from '@systems/ParticleEffects';
+import type { AudioManager } from '@systems/AudioManager';
+import type { TTSService } from '@systems/TTSService';
+import { sfxForBeat, footstepInterval } from '@systems/SfxCatalog';
 import { EquipSlot, ItemAttach } from '@entities/items/ItemCatalog';
 import { NPCManager, NPCMemoryMap, AutonomyContext, AutonomyJob } from '@systems/NPCManager';
 import { ClaudeCallQueue, queueConfigFromSettings } from '@systems/ClaudeCallQueue';
@@ -56,7 +59,7 @@ import { t, getLocale, languageName } from '@systems/I18n';
 import { SettingsService } from '@systems/SettingsService';
 import { CombatOverlay } from '@systems/combat/CombatOverlay';
 import { CombatController, CombatLogEntry } from '@systems/combat/CombatController';
-import { combatClipFor, attackClipFor, CombatClipState } from '@assets/AvatarMeshCatalog';
+import { combatClipFor, attackClipFor, CombatClipState, genderOfOutfit } from '@assets/AvatarMeshCatalog';
 import { CombatEncounter, CombatantInit, CombatOutcome } from '@systems/combat/CombatEncounter';
 import {
   combatTuningFromSettings, CombatTuning, Point2, Pathfinder,
@@ -64,7 +67,7 @@ import {
 } from '@systems/combat/CombatMath';
 import { buildWalkGrid, gridPathfinder } from '@systems/combat/CombatMovement';
 import { recruitSides, RecruitParticipant, SIDE_INITIATOR, SIDE_TARGET } from '@systems/combat/CombatRecruiter';
-import { COMBAT_OBSTACLES, COMBAT_BOUNDS } from '@assets/WorldAssetCatalog';
+import { COMBAT_OBSTACLES, COMBAT_BOUNDS, ZONE_HALF } from '@assets/WorldAssetCatalog';
 
 export class GameWorldScene extends BaseScene {
   /** Setting used for the ambient "react to surroundings" narration (global chat). */
@@ -90,6 +93,14 @@ export class GameWorldScene extends BaseScene {
   private chatMode: 'npc' | 'global' = 'npc';
   private pauseMenu: PauseMenu | null = null;
   private inventoryOverlay: InventoryOverlay | null = null;
+  /** Cached AudioManager (resolved lazily) + footstep cadence accumulator. */
+  private audio: AudioManager | null = null;
+  private tts: TTSService | null = null;
+  private footstepTimer = 0;
+  /** Last frame's fall-damage reading, to fire the landing thud once per impact. */
+  private prevFallDamage = 0;
+  /** Tracks the nave's last destroyed state so the explosion SFX fires once. */
+  private naveWasDestroyed = false;
   /** Visible held props on the hero (main-hand weapon/flashlight/firearm + backpack). */
   private playerHeldRig: HeldItemRig | null = null;
   /** Visible held weapon on each NPC avatar (keyed by NPC id). */
@@ -124,6 +135,13 @@ export class GameWorldScene extends BaseScene {
   private targetRing: LinesMesh | null = null;
   /** Click tolerance (m): the cursor's ground point must land within this of a combatant. */
   private static readonly TARGET_PICK_RADIUS = 2.0;
+  /**
+   * Reach (m) for committing an OUT-OF-COMBAT melee surprise attack. More forgiving
+   * than the in-combat MELEE_RANGE (1 m): collision capsules keep the player from
+   * standing within 1 m of an NPC, so a 1 m gate made melee ambush impossible to
+   * commit. The lunge into adjacency happens at combat start (see beginCombat).
+   */
+  private static readonly SURPRISE_MELEE_REACH = 2.5;
   /** Active N-way encounter + the player's side (for friendly-fire defection). */
   private combatEnc: CombatEncounter | null = null;
   private combatPlayerSide: string | null = null;
@@ -314,6 +332,9 @@ export class GameWorldScene extends BaseScene {
     this.cameraSystem = new CameraSystem(this.babylonScene);
     ServiceLocator.register('cameraSystem', this.cameraSystem);
 
+    // Give the AudioManager this scene so SFX cues can play.
+    (this.audio ??= ServiceLocator.tryGet<AudioManager>('audio'))?.setScene(this.babylonScene);
+
     this.inputSystem = new InputSystem();
     this.detachInput = this.inputSystem.attach();
     ServiceLocator.register('inputSystem', this.inputSystem);
@@ -351,8 +372,9 @@ export class GameWorldScene extends BaseScene {
     );
     void this.syncPlayerHeldItems();
 
-    // Park a flying motorcycle near the spawn point.
-    this.vehicle = new VehicleController(this.babylonScene);
+    // Park a flying motorcycle near the spawn point. Confine it to the closed
+    // street (flying out of bounds and back was crashing the game).
+    this.vehicle = new VehicleController(this.babylonScene, { horizontalHalfExtent: ZONE_HALF });
     this.vehicle.spawn(zone.getSpawnPoint().add(new Vector3(4, 0, 0)));
     this.vehicle.setHealthState(this.vehicleState.health);
     this.vehicle.setDestroyed(this.vehicleState.destroyed);
@@ -373,7 +395,7 @@ export class GameWorldScene extends BaseScene {
     // Inventory overlay (I) — manage the pack; loot a corpse. Freezes the world.
     this.inventoryOverlay = new InventoryOverlay(this.babylonScene);
     this.inventoryOverlay.setHandlers({
-      onChange: () => { this.persistSession(); void this.syncPlayerHeldItems(); },
+      onChange: () => { this.sfx('ui_click'); this.persistSession(); void this.syncPlayerHeldItems(); },
       onHeal: (amount) => { this.player?.getHealth().heal(amount); },
       onFeed: (itemId, amount) => this.eat(itemId, amount),
       // Looting a corpse framed the camera on it (conversation mode); restore the
@@ -388,19 +410,16 @@ export class GameWorldScene extends BaseScene {
     this.adjustOverlay.setHandlers({
       onApply: (slot, attach) => this.adjustPreview(slot, attach),
       onSave: (itemId, _slot, attach) => this.adjustSave(itemId, attach),
-      onClose: () => {
-        this.cameraSystem?.setWheelZoomEnabled(false);
-        this.cameraSystem?.exitConversationMode();
-      },
+      onClose: () => { /* camera unchanged while adjusting — nothing to restore */ },
     });
 
     // Main action ribbon (Phase 11): Attack Ranged / Melee / Talk / Inventory.
     this.actionRibbon = new ActionRibbon(this.babylonScene);
     this.actionRibbon.setHandlers({
-      onAttackRanged: () => this.enterSurpriseTargeting('ranged'),
-      onAttackMelee: () => this.enterSurpriseTargeting('melee'),
-      onTalk: () => this.openTalkFromRibbon(),
-      onInventory: () => this.inventoryOverlay?.openManage(this.playerInventory),
+      onAttackRanged: () => { this.sfx('ui_click'); this.enterSurpriseTargeting('ranged'); },
+      onAttackMelee: () => { this.sfx('ui_click'); this.enterSurpriseTargeting('melee'); },
+      onTalk: () => { this.sfx('ui_click'); this.openTalkFromRibbon(); },
+      onInventory: () => { this.sfx('ui_click'); this.inventoryOverlay?.openManage(this.playerInventory); },
     });
 
     // Turn-based combat overlay (triggered by a hostile NPC's attack intent).
@@ -422,20 +441,55 @@ export class GameWorldScene extends BaseScene {
 
   /* istanbul ignore next — physics colliders are browser/Electron only */
   private buildEntityColliders(): void {
-    // The nave is a static prop → one fixed box. NPCs get a capsule that follows them.
-    const veh = this.vehicle?.getRoot() as unknown as AbstractMesh | undefined;
+    // The nave's collider is PARENTED to its root (ANIMATED body, disablePreStep=false)
+    // so it follows the nave when it flies / falls / is repositioned — same self-
+    // following mold as the NPC capsule (a static box stayed behind at the spawn).
+    const veh = this.vehicle?.getRoot();
     if (veh) {
+      veh.computeWorldMatrix(true);
       const { min, max } = veh.getHierarchyBoundingVectors(true);
       const size = max.subtract(min);
       if (size.x >= 0.05 && size.y >= 0.05 && size.z >= 0.05) {
         const box = MeshBuilder.CreateBox('col-entity-nave', { width: size.x, height: size.y, depth: size.z }, this.babylonScene);
-        box.position.copyFrom(min.add(max).scale(0.5));
         box.isVisible = false;
+        box.parent = veh;
+        // Local offset to the nave's geometric centre (root is unrotated/unscaled at spawn).
+        box.position.copyFrom(min.add(max).scale(0.5).subtract(veh.getAbsolutePosition()));
+        const agg = new PhysicsAggregate(box, PhysicsShapeType.BOX, { mass: 0 }, this.babylonScene);
+        agg.body.setMotionType(PhysicsMotionType.ANIMATED);
+        agg.body.disablePreStep = false;
         this.entityColliders.push(box);
-        this.entityAggregates.push(new PhysicsAggregate(box, PhysicsShapeType.BOX, { mass: 0 }, this.babylonScene));
+        this.entityAggregates.push(agg);
       }
     }
+    this.installNaveFloorProbe();
     this.npcHolderById.forEach((holder, id) => this.buildNpcCapsule(id, holder));
+  }
+
+  /**
+   * Give the nave a downward surface probe so it hovers over / lands on rooftops
+   * instead of phasing through them. A ray from just above the nave straight
+   * down; the nearest solid hit below it (excluding the nave's own meshes/
+   * colliders and the hero) is the floor. No hit → street level (0).
+   */
+  /* istanbul ignore next — picking/raycast is browser/Electron only */
+  private installNaveFloorProbe(): void {
+    this.vehicle?.setFloorProvider((x, z) => {
+      const naveRoot = this.vehicle?.getRoot() ?? null;
+      const playerRoot = this.player?.getRoot() ?? null;
+      const originY = (this.vehicle?.getPosition().y ?? 0) + 0.5;
+      const ray = new Ray(new Vector3(x, originY, z), new Vector3(0, -1, 0), originY + 5);
+      const hit = this.babylonScene.pickWithRay(ray, (m) => {
+        if (!m.isPickable || m.name.startsWith('col-')) return false;
+        let n: Node | null = m;
+        while (n) {
+          if (n === naveRoot || n === playerRoot) return false;
+          n = n.parent;
+        }
+        return true;
+      });
+      return hit?.pickedPoint ? hit.pickedPoint.y : 0;
+    });
   }
 
   /**
@@ -572,6 +626,8 @@ export class GameWorldScene extends BaseScene {
     // Autosave before tearing anything down (npcManager is disposed below) —
     // but NOT on game over, or we'd overwrite the save with the dead state.
     if (!this.gameOver) this.persistSession();
+    /* istanbul ignore next — stop the procedural engine drone on world exit */
+    this.audio?.stopEngineTone();
     this.detachInput?.();
     this.player?.dispose();
     this.vehicle?.dispose();
@@ -689,11 +745,10 @@ export class GameWorldScene extends BaseScene {
       return;
     }
 
-    // Adjust tool (O) — freezes movement but keeps camera orbit/zoom so you can
-    // inspect the held prop from any angle while tuning it.
+    // Adjust tool (O) — freezes movement; the default close camera frames the
+    // hero (no orbit/zoom override, to keep the on-foot view consistent).
     this.handleAdjustInput();
     if (this.adjustOverlay?.isOpen()) {
-      this.handleCameraKeys(dt);
       this.cameraSystem?.update();
       this.inputSystem?.endFrame();
       return;
@@ -712,6 +767,11 @@ export class GameWorldScene extends BaseScene {
           this.player.setCameraYaw(this.cameraSystem.getYaw());
         }
         this.player?.update(dt);
+        this.tickFootsteps(dt);
+        // A fresh hard landing (fall damage just applied) thuds like a body fall.
+        const fd = this.player?.getLastFallDamage() ?? 0;
+        if (fd > 0 && fd !== this.prevFallDamage) this.sfx('bodyfall');
+        this.prevFallDamage = fd;
       }
     }
     // Vehicle physics run every frame: piloted it flies; abandoned it falls.
@@ -742,7 +802,7 @@ export class GameWorldScene extends BaseScene {
     if (delta > 0) health.heal(delta);
     else if (delta < 0) health.applyDamage(-delta);
     const low = this.playerHunger.isLow();
-    if (low && !this.hungerWasLow) this.recordGossipLine(t('hunger.growl'));
+    if (low && !this.hungerWasLow) { this.recordGossipLine(t('hunger.growl')); this.sfx('growl'); }
     this.hungerWasLow = low;
   }
 
@@ -764,12 +824,50 @@ export class GameWorldScene extends BaseScene {
     } else {
       void this.playerHeldRig?.showTransient(null);
     }
+    this.sfx('eat');
+  }
+
+  /** Fire a registered SFX cue through the AudioManager (no-op if unregistered). */
+  /* istanbul ignore next — thin browser glue over the unit-tested AudioManager */
+  private sfx(cue: string): void {
+    (this.audio ??= ServiceLocator.tryGet<AudioManager>('audio'))?.playCue(cue);
+  }
+
+  /** Speak an NPC's line in its assigned voice (Kokoro TTS; fail-open). */
+  /* istanbul ignore next — thin browser glue over the unit-tested TTSService */
+  private speakNpc(agent: NPCAgent, text: string): void {
+    const gender = genderOfOutfit(agent.definition.appearance?.bodyBase ?? 'punk');
+    (this.tts ??= ServiceLocator.tryGet<TTSService>('tts') ?? null)
+      ?.speakSubject({ id: agent.definition.id, gender }, text);
+  }
+
+  /** Voice a cinematic narration line in the narrator voice (fail-open). */
+  /* istanbul ignore next — thin browser glue over the unit-tested TTSService */
+  private speakNarration(text: string): void {
+    (this.tts ??= ServiceLocator.tryGet<TTSService>('tts') ?? null)?.speakNarrator(text);
+  }
+
+  /**
+   * Footstep cadence: accumulate dt and fire the footstep cue at the interval
+   * for the current loco state (silent when idle). Pure timing in footstepInterval.
+   */
+  /* istanbul ignore next — per-frame browser glue; footstepInterval is unit-tested */
+  private tickFootsteps(dt: number): void {
+    const state = this.player?.getLocoState() ?? 'idle';
+    const interval = footstepInterval(state);
+    if (interval <= 0) { this.footstepTimer = 0; return; }
+    this.footstepTimer += dt;
+    if (this.footstepTimer >= interval) {
+      this.footstepTimer = 0;
+      this.sfx('footstep');
+    }
   }
 
   /** When the hero dies, freeze the run and show the Game Over menu (once). */
   private checkGameOver(): void {
     if (this.gameOver || !this.player?.isDead()) return;
     this.gameOver = true;
+    (this.audio ??= ServiceLocator.tryGet<AudioManager>('audio'))?.playMusic('gameover');
     this.gameOverMenu?.openMenu();
   }
 
@@ -988,6 +1086,23 @@ export class GameWorldScene extends BaseScene {
     if (targetId !== 'player' && mgr.getAgent(targetId)?.isDefeated()) return;
     this.dialog?.close();
 
+    // Melee surprise: lunge the hero adjacent to the target so the opening strike
+    // lands. Collision capsules keep the player just outside the 1 m melee gate, so
+    // without this the auto opening attack would whiff. (Ranged needs no lunge.)
+    if (opts.ambush && opts.openingAttack === 'melee' && this.player && targetId !== 'player') {
+      const tp = this.npcHolderById.get(targetId)?.position ?? mgr.getAgent(targetId)?.getPosition();
+      if (tp) {
+        const pp = this.player.getRoot().position;
+        const dx = pp.x - tp.x;
+        const dz = pp.z - tp.z;
+        const d = Math.hypot(dx, dz);
+        if (d > MELEE_RANGE) {
+          const r = (MELEE_RANGE * 0.85) / (d || 1);
+          this.player.teleport(new Vector3(tp.x + dx * r, pp.y, tp.z + dz * r));
+        }
+      }
+    }
+
     const playerInvolved = initiatorId === 'player' || targetId === 'player';
     // Whole-scene recruitment: each NPC's relationships come from its disposition
     // (toward the player) and its ledger (toward other NPCs).
@@ -1050,7 +1165,11 @@ export class GameWorldScene extends BaseScene {
 
     const language = languageName(getLocale());
     this.combat.setHandlers({
-      narrate: (beat) => this.npcManager?.narrateCombat(beat, language) ?? Promise.resolve(beat),
+      narrate: async (beat) => {
+        const line = await (this.npcManager?.narrateCombat(beat, language) ?? Promise.resolve(beat));
+        this.speakNarration(line); // voice the critical-hit line (narrator, TTS fail-open)
+        return line;
+      },
       onEnd: (outcome) => this.endCombat(outcome),
       onBeat: (entry) => this.onCombatBeat(entry),
       onRequestTarget: (attackKind) => { this.combatTargeting = { mode: 'attack', attackKind }; },
@@ -1060,6 +1179,7 @@ export class GameWorldScene extends BaseScene {
     });
     this.combat.setPortraitSources(sources);
     this.combat.start(controller);
+    (this.audio ??= ServiceLocator.tryGet<AudioManager>('audio'))?.playMusic('combat');
     // Seed each combatant facing its nearest foe so the fight opens looking engaged,
     // and the per-frame pin keeps it (Bug A).
     this.combatFacing.clear();
@@ -1136,6 +1256,7 @@ export class GameWorldScene extends BaseScene {
   /* istanbul ignore next — browser-only */
   private onCombatBeat(entry: CombatLogEntry): void {
     this.animateCombatBeat(entry);
+    for (const cue of sfxForBeat(entry)) this.sfx(cue);
     this.applyFriendlyFire(entry);
   }
 
@@ -1397,6 +1518,7 @@ export class GameWorldScene extends BaseScene {
   /** Reach (m) of the player's pending surprise attack: firearm range / melee 1 m. */
   /* istanbul ignore next — browser-only */
   private surpriseRange(attackKind: 'melee' | 'ranged'): number {
+    if (attackKind === 'melee') return GameWorldScene.SURPRISE_MELEE_REACH;
     return targetRangeFor(attackKind, weaponProfile(this.playerInventory.combatWeaponId));
   }
 
@@ -1422,7 +1544,10 @@ export class GameWorldScene extends BaseScene {
     const to = this.groundPointFromPointer();
     if (!aim || !me || !to) return;
     const cand = nearestToPoint(this.aimTargetsInScene(), to, GameWorldScene.TARGET_PICK_RADIUS);
-    if (!cand || distance2({ x: me.x, z: me.z }, cand.pos) > this.surpriseRange(aim.attackKind)) return;
+    if (!cand || distance2({ x: me.x, z: me.z }, cand.pos) > this.surpriseRange(aim.attackKind)) {
+      this.sfx('ui_error'); // clicked an out-of-reach / empty spot
+      return;
+    }
     const attackKind = aim.attackKind;
     this.clearSurpriseTargeting();
     this.beginCombat('player', cand.id, { ambush: true, openingAttack: attackKind });
@@ -1503,6 +1628,7 @@ export class GameWorldScene extends BaseScene {
   /** Apply a resolved combat outcome to the world (player HP, defeat, disposition). */
   /* istanbul ignore next — browser-only combat wiring */
   private endCombat(outcome: CombatOutcome): void {
+    (this.audio ??= ServiceLocator.tryGet<AudioManager>('audio'))?.playMusic('world'); // back to the street bed
     const state = this.combat?.getController()?.getState();
     const me = state?.combatants.find((c) => c.isPlayer);
     if (me) {
@@ -1709,6 +1835,7 @@ export class GameWorldScene extends BaseScene {
       ]);
       this.chatMode = 'npc';
       this.dialog.open(agent.getDisplayName(), seed);
+      this.sfx('ui_open');
       // Cinematic framing: focus the NPC we're talking to. Target the holder (a
       // top-level node at the NPC's world position) — the camera follows
       // target.position (local), so the parented mesh anchor would frame the
@@ -1729,6 +1856,8 @@ export class GameWorldScene extends BaseScene {
   private closeDialog(): void {
     this.dialog?.close();
     this.cameraSystem?.exitConversationMode();
+    /* istanbul ignore next — thin browser glue */
+    (this.tts ??= ServiceLocator.tryGet<TTSService>('tts') ?? null)?.cancel();
   }
 
   private wireDialog(): void {
@@ -1748,6 +1877,7 @@ export class GameWorldScene extends BaseScene {
     // Seed with any overheard NPC↔NPC gossip so it shows in the T history.
     const seed: DialogLine[] = this.gossipLog.map((text) => ({ role: 'narration' as const, text }));
     this.dialog.open(t('dialog.openChannel'), seed);
+    this.sfx('ui_open');
   }
 
   /**
@@ -1765,6 +1895,7 @@ export class GameWorldScene extends BaseScene {
       ]);
       this.chatMode = 'npc';
       this.dialog.open(agent.getDisplayName(), seed);
+      this.sfx('ui_open');
       const holder = this.npcHolderById.get(agent.definition.id);
       if (holder && this.player) {
         const pp = this.player.getPosition();
@@ -1776,6 +1907,7 @@ export class GameWorldScene extends BaseScene {
     this.chatMode = 'global';
     const seed: DialogLine[] = this.gossipLog.map((text) => ({ role: 'narration' as const, text }));
     this.dialog.open(t('dialog.openChannel'), seed);
+    this.sfx('ui_open');
   }
 
   /** Builds the world snapshot and routes a message to the conversable NPC (E). */
@@ -1792,6 +1924,7 @@ export class GameWorldScene extends BaseScene {
     const allowed = await this.npcManager.moderate(agent.definition.id, spoken);
     if (!allowed) {
       this.dialog.addSystemLine(t('dialog.cantSay'));
+      this.sfx('ui_error');
       return;
     }
 
@@ -1822,6 +1955,7 @@ export class GameWorldScene extends BaseScene {
     const allowed = await this.npcManager.moderate(modId, spoken);
     if (!allowed) {
       this.dialog.addSystemLine(t('dialog.cantSay'));
+      this.sfx('ui_error');
       return;
     }
 
@@ -1835,7 +1969,9 @@ export class GameWorldScene extends BaseScene {
     } else {
       this.dialog.setThinking(true);
       const narration = await this.npcManager.narrateAmbient(spoken, this.formatGameTime(), GameWorldScene.SURROUNDINGS, languageName(getLocale()));
-      this.dialog.addNarrationLine(narration || 'The street murmurs on, indifferent.');
+      const line = narration || 'The street murmurs on, indifferent.';
+      this.dialog.addNarrationLine(line);
+      this.speakNarration(line);
     }
   }
 
@@ -1852,6 +1988,7 @@ export class GameWorldScene extends BaseScene {
       } else {
         this.dialog.setNpcText(reply);
         if (agent.revealNameIfMentioned(reply)) this.dialog.setNpcName(agent.definition.name);
+        this.speakNpc(agent, reply); // voice the NPC's spoken words (TTS, fail-open)
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -1872,9 +2009,9 @@ export class GameWorldScene extends BaseScene {
     if (!hasEmote(message)) return false;
 
     if (isCheckTimeEmote(message)) {
-      this.dialog.addNarrationLine(
-        narrateTime(this.clock.label(this.gameTimeSeconds), this.clock.period(this.gameTimeSeconds))
-      );
+      const timeLine = narrateTime(this.clock.label(this.gameTimeSeconds), this.clock.period(this.gameTimeSeconds));
+      this.dialog.addNarrationLine(timeLine);
+      this.speakNarration(timeLine);
       return true;
     }
 
@@ -1885,7 +2022,9 @@ export class GameWorldScene extends BaseScene {
       if (result.success) {
         this.playerStats = applySkillUse(this.playerStats, 'medicina', SettingsService.get('skillGainMultiplier'));
       }
-      this.dialog.addNarrationLine(describeCondition(this.player.getHealth().fraction(), result.success));
+      const condLine = describeCondition(this.player.getHealth().fraction(), result.success);
+      this.dialog.addNarrationLine(condLine);
+      this.speakNarration(condLine);
       return true;
     }
 
@@ -1913,7 +2052,11 @@ export class GameWorldScene extends BaseScene {
     }
 
     const narration = await this.npcManager.narrateOutcome(message, result.success, languageName(getLocale()));
-    this.dialog.addNarrationLine(narration || (result.success ? 'You pull it off.' : "It doesn't go your way."));
+    {
+      const outcomeLine = narration || (result.success ? 'You pull it off.' : "It doesn't go your way.");
+      this.dialog.addNarrationLine(outcomeLine);
+      this.speakNarration(outcomeLine);
+    }
 
     // The addressed NPC reacts to the action.
     if (agent) {
@@ -1937,7 +2080,11 @@ export class GameWorldScene extends BaseScene {
     }
     agent.onHostilePlayerAction();
     const narration = await this.npcManager.narrateOutcome(message, result.success, languageName(getLocale()));
-    this.dialog.addNarrationLine(narration || (result.success ? 'Your blow lands hard.' : 'They reel back, snarling.'));
+    {
+      const blowLine = narration || (result.success ? 'Your blow lands hard.' : 'They reel back, snarling.');
+      this.dialog.addNarrationLine(blowLine);
+      this.speakNarration(blowLine);
+    }
 
     if (agent.shouldInitiateCombat(true)) {
       this.dialog.close();
@@ -2003,6 +2150,21 @@ export class GameWorldScene extends BaseScene {
       ? { axis: this.inputSystem.getMovementAxis(), vertical: this.inputSystem.getVerticalAxis() }
       : { axis: { x: 0, z: 0 }, vertical: 0 };
     this.vehicle.update(dt, input, this.cameraSystem.getYaw());
+
+    // Procedural engine drone while piloting: a 180 Hz sine that glides to 220 Hz
+    // when the player feeds movement input and back to 180 Hz when idle.
+    const audio = (this.audio ??= ServiceLocator.tryGet<AudioManager>('audio'));
+    if (driving) {
+      audio?.startEngineTone();
+      const moving = input.axis.x !== 0 || input.axis.z !== 0 || input.vertical !== 0;
+      audio?.setEngineThrottle(moving);
+    } else {
+      audio?.stopEngineTone();
+    }
+    // Explosion the moment the nave is destroyed.
+    const destroyed = this.vehicle.isDestroyed();
+    if (destroyed && !this.naveWasDestroyed) this.sfx('explosion');
+    this.naveWasDestroyed = destroyed;
   }
 
   /** Mount on F when near a parked vehicle; dismount on F while piloting. */
@@ -2015,9 +2177,11 @@ export class GameWorldScene extends BaseScene {
       // fall damage). The abandoned bike loses lift and falls too.
       this.vehicle.exit();
       const p = this.vehicle.getPosition();
-      this.player.getRoot().position.set(p.x + 1.5, p.y, p.z);
+      // teleport() also moves the physics capsule (a raw position.set is overridden
+      // by the character controller → hero snapped back to its mount/spawn spot).
+      this.player.teleport(new Vector3(p.x + 1.5, p.y, p.z));
       this.player.getRoot().setEnabled(true);
-      this.player.startFalling(p.y);
+      this.player.startFalling(p.y); // kinematic fall path (no-physics/tests)
       this.cameraSystem.setTarget(this.player.getRoot());
       this.cameraSystem.exitVehicleMode();
     } else if (this.vehicle.canEnter(this.player.getPosition())) {
@@ -2056,6 +2220,7 @@ export class GameWorldScene extends BaseScene {
       return;
     }
     this.pauseMenu.toggle();
+    this.sfx('ui_open');
   }
 
   /** `I` opens the inventory (manage); while open, `I`/ESC closes it. */
@@ -2068,7 +2233,10 @@ export class GameWorldScene extends BaseScene {
     }
     // Don't open over another modal or while typing in the dialog.
     if (this.dialog?.isOpen() || this.pauseMenu?.isOpen() || this.gameOverMenu?.isOpen()) return;
-    if (this.inputSystem.wasJustPressed('inventory.open')) overlay.openManage(this.playerInventory);
+    if (this.inputSystem.wasJustPressed('inventory.open')) {
+      overlay.openManage(this.playerInventory);
+      this.sfx('ui_open');
+    }
   }
 
   /** `O` toggles the Adjust tool for the currently equipped held prop. */
@@ -2097,8 +2265,7 @@ export class GameWorldScene extends BaseScene {
     const base = resolveAttachWith(itemId, slot, this.heldAttach);
     base.bone = boneFor(itemId, slot, this.heldAttach);
     const bones = (this.player?.getSkeleton()?.bones ?? []).map((b) => b.name);
-    if (this.player) this.cameraSystem?.enterConversationMode(this.player.getRoot(), 4);
-    this.cameraSystem?.setWheelZoomEnabled(true); // free wheel zoom while tuning
+    // Camera stays as the default close follow view — no zoom/orbit override.
     this.adjustOverlay.open(itemId, slot, base, bones);
   }
 

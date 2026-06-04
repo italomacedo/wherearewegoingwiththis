@@ -21,3 +21,6 @@ public/assets/**/*.fbx
 
 # Havok wasm — copied from node_modules by scripts/copy-havok-wasm.mjs (predev/prebuild)
 /public/HavokPhysics.wasm
+
+# Vendored TTS model (large; fetched from HF on first run if absent)
+public/models/

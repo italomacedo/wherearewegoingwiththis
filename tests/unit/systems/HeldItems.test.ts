@@ -11,7 +11,7 @@ describe('HeldItems (pure decision logic)', () => {
 
   it('resolveAttach uses the item override when present, else the slot default', () => {
     // knife has a measured per-item transform
-    expect(resolveAttach('knife', 'main_hand').scale).toBeCloseTo(0.38, 5);
+    expect(resolveAttach('knife', 'main_hand').scale).toBeCloseTo(0.34, 5);
     // pipe is a model-less legacy item with no transform → slot default
     expect(resolveAttach('pipe', 'main_hand')).toEqual(DEFAULT_ATTACH.main_hand);
   });
@@ -27,7 +27,7 @@ describe('HeldItems (pure decision logic)', () => {
     expect(knife.itemId).toBe('knife');
     expect(knife.modelPath).toBe('items/knife.glb');
     expect(knife.bone).toBe('Wrist.R');
-    expect(knife.attach.scale).toBeCloseTo(0.38, 5);
+    expect(knife.attach.scale).toBeCloseTo(0.34, 5);
     const pack = props.find((p) => p.slot === 'back')!;
     expect(pack.modelPath).toBe('items/backpack.glb');
     expect(pack.bone).toBe('Chest');

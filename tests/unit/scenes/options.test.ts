@@ -170,6 +170,51 @@ describe('OptionsScene', () => {
     expect(scene.getSetting('claudeCliPath')).toBe(before);
   });
 
+  // ─── Sound tab (Phase 13A) ───────────────────────────────────────────────
+
+  it('default audio toggles are all on', () => {
+    expect(DEFAULT_SETTINGS.musicEnabled).toBe(true);
+    expect(DEFAULT_SETTINGS.sfxEnabled).toBe(true);
+    expect(DEFAULT_SETTINGS.ttsEnabled).toBe(true);
+  });
+
+  it('nextVolume snaps to a step then advances, wrapping at 100%', () => {
+    expect(OptionsScene.nextVolume(0)).toBe(0.25);
+    expect(OptionsScene.nextVolume(0.5)).toBe(0.75);
+    expect(OptionsScene.nextVolume(1)).toBe(0); // wrap
+    expect(OptionsScene.nextVolume(0.6)).toBe(0.75); // snaps to 0.5 then advances
+  });
+
+  it('volumeLabel renders whole percentages', () => {
+    expect(OptionsScene.volumeLabel(0)).toBe('0%');
+    expect(OptionsScene.volumeLabel(0.5)).toBe('50%');
+    expect(OptionsScene.volumeLabel(1)).toBe('100%');
+  });
+
+  it('cycleVolume advances a bus and persists', () => {
+    expect(scene.cycleVolume('musicVolume')).toBe(OptionsScene.nextVolume(DEFAULT_SETTINGS.musicVolume));
+    expect(SettingsService.get('musicVolume')).toBe(scene.getSetting('musicVolume'));
+    expect(scene.cycleVolume('masterVolume')).toBe(0); // master default 1 → wraps to 0
+    expect(SettingsService.get('masterVolume')).toBe(0);
+  });
+
+  it('cycleMusicEnabled / cycleSfxEnabled / cycleTtsEnabled toggle and persist', () => {
+    expect(scene.cycleMusicEnabled()).toBe(false);
+    expect(SettingsService.get('musicEnabled')).toBe(false);
+    expect(scene.cycleSfxEnabled()).toBe(false);
+    expect(SettingsService.get('sfxEnabled')).toBe(false);
+    expect(scene.cycleTtsEnabled()).toBe(false);
+    expect(SettingsService.get('ttsEnabled')).toBe(false);
+    expect(scene.cycleTtsEnabled()).toBe(true);
+  });
+
+  it('an audio change refreshes the registered AudioManager service', () => {
+    const refreshFromSettings = jest.fn();
+    ServiceLocator.register('audio', { refreshFromSettings });
+    scene.cycleTtsEnabled();
+    expect(refreshFromSettings).toHaveBeenCalled();
+  });
+
   it('onBack saves settings and navigates to main-menu', () => {
     scene.setSetting('masterVolume', 0.5);
     scene.onBack();

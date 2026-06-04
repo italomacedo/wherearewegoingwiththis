@@ -17,7 +17,7 @@ export const DEFAULT_CAMERA_CONFIG: CameraConfig = {
   rotationSnapDeg: 45,
   zoomMin: 6,
   zoomMax: 50,
-  zoomDefault: 14, // close, near third-person framing on the hero
+  zoomDefault: 9, // tight third-person framing on the hero (limits metagaming)
   followDamping: 0.1,
 };
 

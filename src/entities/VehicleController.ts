@@ -17,6 +17,8 @@ export interface VehicleConfig {
   maxAltitude: number;     // ceiling
   safeImpactSpeed: number; // crash speed (units/s) below which no damage
   damagePerSpeed: number;  // HP lost per unit of impact speed above the safe threshold
+  /** Half-extent (m) the nave is confined to on X/Z (the closed street). Infinity = unbounded. */
+  horizontalHalfExtent: number;
 }
 
 /**
@@ -44,6 +46,7 @@ export const DEFAULT_VEHICLE_CONFIG: VehicleConfig = {
   maxAltitude: 40,
   safeImpactSpeed: 6,
   damagePerSpeed: 8,
+  horizontalHalfExtent: Infinity, // unbounded by default; the scene confines it to the street
 };
 
 export interface VehicleFlightInput {
@@ -82,6 +85,12 @@ export class VehicleController {
   private destroyed = false;
   private smoking = false;
   private lastImpactDamage = 0;
+  /**
+   * Optional probe for the world surface (Y) directly under the nave at (x,z) —
+   * a downward raycast against the level geometry, injected by the scene. Lets
+   * the nave hover over / land on rooftops. Null (headless/tests) → flat ground.
+   */
+  private floorProvider: ((x: number, z: number) => number) | null = null;
 
   constructor(scene: Scene, config?: Partial<VehicleConfig>) {
     this.scene = scene;
@@ -101,7 +110,8 @@ export class VehicleController {
     input: VehicleFlightInput,
     cameraYaw: number,
     dt: number,
-    config: VehicleConfig = DEFAULT_VEHICLE_CONFIG
+    config: VehicleConfig = DEFAULT_VEHICLE_CONFIG,
+    surfaceFloor = 0
   ): VehicleFlightResult {
     const engineOn = input.engineOn !== false;
     const velocity = state.velocity.clone();
@@ -137,8 +147,12 @@ export class VehicleController {
     // Integrate position
     const position = state.position.add(velocity.scale(dt));
 
-    // Clamp altitude; detect a landing (downward crossing of the floor)
-    const floor = engineOn ? config.hoverHeight : config.groundRestHeight;
+    // Clamp altitude; detect a landing (downward crossing of the floor). The
+    // floor sits relative to whatever surface is directly under the nave
+    // (`surfaceFloor`, 0 = street level) so it can hover over / rest on a
+    // rooftop instead of phasing through it. Powered → hover clearance; off →
+    // ground rest clearance above that surface.
+    const floor = surfaceFloor + (engineOn ? config.hoverHeight : config.groundRestHeight);
     let landed = false;
     let impactSpeed = 0;
     if (position.y < floor) {
@@ -153,6 +167,17 @@ export class VehicleController {
       if (velocity.y > 0) velocity.y = 0;
     }
 
+    // Confine to the closed street: clamp X/Z to the half-extent (stops the nave
+    // from flying out of the playable area over the walls — out-of-bounds state
+    // was crashing the game). Zero the velocity into the wall so it doesn't stick.
+    const h = config.horizontalHalfExtent;
+    if (Number.isFinite(h)) {
+      if (position.x > h) { position.x = h; if (velocity.x > 0) velocity.x = 0; }
+      else if (position.x < -h) { position.x = -h; if (velocity.x < 0) velocity.x = 0; }
+      if (position.z > h) { position.z = h; if (velocity.z > 0) velocity.z = 0; }
+      else if (position.z < -h) { position.z = -h; if (velocity.z < 0) velocity.z = 0; }
+    }
+
     return { position, velocity, landed, impactSpeed };
   }
 
@@ -161,6 +186,15 @@ export class VehicleController {
   static setUseGltf(enabled: boolean): void { VehicleController.useGltf = enabled; }
   /** True when SceneLoader is available (browser/Electron only). */
   static canLoadGltf(): boolean { return typeof document !== 'undefined'; }
+
+  /**
+   * Inject a surface-height probe `(x,z) → worldY` (the level geometry directly
+   * under the nave). Enables hovering over / landing on rooftops. Pass null to
+   * revert to flat ground. Browser-only (the probe raycasts the scene).
+   */
+  setFloorProvider(fn: ((x: number, z: number) => number) | null): void {
+    this.floorProvider = fn;
+  }
 
   /** Builds the placeholder bike and parks it (resting on the ground). */
   spawn(position: Vector3): void {
@@ -217,7 +251,11 @@ export class VehicleController {
   update(dt: number, input: VehicleFlightInput, cameraYaw: number): void {
     if (this.destroyed) return;
     const engineOn = this.occupied;
-    const restFloor = this.config.groundRestHeight;
+    // Surface directly under the nave (rooftop or street); flat ground headlessly.
+    const surfaceY = this.floorProvider
+      ? this.floorProvider(this.state.position.x, this.state.position.z)
+      : 0;
+    const restFloor = surfaceY + this.config.groundRestHeight;
     const airborne = this.state.position.y > restFloor + 1e-3;
     const movingVertically = Math.abs(this.state.velocity.y) > 1e-4;
     if (!engineOn && !airborne && !movingVertically) return; // parked at rest
@@ -227,7 +265,7 @@ export class VehicleController {
       : { axis: { x: 0, z: 0 }, vertical: 0, engineOn: false };
 
     const result = VehicleController.computeFlightStep(
-      this.state, stepInput, cameraYaw, dt, this.config
+      this.state, stepInput, cameraYaw, dt, this.config, surfaceY
     );
     this.state = { position: result.position, velocity: result.velocity };
     this.root.position = this.state.position.clone();
@@ -235,7 +273,9 @@ export class VehicleController {
     const horiz = Math.hypot(this.state.velocity.x, this.state.velocity.z);
     if (horiz > 0.05) {
       this.facing = Math.atan2(this.state.velocity.x, this.state.velocity.z);
-      this.root.rotation.y = this.facing;
+      // The model is yawed by VEHICLE_MODEL_YAW (it faces away by default); compensate
+      // so the nose LEADS the travel direction instead of moonwalking backward.
+      this.root.rotation.y = this.facing - VEHICLE_MODEL_YAW;
     }
 
     if (result.landed && result.impactSpeed > this.config.safeImpactSpeed) {
