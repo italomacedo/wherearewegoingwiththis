@@ -57,10 +57,19 @@ describe('MercadoSombrasZone', () => {
     expect(meshes.length).toBeGreaterThanOrEqual(19);
   });
 
-  it('load creates the ground mesh', async () => {
-    await zone.load(scene);
-    const ground = zone.getAllMeshes().find((m) => m.name === 'mercado-ground');
-    expect(ground).toBeDefined();
+  it('load creates the city-grid ground frame (asphalt/sidewalk/interior planes)', async () => {
+    await zone.load(scene); // default openEast (mosaic) → urban frame, not a single plane
+    const names = zone.getAllMeshes().map((m) => m.name);
+    expect(names).toContain('tile-asphalt-0-0');
+    expect(names).toContain('tile-sidewalk-0-0');
+    expect(names).toContain('tile-interior-0-0');
+  });
+
+  it('legacy (closed) mode still builds the single mercado-ground', async () => {
+    const closed = new MercadoSombrasZone(false);
+    await closed.load(scene);
+    expect(closed.getAllMeshes().find((m) => m.name === 'mercado-ground')).toBeDefined();
+    closed.unload();
   });
 
   it('load creates building meshes', async () => {

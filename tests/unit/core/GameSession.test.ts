@@ -9,7 +9,7 @@ describe('GameSession', () => {
     const session = new GameSession('s1', character);
     expect(session.saveId).toBe('s1');
     expect(session.npcMemory).toEqual({});
-    expect(session.world).toEqual({ zone: 'mercado_sombras', position: [0, 0, 0], rotation: 0 });
+    expect(session.world).toEqual({ zone: 'mercado_sombras', position: [0, 0, 0], rotation: 0, worldSeed: 1, currentTile: [0, 0] });
     expect(session.gameTimeSeconds).toBe(0);
   });
 
@@ -18,7 +18,7 @@ describe('GameSession', () => {
       's2',
       character,
       { npc_x: { mode: 'stateless', sessionId: null, history: [] } },
-      { zone: 'z', position: [1, 2, 3], rotation: 1 },
+      { zone: 'z', position: [1, 2, 3], rotation: 1, worldSeed: 7, currentTile: [0, 0] },
       42,
     );
     expect(session.world.position).toEqual([1, 2, 3]);
@@ -29,17 +29,27 @@ describe('GameSession', () => {
   it('fromSave copies identity, memory, world and time', () => {
     const save = SaveService.createNewSave(character, 'My Save');
     save.gameTimeSeconds = 120;
-    save.world = { zone: 'mercado_sombras', position: [5, 0, 7], rotation: 2 };
+    save.world = { zone: 'mercado_sombras', position: [5, 0, 7], rotation: 2, worldSeed: 123, currentTile: [1, 2] };
     save.npcMemory = { npc_zara_vendor_01: { mode: 'stateless', sessionId: null, history: [] } };
 
     const session = GameSession.fromSave(save);
     expect(session.saveId).toBe(save.saveId);
     expect(session.character.name).toBe('Kai');
-    expect(session.world).toEqual({ zone: 'mercado_sombras', position: [5, 0, 7], rotation: 2 });
+    expect(session.world).toEqual({ zone: 'mercado_sombras', position: [5, 0, 7], rotation: 2, worldSeed: 123, currentTile: [1, 2] });
     expect(session.gameTimeSeconds).toBe(120);
     expect(session.npcMemory.npc_zara_vendor_01).toBeDefined();
     // world is copied, not aliased
     expect(session.world).not.toBe(save.world);
+  });
+
+  it('fromSave falls back to a default world seed + tile when the save omits them', () => {
+    const save = SaveService.createNewSave(character);
+    // Simulate a half-migrated save object missing the procedural-world fields.
+    delete (save.world as Partial<typeof save.world>).worldSeed;
+    delete (save.world as Partial<typeof save.world>).currentTile;
+    const session = GameSession.fromSave(save);
+    expect(session.world.worldSeed).toBe(1);
+    expect(session.world.currentTile).toEqual([0, 0]);
   });
 
   it('defaults player + vehicle health when constructed minimally', () => {

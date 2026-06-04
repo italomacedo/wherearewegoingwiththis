@@ -544,7 +544,7 @@ describe('GameWorldScene', () => {
 
   it('spawns the player at the saved world position when non-zero', async () => {
     const session = makeSession();
-    session.world = { zone: 'mercado_sombras', position: [7, 0, 9], rotation: 0 };
+    session.world = { zone: 'mercado_sombras', position: [7, 0, 9], rotation: 0, worldSeed: 1, currentTile: [0, 0] };
     ServiceLocator.register('gameSession', session);
     await scene.onEnter();
     const pos = scene.getPlayer()!.getPosition();

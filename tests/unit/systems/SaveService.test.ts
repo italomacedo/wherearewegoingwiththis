@@ -48,6 +48,24 @@ describe('SaveService', () => {
     expect(save.playerHunger).toEqual({ current: 100, max: 100 });
   });
 
+  it('createNewSave seeds the procedural world (numeric seed, tile [0,0])', () => {
+    const save = SaveService.createNewSave(testCharacter);
+    expect(typeof save.world.worldSeed).toBe('number');
+    expect(save.world.currentTile).toEqual([0, 0]);
+  });
+
+  it('load migrates a legacy save missing the procedural-world fields', () => {
+    const save = SaveService.createNewSave(testCharacter);
+    delete (save.world as Partial<SaveGame['world']>).worldSeed;
+    delete (save.world as Partial<SaveGame['world']>).currentTile;
+    SaveService.save(save);
+    const loaded = SaveService.load(save.saveId)!;
+    expect(typeof loaded.world.worldSeed).toBe('number'); // derived from saveId
+    expect(loaded.world.currentTile).toEqual([0, 0]);
+    // Stable across reloads (same saveId → same seed).
+    expect(SaveService.load(save.saveId)!.world.worldSeed).toBe(loaded.world.worldSeed);
+  });
+
   it('load migrates a legacy save missing the hunger field', () => {
     const save = SaveService.createNewSave(testCharacter);
     delete (save as Partial<SaveGame>).playerHunger;
@@ -252,7 +270,7 @@ describe('SaveService', () => {
     SaveService.save(save);
     SaveService.updateWorldState(
       save.saveId,
-      { zone: 'neon_district', position: [10, 0, 5], rotation: 1.5 },
+      { zone: 'neon_district', position: [10, 0, 5], rotation: 1.5, worldSeed: 1, currentTile: [0, 0] },
       3600
     );
     const updated = SaveService.load(save.saveId)!;
@@ -263,7 +281,7 @@ describe('SaveService', () => {
 
   it('updateWorldState does nothing for nonexistent save', () => {
     expect(() =>
-      SaveService.updateWorldState('bad-id', { zone: 'x', position: [0, 0, 0], rotation: 0 }, 0)
+      SaveService.updateWorldState('bad-id', { zone: 'x', position: [0, 0, 0], rotation: 0, worldSeed: 1, currentTile: [0, 0] }, 0)
     ).not.toThrow();
   });
 

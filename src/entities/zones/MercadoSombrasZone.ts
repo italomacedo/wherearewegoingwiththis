@@ -5,6 +5,9 @@ import {
 } from '@babylonjs/core';
 import { WorldZone, ZoneBounds } from '@entities/WorldZone';
 import { MERCADO_PROPS, EXIT_WALL, CORRIDOR_COLLIDERS, ZONE_HALF, ANIMAL_MODELS, TRASH_MODELS } from '@assets/WorldAssetCatalog';
+import { borderWallColliders } from '@systems/world/WorldGrid';
+import { framePlanes, crosswalkStripes, manholeSpots, interiorBuildingSlots } from '@assets/world/CityFrame';
+import { mulberry32 } from '@systems/world/SeededRng';
 import { DayPeriod, paletteForPeriod } from '@systems/GameClock';
 import { DOG_SPAWNS, DOG_BOUNDS, BEGGAR_SPOTS, TRASH_SPOTS, stepDog, DogState } from '@entities/AmbientLife';
 import type { Observer } from '@babylonjs/core';
@@ -30,6 +33,17 @@ export class MercadoSombrasZone extends WorldZone {
   /** Per-frame stray-dog animation observer (Fase 6); removed on unload. */
   private dogObserver: Observer<Scene> | null = null;
 
+  /**
+   * Mosaic mode (Fase 17): when true (default), the +X end of the street is OPEN
+   * — no black exit wall, no east/exit colliders — so the player walks east into
+   * the procedural neighbor tile (1,0). The west dead-end + N/S building rows still
+   * cap the other sides (west/south are world borders). Set false for a standalone
+   * closed street (legacy).
+   */
+  constructor(private readonly openEast = true) {
+    super();
+  }
+
   getSpawnPoint(): Vector3 {
     return new Vector3(0, 0, 0);
   }
@@ -42,12 +56,19 @@ export class MercadoSombrasZone extends WorldZone {
   }
 
   protected async build(scene: Scene): Promise<void> {
-    this.buildGround(scene);
-    this.buildRoadMarkings(scene);
+    if (this.openEast) {
+      // Mosaic (Fase 17G): this tile is a city block — asphalt-grid frame + sidewalk
+      // ring + interior, with crosswalks on the edges (no central road).
+      this.buildUrbanFrame(scene);
+      this.buildCrosswalks(scene);
+    } else {
+      this.buildGround(scene);
+      this.buildRoadMarkings(scene);
+    }
     this.buildLighting(scene);
     this.buildBuildings(scene);
     this.buildStalls(scene);
-    this.buildExitWall(scene);
+    if (!this.openEast) this.buildExitWall(scene); // mosaic: leave +X open to tile (1,0)
     this.buildRain(scene);
     // Real assets layered on in browser only
     /* istanbul ignore next — browser/Electron asset loading */
@@ -75,6 +96,39 @@ export class MercadoSombrasZone extends WorldZone {
     mat.specularColor = new Color3(0, 0, 0); // no sheen → no harsh flashlight hotspot
     ground.material = mat;
     this.meshes.push(ground);
+  }
+
+  /**
+   * City-grid frame (Fase 17G): asphalt ▸ sidewalk ▸ interior planes for tile (0,0).
+   * The outer asphalt ring is the road (continuous with the neighbour tiles).
+   */
+  private buildUrbanFrame(scene: Scene): void {
+    const asphalt = new Color3(0.13, 0.13, 0.15);
+    const sidewalk = new Color3(0.40, 0.40, 0.44);
+    const interior = new Color3(0.2, 0.2, 0.23); // downtown lot grey
+    for (const p of framePlanes(0, 0)) {
+      const g = MeshBuilder.CreateGround(p.key, { width: p.size[0], height: p.size[1] }, scene);
+      g.position.set(p.center[0], p.center[1], p.center[2]);
+      const mat = new StandardMaterial(`${p.key}-mat`, scene);
+      mat.diffuseColor = p.kind === 'asphalt' ? asphalt : p.kind === 'sidewalk' ? sidewalk : interior;
+      mat.specularColor = new Color3(0, 0, 0);
+      g.material = mat;
+      this.meshes.push(g);
+    }
+  }
+
+  /** Emissive zebra crosswalks crossing the road at each of the 4 tile edges. */
+  private buildCrosswalks(scene: Scene): void {
+    const mat = new StandardMaterial('xw-mat', scene);
+    mat.diffuseColor = Color3.Black();
+    mat.specularColor = Color3.Black();
+    mat.emissiveColor = new Color3(0.9, 0.92, 0.95);
+    for (const s of crosswalkStripes(0, 0)) {
+      const bar = MeshBuilder.CreateGround(s.key, { width: s.size[0], height: s.size[1] }, scene);
+      bar.position.set(s.center[0], s.center[1], s.center[2]);
+      bar.material = mat;
+      this.meshes.push(bar);
+    }
   }
 
   /**
@@ -215,15 +269,32 @@ export class MercadoSombrasZone extends WorldZone {
     const { SceneLoader, TransformNode } = await import('@babylonjs/core');
     await import('@babylonjs/loaders/glTF');
     let ok = 0;
+    // Mosaic (Fase 17G): buildings go into the interior block slots (no overlap),
+    // scaled to fit; the central sidewalks/doors are replaced by the sidewalk-ring
+    // frame, and the gap-filler brick walls are gone — only world borders matter.
+    const slots = this.openEast ? interiorBuildingSlots(0, 0) : [];
+    let bldIdx = 0;
     for (const p of MERCADO_PROPS) {
+      if (this.openEast && /^(wall-|sidewalk-|door-)/.test(p.key)) continue;
+      let pos = p.position;
+      let rotY = p.rotationY ?? 0;
+      let fit: number | undefined;
+      if (this.openEast && p.key.startsWith('bld-')) {
+        if (bldIdx >= slots.length) continue; // cap to the interior block slots
+        const slot = slots[bldIdx];
+        bldIdx += 1;
+        pos = slot.position;
+        rotY = slot.rotationY;
+        fit = slot.footprint;
+      }
       try {
         const c = await SceneLoader.LoadAssetContainerAsync('/assets/', p.model, scene);
         c.addAllToScene();
         // Wrap in a holder node and parent every top-level loaded node to it, so
         // position/rotation/scale apply to the whole model (mirrors VehicleController).
         const holder = new TransformNode(p.key, scene);
-        holder.position.set(p.position[0], p.position[1], p.position[2]);
-        holder.rotation.y = p.rotationY ?? 0;
+        holder.position.set(pos[0], pos[1], pos[2]);
+        holder.rotation.y = rotY;
         if (Array.isArray(p.scale)) holder.scaling.set(p.scale[0], p.scale[1], p.scale[2]);
         else holder.scaling.setAll(p.scale ?? 1);
         for (const m of c.meshes) {
@@ -232,11 +303,32 @@ export class MercadoSombrasZone extends WorldZone {
         for (const t of c.transformNodes) {
           if (!t.parent) t.parent = holder;
         }
+        if (fit) {
+          holder.computeWorldMatrix(true);
+          const { min, max } = holder.getHierarchyBoundingVectors(true);
+          const extent = Math.max(max.x - min.x, max.z - min.z);
+          if (extent > 0.001 && extent > fit) holder.scaling.scaleInPlace(fit / extent);
+        }
         this.meshes.push(...(c.meshes as AbstractMesh[]));
         this.holders.push(holder);
         ok += 1;
       } catch (err) {
         console.warn(`[Mercado] prop "${p.key}" (${p.model}) failed to load, keeping placeholder:`, err);
+      }
+    }
+    // Manhole covers on the asphalt road ring (mosaic only).
+    if (this.openEast) {
+      for (const [i, spot] of manholeSpots(0, 0, mulberry32(99)).entries()) {
+        try {
+          const c = await SceneLoader.LoadAssetContainerAsync('/assets/', 'world/downtown/prop_manholecover.glb', scene);
+          c.addAllToScene();
+          const holder = new TransformNode(`manhole-${i}`, scene);
+          holder.position.set(spot[0], spot[1], spot[2]);
+          for (const m of c.meshes) if (!m.parent) m.parent = holder;
+          for (const t of c.transformNodes) if (!t.parent) t.parent = holder;
+          this.meshes.push(...(c.meshes as AbstractMesh[]));
+          this.holders.push(holder);
+        } catch { /* tolerant */ }
       }
     }
     // The downtown real assets supersede the procedural market — hide the box
@@ -355,12 +447,20 @@ export class MercadoSombrasZone extends WorldZone {
   private buildColliders(scene: Scene): void {
     // Floor — gives the character controller ground to stand on.
     this.addBoxCollider(scene, 'col-floor', new Vector3(0, -0.5, 0), new Vector3(ZONE_HALF * 2, 1, ZONE_HALF * 2));
-    // Closed perimeter (side walls + ends).
-    for (const c of CORRIDOR_COLLIDERS) {
-      this.addBoxCollider(scene, c.key, new Vector3(c.position[0], c.position[1], c.position[2]), new Vector3(c.size[0], c.size[1], c.size[2]));
+    if (this.openEast) {
+      // Mosaic mode: this is the SW-corner tile (0,0) — only its WORLD-border edges
+      // (west −X, south −Z) get a wall. North (→ tile 0,1) and east (→ tile 1,0)
+      // stay open; the buildings remain solid obstacles, no gap-filler walls.
+      for (const c of borderWallColliders(0, 0)) {
+        this.addBoxCollider(scene, c.key, new Vector3(c.position[0], c.position[1], c.position[2]), new Vector3(c.size[0], c.size[1], c.size[2]));
+      }
+    } else {
+      // Standalone (legacy) closed street: full perimeter + black exit wall.
+      for (const c of CORRIDOR_COLLIDERS) {
+        this.addBoxCollider(scene, c.key, new Vector3(c.position[0], c.position[1], c.position[2]), new Vector3(c.size[0], c.size[1], c.size[2]));
+      }
+      this.addBoxCollider(scene, 'col-exit', new Vector3(EXIT_WALL.position[0], EXIT_WALL.position[1], EXIT_WALL.position[2]), new Vector3(EXIT_WALL.size[0], EXIT_WALL.size[1], EXIT_WALL.size[2]));
     }
-    // Black exit wall.
-    this.addBoxCollider(scene, 'col-exit', new Vector3(EXIT_WALL.position[0], EXIT_WALL.position[1], EXIT_WALL.position[2]), new Vector3(EXIT_WALL.size[0], EXIT_WALL.size[1], EXIT_WALL.size[2]));
     // Solid loaded props (buildings, walls, shelf, bollards, AC, planter) → box
     // collider from each one's world bounding box.
     for (const h of this.holders) {

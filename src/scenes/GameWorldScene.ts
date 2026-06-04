@@ -1,7 +1,7 @@
 import {
   Engine, Color4, Color3, Vector3, Matrix, AbstractMesh, TransformNode, MeshBuilder,
   PhysicsAggregate, PhysicsShapeType, PhysicsMotionType, AnimationGroup, Animation, LinesMesh,
-  SpotLight, Ray, Node,
+  SpotLight,
 } from '@babylonjs/core';
 import { BaseScene } from './BaseScene';
 import { ServiceLocator } from '@core/ServiceLocator';
@@ -73,7 +73,11 @@ import {
 } from '@systems/combat/CombatMath';
 import { buildWalkGrid, gridPathfinder } from '@systems/combat/CombatMovement';
 import { recruitSides, RecruitParticipant, SIDE_INITIATOR, SIDE_TARGET } from '@systems/combat/CombatRecruiter';
-import { COMBAT_OBSTACLES, COMBAT_BOUNDS, ZONE_HALF } from '@assets/WorldAssetCatalog';
+import { COMBAT_OBSTACLES, COMBAT_BOUNDS } from '@assets/WorldAssetCatalog';
+import { WorldStreamer } from '@systems/world/WorldStreamer';
+import { TileScenery } from '@systems/world/TileScenery';
+import { tileOf, tileKey, worldFloorBox, worldBounds, type TileCoord } from '@systems/world/WorldGrid';
+import { generateTile } from '@assets/world/ThemeRegistry';
 
 export class GameWorldScene extends BaseScene {
   /** Setting used for the ambient "react to surroundings" narration (global chat). */
@@ -86,6 +90,14 @@ export class GameWorldScene extends BaseScene {
 
   private zoneManager: ZoneManager | null = null;
   private zone: WorldZone | null = null;
+  /** Seamless 3×3 tile streamer for the procedural mosaic (Fase 17). */
+  private worldStreamer: WorldStreamer | null = null;
+  /** Live procedural tile content keyed by "tx,tz" (tile (0,0) = the static zone). */
+  private tileScenery = new Map<string, TileScenery>();
+  /** NPC ids spawned for each streamed tile (for selective despawn on unload). */
+  private tileNpcIds = new Map<string, string[]>();
+  /** World seed for deterministic tile generation (from the save; Phase D persists it). */
+  private worldSeed = 1;
   private clock = new GameClock(); // wall-clock mode by default (mirrors the PC clock)
   private lastPeriod: DayPeriod | null = null;
   private cameraSystem: CameraSystem | null = null;
@@ -258,6 +270,7 @@ export class GameWorldScene extends BaseScene {
       health: { ...DEFAULT_VEHICLE_STATE.health }, destroyed: false,
     };
     if (session.world?.zone) this.startZoneId = session.world.zone;
+    if (typeof session.world?.worldSeed === 'number') this.worldSeed = session.world.worldSeed;
     const [x, y, z] = session.world?.position ?? [0, 0, 0];
     // Treat an all-zero saved position as "use the zone's spawn point".
     if (x !== 0 || y !== 0 || z !== 0) {
@@ -273,10 +286,13 @@ export class GameWorldScene extends BaseScene {
 
     const memory = this.npcManager?.serializeMemory() ?? {};
     const pos = this.player?.getPosition();
+    const ct = this.worldStreamer?.getCurrentTile();
     const world = {
       zone: this.startZoneId,
       position: (pos ? [pos.x, pos.y, pos.z] : [0, 0, 0]) as [number, number, number],
       rotation: 0,
+      worldSeed: this.worldSeed,
+      currentTile: (ct ? [ct.tx, ct.tz] : [0, 0]) as [number, number],
     };
     const playerHealth = this.player?.getHealth().toState() ?? this.playerHealthState;
     const vehicle: VehicleSaveState = this.vehicle
@@ -384,7 +400,9 @@ export class GameWorldScene extends BaseScene {
 
     // Park a flying motorcycle near the spawn point. Confine it to the closed
     // street (flying out of bounds and back was crashing the game).
-    this.vehicle = new VehicleController(this.babylonScene, { horizontalHalfExtent: ZONE_HALF });
+    // Confine the nave to the whole mosaic world (Fase 17) — inside the border
+    // walls (small margin), since the world is offset, not centred at the origin.
+    this.vehicle = new VehicleController(this.babylonScene, { horizontalBounds: worldBounds(2) });
     this.vehicle.spawn(zone.getSpawnPoint().add(new Vector3(4, 0, 0)));
     this.vehicle.setHealthState(this.vehicleState.health);
     this.vehicle.setDestroyed(this.vehicleState.destroyed);
@@ -449,59 +467,110 @@ export class GameWorldScene extends BaseScene {
       /* istanbul ignore next — physics colliders are browser/Electron only */
       this.buildEntityColliders();
     }
+
+    // Seamless world streaming (Fase 17): tile (0,0) is the static downtown zone
+    // above; the streamer loads/unloads the procedural neighbor tiles around the
+    // player. Seed the current tile from the spawn position.
+    const spawn = this.player.getPosition();
+    this.worldStreamer = new WorldStreamer({
+      onLoad: (c) => this.loadTile(c),
+      onUnload: (c) => this.unloadTile(c),
+    });
+    this.worldStreamer.setCurrent(tileOf(spawn.x, spawn.z));
+  }
+
+  /** Build a procedural neighbor tile's content + NPCs (skip (0,0) — the static zone). */
+  /* istanbul ignore next — browser-only scenery/NPCs; the tile DATA is unit-tested */
+  private loadTile(c: TileCoord): void {
+    if (c.tx === 0 && c.tz === 0) return; // the static downtown zone owns this tile
+    if (typeof document === 'undefined') return; // headless: bookkeeping only
+    const key = tileKey(c.tx, c.tz);
+    if (this.tileScenery.has(key)) return;
+    const gen = generateTile(c.tx, c.tz, this.worldSeed);
+    const scenery = new TileScenery(this.babylonScene, gen.coord, gen.props, this.worldSeed, gen.ground, gen.urban);
+    void scenery.build();
+    this.tileScenery.set(key, scenery);
+    void this.spawnTileNpcs(key, gen.npcDefs);
+  }
+
+  /** Spawn a streamed tile's procedural NPCs (logical agents + avatars + capsules). */
+  /* istanbul ignore next — browser-only NPC visuals; NPCManager.spawnTile is unit-tested */
+  private async spawnTileNpcs(key: string, defs: NPCDefinition[]): Promise<void> {
+    if (!this.npcManager || defs.length === 0) return;
+    this.npcManager.spawnTile(key, defs, this.npcMemory);
+    const ids: string[] = [];
+    for (const def of defs) {
+      if (!this.tileScenery.has(key)) break; // tile unloaded mid-spawn
+      await this.buildNPCVisual(def);
+      const holder = this.npcHolderById.get(def.id);
+      if (holder && this.babylonScene.isPhysicsEnabled()) this.buildNpcCapsule(def.id, holder);
+      ids.push(def.id);
+    }
+    this.tileNpcIds.set(key, ids);
+  }
+
+  /** Tear down a procedural neighbor tile + its NPCs (the static (0,0) zone never unloads). */
+  /* istanbul ignore next — browser-only scenery/NPC disposal */
+  private unloadTile(c: TileCoord): void {
+    if (c.tx === 0 && c.tz === 0) return;
+    const key = tileKey(c.tx, c.tz);
+    this.tileScenery.get(key)?.dispose();
+    this.tileScenery.delete(key);
+    for (const id of this.tileNpcIds.get(key) ?? []) this.disposeNpcById(id);
+    this.tileNpcIds.delete(key);
+    // Flush the leaving NPCs' memory into the world memory so a revisit restores it.
+    const result = this.npcManager?.despawnTile(key);
+    if (result) Object.assign(this.npcMemory, result.memory);
+  }
+
+  /** Dispose one NPC's visual + collider + held rig and forget it (streamed unload). */
+  /* istanbul ignore next — browser-only mesh/physics disposal */
+  private disposeNpcById(id: string): void {
+    const cap = this.npcCapsuleById.get(id);
+    if (cap) { cap.agg.dispose(); cap.mesh.dispose(); this.npcCapsuleById.delete(id); }
+    this.npcHeldRigById.get(id)?.dispose();
+    this.npcHeldRigById.delete(id);
+    this.npcHolderById.get(id)?.dispose();
+    this.npcHolderById.delete(id);
+    this.npcGroupsById.delete(id);
+  }
+
+  /** Feed the player's world position to the streamer each frame (browser only). */
+  /* istanbul ignore next — thin browser glue over the unit-tested WorldStreamer */
+  private streamWorld(): void {
+    // Follow whatever the player is actually moving with: the nave while piloting
+    // (the hero stays at the mount point), else the hero on foot. Otherwise flying
+    // to an adjacent scene never streams its neighbours in.
+    const driving = this.vehicle?.isOccupied() ?? false;
+    const pos = driving ? this.vehicle?.getPosition() : this.player?.getPosition();
+    if (pos && this.worldStreamer) this.worldStreamer.update(pos.x, pos.z);
   }
 
   /* istanbul ignore next — physics colliders are browser/Electron only */
   private buildEntityColliders(): void {
-    // The nave's collider is PARENTED to its root (ANIMATED body, disablePreStep=false)
-    // so it follows the nave when it flies / falls / is repositioned — same self-
-    // following mold as the NPC capsule (a static box stayed behind at the spawn).
-    const veh = this.vehicle?.getRoot();
-    if (veh) {
-      veh.computeWorldMatrix(true);
-      const { min, max } = veh.getHierarchyBoundingVectors(true);
-      const size = max.subtract(min);
-      if (size.x >= 0.05 && size.y >= 0.05 && size.z >= 0.05) {
-        const box = MeshBuilder.CreateBox('col-entity-nave', { width: size.x, height: size.y, depth: size.z }, this.babylonScene);
-        box.isVisible = false;
-        box.parent = veh;
-        // Local offset to the nave's geometric centre (root is unrotated/unscaled at spawn).
-        box.position.copyFrom(min.add(max).scale(0.5).subtract(veh.getAbsolutePosition()));
-        const agg = new PhysicsAggregate(box, PhysicsShapeType.BOX, { mass: 0 }, this.babylonScene);
-        agg.body.setMotionType(PhysicsMotionType.ANIMATED);
-        agg.body.disablePreStep = false;
-        this.entityColliders.push(box);
-        this.entityAggregates.push(agg);
-      }
-    }
-    this.installNaveFloorProbe();
-    this.npcHolderById.forEach((holder, id) => this.buildNpcCapsule(id, holder));
-  }
+    // NOTE: the nave has NO physics collider. It moves kinematically (computeFlightStep
+    // + a downward surface raycast), so a Havok body is unnecessary — and it was the
+    // crash vector: hovering at hoverHeight above a rooftop (rooftop-landing probe),
+    // pressing descend drove its ANIMATED collider DOWN into the building's static box
+    // collider, and a kinematic-vs-static deep penetration aborts Havok natively (no
+    // JS log, closes the app). Removing it costs only hero-vs-parked-nave blocking
+    // (negligible for an atmospheric flyer). (Fase 17 crash fix.)
 
-  /**
-   * Give the nave a downward surface probe so it hovers over / lands on rooftops
-   * instead of phasing through them. A ray from just above the nave straight
-   * down; the nearest solid hit below it (excluding the nave's own meshes/
-   * colliders and the hero) is the floor. No hit → street level (0).
-   */
-  /* istanbul ignore next — picking/raycast is browser/Electron only */
-  private installNaveFloorProbe(): void {
-    this.vehicle?.setFloorProvider((x, z) => {
-      const naveRoot = this.vehicle?.getRoot() ?? null;
-      const playerRoot = this.player?.getRoot() ?? null;
-      const originY = (this.vehicle?.getPosition().y ?? 0) + 0.5;
-      const ray = new Ray(new Vector3(x, originY, z), new Vector3(0, -1, 0), originY + 5);
-      const hit = this.babylonScene.pickWithRay(ray, (m) => {
-        if (!m.isPickable || m.name.startsWith('col-')) return false;
-        let n: Node | null = m;
-        while (n) {
-          if (n === naveRoot || n === playerRoot) return false;
-          n = n.parent;
-        }
-        return true;
-      });
-      return hit?.pickedPoint ? hit.pickedPoint.y : 0;
-    });
+    // One big static floor under the WHOLE 24×24 world (no per-tile floor seams) —
+    // so the hero never falls through walking onto a streamed neighbor tile. The
+    // (0,0) zone keeps its own floor too (harmless overlap).
+    const f = worldFloorBox();
+    const floor = MeshBuilder.CreateBox('col-world-floor', { width: f.size[0], height: f.size[1], depth: f.size[2] }, this.babylonScene);
+    floor.position.set(f.position[0], f.position[1], f.position[2]);
+    floor.isVisible = false;
+    const floorAgg = new PhysicsAggregate(floor, PhysicsShapeType.BOX, { mass: 0 }, this.babylonScene);
+    this.entityColliders.push(floor);
+    this.entityAggregates.push(floorAgg);
+
+    // The nave is now a DYNAMIC Havok body (collides with buildings, lands on
+    // rooftops, blocks the hero) — built here, after the world floor exists.
+    this.vehicle?.enableDynamicPhysics();
+    this.npcHolderById.forEach((holder, id) => this.buildNpcCapsule(id, holder));
   }
 
   /**
@@ -641,6 +710,12 @@ export class GameWorldScene extends BaseScene {
     /* istanbul ignore next — stop the procedural engine drone on world exit */
     this.audio?.stopEngineTone();
     this.detachInput?.();
+    // Tear down the streamed world (procedural neighbor tiles) before the zone.
+    this.worldStreamer?.dispose();
+    this.worldStreamer = null;
+    this.tileScenery.forEach((s) => s.dispose());
+    this.tileScenery.clear();
+    this.tileNpcIds.clear();
     this.player?.dispose();
     this.vehicle?.dispose();
     this.zoneManager?.dispose();
@@ -788,6 +863,8 @@ export class GameWorldScene extends BaseScene {
     }
     // Vehicle physics run every frame: piloted it flies; abandoned it falls.
     this.tickVehicle(dt);
+    // Seamless world streaming: load/unload the 3×3 tile ring as the player crosses edges.
+    this.streamWorld();
     this.cameraSystem?.update();
     this.updateNPCs(dt);
     this.updateTimeOfDay();
