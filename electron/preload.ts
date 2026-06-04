@@ -6,6 +6,8 @@ export interface ClaudeQueryParams {
   claudePath: string;
   sessionId?: string;
   useSession?: boolean;
+  /** Static NPC persona — passed as --system-prompt arg for prompt caching. */
+  systemPrompt?: string;
 }
 
 export interface ElectronAPI {

@@ -14,6 +14,8 @@ export interface ClaudeQueryParams {
   claudePath: string;
   sessionId?: string;
   useSession?: boolean;
+  /** Static NPC persona passed as --system-prompt for prompt caching. */
+  systemPrompt?: string;
 }
 
 /** Minimal slice of the Electron API this service needs (injectable for tests). */
@@ -72,7 +74,7 @@ export class ClaudeNPCService {
       onChunk?.(data.chunk);
     });
 
-    ClaudeNPCService.traceFire('npc-turn', npcId, params.prompt);
+    ClaudeNPCService.traceFire('npc-turn', npcId, params.prompt, params.systemPrompt);
     try {
       await this.bridge.claudeQuery(params);
     } finally {
@@ -80,7 +82,7 @@ export class ClaudeNPCService {
     }
 
     const text = response.trim();
-    ClaudeNPCService.traceDone('npc-turn', npcId, params.prompt, text);
+    ClaudeNPCService.traceDone('npc-turn', npcId, params.prompt, text, params.systemPrompt);
     agent.conversation.recordExchange(playerMessage, text);
     agent.endResponse();
     return text;
@@ -176,15 +178,16 @@ export class ClaudeNPCService {
    * count). Browser/Electron only — silent in tests/headless.
    */
   /* istanbul ignore next — dev console logging, browser/Electron only */
-  private static traceFire(label: string, id: string, prompt: string): void {
+  private static traceFire(label: string, id: string, prompt: string, systemPrompt?: string): void {
     if (typeof document === 'undefined') return;
-    console.warn(`[Claude] ▶ ${label} id=${id} · prompt ~${estimateTokens(prompt)} tok (${prompt.length} chars)`);
+    const sysTok = systemPrompt ? ` · sys ~${estimateTokens(systemPrompt)} tok` : '';
+    console.warn(`[Claude] ▶ ${label} id=${id}${sysTok} · prompt ~${estimateTokens(prompt)} tok (${prompt.length} chars)`);
   }
 
   /* istanbul ignore next — dev console logging, browser/Electron only */
-  private static traceDone(label: string, id: string, prompt: string, reply: string): void {
+  private static traceDone(label: string, id: string, prompt: string, reply: string, systemPrompt?: string): void {
     if (typeof document === 'undefined') return;
-    const pt = estimateTokens(prompt);
+    const pt = estimateTokens(prompt) + (systemPrompt ? estimateTokens(systemPrompt) : 0);
     const rt = estimateTokens(reply);
     console.warn(`[Claude] ✓ ${label} id=${id} · reply ~${rt} tok (${reply.length} chars) · turn ~${pt + rt} tok`);
   }
@@ -203,13 +206,15 @@ export class ClaudeNPCService {
   ): ClaudeQueryParams {
     const ctx = agent.conversation;
     const history = ctx.getRecentHistory();
-    const statelessInputs = {
-      definition: agent.definition,
-      mood: agent.getMood(),
-      world,
-      history,
-      playerMessage,
-    };
+    const definition = agent.definition;
+    const mood = agent.getMood();
+    const language = world.language ?? 'English';
+
+    // Static persona — passed as --system-prompt for prompt-cache efficiency.
+    const systemPrompt = PromptBuilder.buildStaticPersona(definition, language, world.cityName);
+
+    const statelessInputs = { definition, mood, world, history, playerMessage };
+    // Full prompt (persona + dynamic) used only for graduation size check.
     const statelessPrompt = PromptBuilder.buildStateless(statelessInputs);
 
     const modeBefore = ctx.getMode();
@@ -217,10 +222,12 @@ export class ClaudeNPCService {
     const modeAfter = ctx.getMode();
 
     if (modeAfter === 'stateless') {
+      // Send only the dynamic context as stdin; persona goes via --system-prompt.
       return {
-        npcId: agent.definition.id,
-        prompt: statelessPrompt,
+        npcId: definition.id,
+        prompt: PromptBuilder.buildDynamicContext(statelessInputs),
         claudePath: this.claudePath,
+        systemPrompt,
       };
     }
 
@@ -228,15 +235,17 @@ export class ClaudeNPCService {
     const sessionTurn = PromptBuilder.buildSessionTurn(world, playerMessage);
     const justGraduated = modeBefore === 'stateless' && modeAfter === 'session';
     const prompt = justGraduated
-      ? `${PromptBuilder.buildSessionPrimer({ definition: agent.definition, mood: agent.getMood(), world, history })}\n\n${sessionTurn}`
+      ? `${PromptBuilder.buildSessionPrimer({ definition, mood, world, history })}\n\n${sessionTurn}`
       : sessionTurn;
 
     return {
-      npcId: agent.definition.id,
+      npcId: definition.id,
       prompt,
       claudePath: this.claudePath,
       sessionId: ctx.getSessionId() ?? undefined,
       useSession: true,
+      // Pass persona on first session call (graduation primer); session carries it after.
+      systemPrompt: justGraduated ? systemPrompt : undefined,
     };
   }
 

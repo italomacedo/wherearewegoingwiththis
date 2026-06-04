@@ -103,10 +103,12 @@ describe('ClaudeNPCService', () => {
     const agent = new NPCAgent(def);
 
     await service.query(agent, world, 'hi');
-    const params = lastParams.value as { useSession?: boolean; sessionId?: string; prompt: string };
+    const params = lastParams.value as { useSession?: boolean; sessionId?: string; prompt: string; systemPrompt?: string };
     expect(params.useSession).toBeUndefined();
     expect(params.sessionId).toBeUndefined();
-    expect(params.prompt).toContain('Zara'); // full stateless prompt
+    // Persona is now in systemPrompt, not in the main prompt
+    expect(params.systemPrompt).toContain('Zara');
+    expect(params.prompt).toContain('hi'); // dynamic context has the message
   });
 
   it('graduates to session mode when context grows large', async () => {
@@ -117,17 +119,19 @@ describe('ClaudeNPCService', () => {
       sessionIdFactory: () => 'session-fixed',
     });
     // Pre-fill a context that exceeds the graduation threshold
-    const longText = 'x'.repeat(7000);
+    const longText = 'x'.repeat(3000);
     const ctx = new ConversationContext();
     ctx.recordExchange(longText, longText);
     const agent = new NPCAgent(def, ctx);
 
     await service.query(agent, world, 'hi');
-    const params = lastParams.value as { useSession?: boolean; sessionId?: string; prompt: string };
+    const params = lastParams.value as { useSession?: boolean; sessionId?: string; prompt: string; systemPrompt?: string };
     expect(params.useSession).toBe(true);
     expect(params.sessionId).toBe('session-fixed');
-    // first session call includes the primer
-    expect(params.prompt).toContain('roleplaying as Zara');
+    // graduation: systemPrompt is included on the primer call
+    expect(params.systemPrompt).toContain('Zara');
+    // primer contains mood/player context but NOT the full persona
+    expect(params.prompt).toContain('conversation so far');
   });
 
   it('subsequent session-mode calls send a compact turn (no primer)', async () => {
@@ -145,9 +149,9 @@ describe('ClaudeNPCService', () => {
     const agent = new NPCAgent(def, ctx);
 
     await service.query(agent, world, 'and now?');
-    const params = lastParams.value as { useSession?: boolean; prompt: string };
+    const params = lastParams.value as { useSession?: boolean; prompt: string; systemPrompt?: string };
     expect(params.useSession).toBe(true);
-    expect(params.prompt).not.toContain('roleplaying as Zara'); // no primer
+    expect(params.systemPrompt).toBeUndefined(); // no persona on subsequent session turns
     expect(params.prompt).toContain('and now?');
   });
 

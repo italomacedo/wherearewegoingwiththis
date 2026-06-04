@@ -219,12 +219,13 @@ function createWindow() {
 // Claude CLI NPC integration
 ipcMain.handle(
   'claude-query',
-  async (_event, { npcId, prompt, claudePath, sessionId, useSession }: {
+  async (_event, { npcId, prompt, claudePath, sessionId, useSession, systemPrompt }: {
     npcId: string;
     prompt: string;
     claudePath: string;
     sessionId?: string;
     useSession?: boolean;
+    systemPrompt?: string;
   }) => {
     return new Promise<void>((resolve, reject) => {
       // `--print` runs Claude non-interactively and emits plain text to stdout
@@ -232,6 +233,11 @@ ipcMain.handle(
       const args = ['--print'];
       if (useSession && sessionId) {
         args.unshift('--session-id', sessionId);
+      }
+      // Static NPC persona passed as --system-prompt so the Claude API can cache
+      // it across calls (same text = cache hit within 5 minutes). (Fase 14C.)
+      if (systemPrompt) {
+        args.push('--system-prompt', systemPrompt);
       }
       // Resolve a robust launch strategy (prefers running cli.js with Electron's
       // bundled Node). The prompt is fed via stdin — never interpolated into the

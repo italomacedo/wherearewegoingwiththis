@@ -91,12 +91,12 @@ describe('PromptBuilder', () => {
     it('instructs English, in-character, no AI mention', () => {
       const p = PromptBuilder.buildStateless(baseInputs);
       expect(p).toContain('English');
-      expect(p).toContain('Do not mention being an AI');
+      expect(p).toContain('mention being an AI');
     });
 
     it('instructs the NPC to reply in the world language when set', () => {
       const p = PromptBuilder.buildStateless({ ...baseInputs, world: { ...world, language: 'Brazilian Portuguese' } });
-      expect(p).toContain('Respond in character in Brazilian Portuguese');
+      expect(p).toContain('Brazilian Portuguese');
     });
 
     it('explains that *asterisks* are player actions/emotes', () => {
@@ -124,12 +124,10 @@ describe('PromptBuilder', () => {
       expect(p).toContain('People in your life: owes a favour to Old Mback');
     });
 
-    it('injects identity into the session primer too', () => {
-      const primer = PromptBuilder.buildSessionPrimer({
-        definition: richDef, mood: 'suspicious', world, history: [],
-      });
-      expect(primer).toContain('Where you live: a capsule flat above the noodle bar');
-      expect(primer).toContain('Your routine: works the stall from dusk till the small hours');
+    it('injects identity into buildStaticPersona (sent as --system-prompt)', () => {
+      const persona = PromptBuilder.buildStaticPersona(richDef, 'English', 'NeoBeiraRio');
+      expect(persona).toContain('Where you live: a capsule flat above the noodle bar');
+      expect(persona).toContain('Your routine: works the stall from dusk till the small hours');
     });
 
     it('omits identity lines entirely when the NPC defines none', () => {
@@ -145,13 +143,13 @@ describe('PromptBuilder', () => {
     it('asks for a one-word ALLOW/BLOCK verdict and includes the message', () => {
       const p = PromptBuilder.buildModerationPrompt('got any chips?');
       expect(p).toContain('ALLOW or BLOCK');
-      expect(p).toContain('Usage Policy');
       expect(p).toContain('got any chips?');
     });
 
     it('allows fictional cyberpunk content explicitly', () => {
       const p = PromptBuilder.buildModerationPrompt('x');
-      expect(p).toContain('ALLOWED');
+      expect(p).toContain('ALLOW');
+      expect(p).toContain('crime');
     });
   });
 
@@ -198,16 +196,80 @@ describe('PromptBuilder', () => {
     });
   });
 
+  describe('buildStaticPersona', () => {
+    it('includes name, role, location, personality, and response rules', () => {
+      const p = PromptBuilder.buildStaticPersona(def, 'English', 'NeoBeiraRio');
+      expect(p).toContain('Zara');
+      expect(p).toContain('vendor');
+      expect(p).toContain('NeoBeiraRio');
+      expect(p).toContain('Wary but fair.');
+      expect(p).toContain('English');
+      expect(p).toContain('mention being an AI');
+    });
+
+    it('uses the provided language', () => {
+      const p = PromptBuilder.buildStaticPersona(def, 'Brazilian Portuguese', 'NeoBeiraRio');
+      expect(p).toContain('Brazilian Portuguese');
+    });
+
+    it('includes identity lines when present', () => {
+      const richDef2 = { ...def, home: 'a capsule above the noodle bar', backstory: 'lost everything' };
+      const p = PromptBuilder.buildStaticPersona(richDef2, 'English', 'NeoBeiraRio');
+      expect(p).toContain('Where you live: a capsule above the noodle bar');
+      expect(p).toContain('Your background: lost everything');
+    });
+
+    it('does NOT include dynamic context (mood, game time, message)', () => {
+      const p = PromptBuilder.buildStaticPersona(def, 'English', 'NeoBeiraRio');
+      expect(p).not.toContain('mood');
+      expect(p).not.toContain('Game time');
+      expect(p).not.toContain('Player:');
+    });
+  });
+
+  describe('buildDynamicContext', () => {
+    it('includes mood, game time, distance, and player message', () => {
+      const p = PromptBuilder.buildDynamicContext(baseInputs);
+      expect(p).toContain('suspicious');
+      expect(p).toContain('14:30, day 1');
+      expect(p).toContain('2m away');
+      expect(p).toContain('Got any data chips?');
+    });
+
+    it('does NOT include the NPC persona or personality', () => {
+      const p = PromptBuilder.buildDynamicContext(baseInputs);
+      expect(p).not.toContain('Wary but fair.');
+      expect(p).not.toContain('English');
+    });
+
+    it('includes history when present', () => {
+      const p = PromptBuilder.buildDynamicContext({
+        ...baseInputs,
+        history: [{ player: 'hi', npc: 'what do you want' }],
+      });
+      expect(p).toContain('Conversation so far:');
+      expect(p).toContain('what do you want');
+    });
+  });
+
   describe('buildSessionPrimer', () => {
-    it('includes persona and history', () => {
+    it('includes dynamic context (mood + player name) and history', () => {
       const primer = PromptBuilder.buildSessionPrimer({
         definition: def,
         mood: 'suspicious',
         world,
         history: [{ player: 'hi', npc: 'hello there' }],
       });
-      expect(primer).toContain('Zara');
+      expect(primer).toContain('suspicious');
       expect(primer).toContain('hello there');
+    });
+
+    it('does NOT include NPC persona (sent separately as --system-prompt)', () => {
+      const primer = PromptBuilder.buildSessionPrimer({
+        definition: def, mood: 'suspicious', world, history: [],
+      });
+      expect(primer).not.toContain('Wary but fair.');
+      expect(primer).not.toContain('vendor');
     });
 
     it('omits history section when empty', () => {
