@@ -203,6 +203,13 @@ export class GameWorldScene extends BaseScene {
   private autonomyQueue: ClaudeCallQueue<AutonomyJob> | null = null;
   private autonomyAccumMs = 0;
   /**
+   * True while a background deliberation's Claude CLI call is in flight. Caps
+   * autonomous `claude.exe` spawns to ONE at a time — with the procedural NPCs of
+   * Fase 17 the unguarded ~1 Hz dispatch piled up concurrent subprocesses and took
+   * down the Electron main process (Lesson 34 family). Player turns bypass this.
+   */
+  private autonomyInFlight = false;
+  /**
    * Active walks per NPC id — the SINGLE source of NPC locomotion (gossip + combat
    * both feed this). `points` is a world-space polyline; `onArrive` fires once at the
    * end. `combat` walks suspend the combat facing pin while moving.
@@ -839,6 +846,7 @@ export class GameWorldScene extends BaseScene {
     this.npcAnchors = [];
     this.autonomyQueue?.clear();
     this.autonomyQueue = null;
+    this.autonomyInFlight = false;
     this.autonomyAccumMs = 0;
     this.npcWalks.clear();
     this.gossiping.clear();
@@ -1226,6 +1234,9 @@ export class GameWorldScene extends BaseScene {
 
     this.autonomyAccumMs += dt * 1000;
     if (this.autonomyAccumMs < GameWorldScene.AUTONOMY_TICK_MS) return;
+    // Never dispatch a new background deliberation while one is still running — caps
+    // concurrent autonomous claude.exe to 1 (procedural NPCs would otherwise pile up).
+    if (this.autonomyInFlight) return;
     const now = this.autonomyAccumMs;
 
     const ctx: AutonomyContext = {
@@ -1236,6 +1247,7 @@ export class GameWorldScene extends BaseScene {
       nearbyOf: (agent) => this.nearbyCandidatesFor(agent),
     };
 
+    this.autonomyInFlight = true;
     void this.npcManager.tickAutonomy(this.autonomyQueue, now, ctx).then((res) => {
       const d = res.deliberated;
       if (d && d.intent.kind === 'approach' && d.intent.targetNpcId) {
@@ -1250,7 +1262,7 @@ export class GameWorldScene extends BaseScene {
         // A hostile-to-player NPC commits to an attack → interactive duel with the player.
         this.startCombat(res.attackers[0]!);
       }
-    });
+    }).finally(() => { this.autonomyInFlight = false; });
   }
 
   /** Player provokes a fight with an NPC → interactive combat. */

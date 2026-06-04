@@ -290,6 +290,10 @@ ipcMain.handle(
       // autonomous NPC call, no renderer stack). Handle it + guard the write;
       // the child's own 'error'/'close' below still rejects the promise.
       proc.stdin?.on('error', () => { /* swallowed — handled via proc 'error'/'close' */ });
+      // Same for the read streams: an 'error' on stdout/stderr (e.g. the child dies
+      // mid-pipe) is otherwise an unhandled stream event. Swallow — 'close' resolves.
+      proc.stdout?.on('error', () => { /* swallowed */ });
+      proc.stderr?.on('error', () => { /* swallowed */ });
       try {
         proc.stdin?.write(prompt);
         proc.stdin?.end();
