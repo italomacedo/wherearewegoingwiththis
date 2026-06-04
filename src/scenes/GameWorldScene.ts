@@ -538,7 +538,11 @@ export class GameWorldScene extends BaseScene {
   /** Feed the player's world position to the streamer each frame (browser only). */
   /* istanbul ignore next — thin browser glue over the unit-tested WorldStreamer */
   private streamWorld(): void {
-    const pos = this.player?.getPosition();
+    // Follow whatever the player is actually moving with: the nave while piloting
+    // (the hero stays at the mount point), else the hero on foot. Otherwise flying
+    // to an adjacent scene never streams its neighbours in.
+    const driving = this.vehicle?.isOccupied() ?? false;
+    const pos = driving ? this.vehicle?.getPosition() : this.player?.getPosition();
     if (pos && this.worldStreamer) this.worldStreamer.update(pos.x, pos.z);
   }
 
