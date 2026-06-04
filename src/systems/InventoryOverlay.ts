@@ -3,7 +3,9 @@ import {
   AdvancedDynamicTexture, Rectangle, TextBlock, Button, StackPanel, ScrollViewer, Control,
 } from '@babylonjs/gui';
 import { Inventory } from '@entities/Inventory';
-import { itemDef, isWeapon, itemModelPath, ItemCategory, EquipSlot } from '@entities/items/ItemCatalog';
+import {
+  itemDef, isWeapon, isArmor, itemArmorRegion, itemModelPath, ItemCategory, EquipSlot,
+} from '@entities/items/ItemCatalog';
 import { t } from '@systems/I18n';
 
 export interface InventoryOverlayHandlers {
@@ -17,6 +19,8 @@ export interface InventoryOverlayHandlers {
   onClose?: () => void;
   /** Open the Adjust tool to calibrate an equipped prop's attach transform. */
   onAdjust?: (itemId: string, slot: EquipSlot) => void;
+  /** Armor (head/top/bottom) equipped or removed — rebuild the avatar region. */
+  onEquipArmor?: () => void;
 }
 
 export type InventoryMode = 'manage' | 'loot';
@@ -27,6 +31,8 @@ export interface InventoryRow {
   name: string;            // i18n display name
   category: ItemCategory;
   weapon: boolean;
+  /** Wearable armor piece (Phase 15) — equips to a head/top/bottom slot. */
+  armor: boolean;
   consumable: boolean;
   equipped: boolean;
   /** The body slot this item is currently equipped in (for the Adjust button). */
@@ -100,13 +106,31 @@ export class InventoryOverlay {
 
   // ─── Pure actions (also wired to GUI buttons) ────────────────────────────────
 
-  /** Equip an owned melee weapon. */
+  /** Equip an owned weapon (main hand) or armor piece (its region slot). */
   equip(id: string): void {
-    if (this.player.equip(id)) { this.handlers.onChange?.(); this.refresh(); }
+    const armor = isArmor(id);
+    const region = itemArmorRegion(id);
+    const ok = armor && region ? this.player.equipToSlot(region, id) : this.player.equip(id);
+    if (!ok) return;
+    this.handlers.onChange?.();
+    if (armor) this.handlers.onEquipArmor?.();
+    this.refresh();
   }
 
-  /** Unequip the current weapon. */
-  unequip(): void {
+  /**
+   * Unequip an item. With no id (legacy), clears the main hand. With an armor id,
+   * clears that piece's region slot (and rebuilds the avatar via onEquipArmor).
+   */
+  unequip(id?: string): void {
+    if (id && isArmor(id)) {
+      const slot = this.equippedSlotOf(id);
+      if (!slot) return;
+      this.player.unequipSlot(slot);
+      this.handlers.onChange?.();
+      this.handlers.onEquipArmor?.();
+      this.refresh();
+      return;
+    }
     this.player.unequip();
     this.handlers.onChange?.();
     this.refresh();
@@ -168,15 +192,18 @@ export class InventoryOverlay {
   private rowsOf(inv: Inventory): InventoryRow[] {
     return inv.items.map((s) => {
       const def = itemDef(s.id);
+      const slot = this.equippedSlotIn(inv, s.id);
+      const armor = isArmor(s.id);
       return {
         id: s.id,
         qty: s.qty,
         name: def ? t(def.nameKey) : s.id,
         category: def?.category ?? 'misc',
         weapon: isWeapon(s.id),
+        armor,
         consumable: def?.category === 'consumable',
-        equipped: inv.equippedWeaponId === s.id,
-        equippedSlot: this.equippedSlotIn(inv, s.id),
+        equipped: armor ? !!slot : inv.equippedWeaponId === s.id,
+        equippedSlot: slot,
         hasModel: !!itemModelPath(s.id),
       };
     });
@@ -337,6 +364,11 @@ export class InventoryOverlay {
         if (row.weapon) {
           actions.push(row.equipped
             ? { key: 'uneq', label: t('inventory.unequip'), act: () => this.unequip() }
+            : { key: 'eq', label: t('inventory.equip'), act: () => this.equip(row.id) });
+        }
+        if (row.armor) {
+          actions.push(row.equipped
+            ? { key: 'uneq', label: t('inventory.unequip'), act: () => this.unequip(row.id) }
             : { key: 'eq', label: t('inventory.equip'), act: () => this.equip(row.id) });
         }
         if (row.consumable) actions.push({ key: 'use', label: t('inventory.use'), act: () => this.useItem(row.id) });

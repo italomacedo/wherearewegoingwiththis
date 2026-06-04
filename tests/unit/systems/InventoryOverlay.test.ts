@@ -83,6 +83,34 @@ describe('InventoryOverlay (pure state + actions)', () => {
     expect(changes).toBe(2);
   });
 
+  it('equips/unequips armor into its region slot and fires onEquipArmor', () => {
+    const inv = new Inventory();
+    inv.add('armor_tac_top', 1);
+    let armorChanges = 0; let changes = 0;
+    overlay.setHandlers({ onChange: () => { changes += 1; }, onEquipArmor: () => { armorChanges += 1; } });
+    overlay.openManage(inv);
+    overlay.equip('armor_tac_top');
+    expect(inv.equippedIn('top')).toBe('armor_tac_top');
+    const row = overlay.playerRows().find((r) => r.id === 'armor_tac_top')!;
+    expect(row.armor).toBe(true);
+    expect(row.equipped).toBe(true);
+    expect(row.equippedSlot).toBe('top');
+    overlay.unequip('armor_tac_top');
+    expect(inv.equippedIn('top')).toBeNull();
+    expect(armorChanges).toBe(2);
+    expect(changes).toBe(2);
+  });
+
+  it('unequip(id) on an unequipped armor piece is a no-op', () => {
+    const inv = new Inventory();
+    inv.add('armor_spc_head', 1);
+    let armorChanges = 0;
+    overlay.setHandlers({ onEquipArmor: () => { armorChanges += 1; } });
+    overlay.openManage(inv);
+    overlay.unequip('armor_spc_head'); // not equipped
+    expect(armorChanges).toBe(0);
+  });
+
   it('useItem heals via onHeal and consumes one medkit', () => {
     const inv = new Inventory();
     inv.add('medkit', 2);
