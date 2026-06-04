@@ -220,12 +220,13 @@ function createWindow() {
 // Claude CLI NPC integration
 ipcMain.handle(
   'claude-query',
-  async (_event, { npcId, prompt, claudePath, sessionId, useSession, systemPrompt, model, effort }: {
+  async (_event, { npcId, prompt, claudePath, sessionId, useSession, resumeSession, systemPrompt, model, effort }: {
     npcId: string;
     prompt: string;
     claudePath: string;
     sessionId?: string;
     useSession?: boolean;
+    resumeSession?: boolean;
     systemPrompt?: string;
     model?: string;
     effort?: string;
@@ -235,7 +236,13 @@ ipcMain.handle(
       // (no markdown rendering when piped), reading the prompt from stdin.
       const args = ['--print'];
       if (useSession && sessionId) {
-        args.unshift('--session-id', sessionId);
+        // --session-id CREATES a session with that UUID (graduation call); reusing
+        // it errors "already in use", so CONTINUE with --resume on later turns.
+        if (resumeSession) {
+          args.unshift('--resume', sessionId);
+        } else {
+          args.unshift('--session-id', sessionId);
+        }
       }
       // Static NPC persona passed as --system-prompt so the Claude API can cache
       // it across calls (same text = cache hit within 5 minutes). This also

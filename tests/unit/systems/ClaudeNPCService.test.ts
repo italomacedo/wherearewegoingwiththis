@@ -127,9 +127,10 @@ describe('ClaudeNPCService', () => {
     const agent = new NPCAgent(def, ctx);
 
     await service.query(agent, world, 'hi');
-    const params = lastParams.value as { useSession?: boolean; sessionId?: string; prompt: string; systemPrompt?: string };
+    const params = lastParams.value as { useSession?: boolean; resumeSession?: boolean; sessionId?: string; prompt: string; systemPrompt?: string };
     expect(params.useSession).toBe(true);
     expect(params.sessionId).toBe('session-fixed');
+    expect(params.resumeSession).toBe(false); // graduation CREATES the session (--session-id)
     // graduation: systemPrompt is included on the primer call
     expect(params.systemPrompt).toContain('Zara');
     // primer contains mood/player context but NOT the full persona
@@ -151,8 +152,9 @@ describe('ClaudeNPCService', () => {
     const agent = new NPCAgent(def, ctx);
 
     await service.query(agent, world, 'and now?');
-    const params = lastParams.value as { useSession?: boolean; prompt: string; systemPrompt?: string };
+    const params = lastParams.value as { useSession?: boolean; resumeSession?: boolean; prompt: string; systemPrompt?: string };
     expect(params.useSession).toBe(true);
+    expect(params.resumeSession).toBe(true); // continue (--resume), don't re-create the session
     expect(params.systemPrompt).toBeUndefined(); // no persona on subsequent session turns
     expect(params.prompt).toContain('and now?');
   });

@@ -14,6 +14,13 @@ export interface ClaudeQueryParams {
   claudePath: string;
   sessionId?: string;
   useSession?: boolean;
+  /**
+   * Continue an existing session (--resume) instead of creating it (--session-id).
+   * `--session-id <uuid>` may only CREATE a session once; reusing it errors with
+   * "Session ID ... is already in use". Set true on every session turn after the
+   * first (graduation) call.
+   */
+  resumeSession?: boolean;
   /** Static NPC persona passed as --system-prompt for prompt caching. */
   systemPrompt?: string;
   /** Model alias (e.g. 'haiku') for --model — cheap model for game NPC calls. */
@@ -264,6 +271,9 @@ export class ClaudeNPCService {
       claudePath: this.claudePath,
       sessionId: ctx.getSessionId() ?? undefined,
       useSession: true,
+      // Create the session on the graduation call (--session-id), resume it after
+      // (--resume) — reusing --session-id errors "already in use".
+      resumeSession: !justGraduated,
       // Pass persona on first session call (graduation primer); session carries it after.
       systemPrompt: justGraduated ? systemPrompt : undefined,
       model: NPC_MODEL,
