@@ -352,7 +352,10 @@ export class VehicleController {
     this.bodyShape = new PhysicsShapeBox(center, Quaternion.Identity(), ext, this.scene);
     const body = new PhysicsBody(this.root, PhysicsMotionType.DYNAMIC, false, this.scene);
     body.shape = this.bodyShape;
-    body.setMassProperties({ mass: 1, inertia: Vector3.Zero() }); // inertia 0 → no tumble
+    // Heavy mass so the hero's character controller barely nudges the parked nave
+    // (the hero can't shove it around) — flight is unaffected since we set the body's
+    // velocity directly each frame (mass-independent). inertia 0 → no tumble.
+    body.setMassProperties({ mass: 400, inertia: Vector3.Zero() });
     body.setGravityFactor(0); // we apply gravity in computeDesiredVelocity (keeps the tuned feel)
     body.setLinearVelocity(Vector3.Zero());
     this.body = body;
