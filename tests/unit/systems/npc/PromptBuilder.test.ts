@@ -252,6 +252,39 @@ describe('PromptBuilder', () => {
     });
   });
 
+  describe('buildCommerceContext (Phase 16)', () => {
+    it('lists sellable items with prices + rivals + reward, and a gating instruction', () => {
+      const p = PromptBuilder.buildCommerceContext({
+        sellable: [{ name: 'Knife', price: 12 }],
+        rivals: ['Mback'],
+        payableCredits: 20,
+        payableItems: ['Medkit'],
+      });
+      expect(p).toContain('Knife (12 cr)');
+      expect(p).toContain('Mback');
+      expect(p).toContain('20 credits');
+      expect(p).toContain('Medkit');
+      expect(p).toContain('leads there');
+    });
+    it('returns empty when nothing to sell and no rivals', () => {
+      expect(PromptBuilder.buildCommerceContext({ sellable: [], rivals: [], payableCredits: 0, payableItems: [] })).toBe('');
+    });
+  });
+
+  describe('buildCommerceClassifierPrompt (Phase 16)', () => {
+    it('asks for the 6 fixed lines and lists valid ids + both messages', () => {
+      const p = PromptBuilder.buildCommerceClassifierPrompt('I can sell you a knife.', 'deal', ['knife'], ['zara']);
+      expect(p).toContain('OFFER=trade or mission or none');
+      expect(p).toContain('ITEM=');
+      expect(p).toContain('TARGET=');
+      expect(p).toContain('REWARD_CREDITS=');
+      expect(p).toContain('ACCEPT=yes or no');
+      expect(p).toContain('knife');
+      expect(p).toContain('zara');
+      expect(p).toContain('deal');
+    });
+  });
+
   describe('buildSessionPrimer', () => {
     it('includes dynamic context (mood + player name) and history', () => {
       const primer = PromptBuilder.buildSessionPrimer({
