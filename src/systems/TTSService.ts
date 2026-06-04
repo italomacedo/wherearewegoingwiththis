@@ -43,7 +43,8 @@ export function shouldSpeak(line: string, ttsEnabled: boolean): boolean {
 
 /** Worker → main message shapes. */
 type WorkerOut =
-  | { id: number; wav: ArrayBuffer }
+  | { id: number; seq: number; wav: ArrayBuffer } // one synthesized sentence chunk
+  | { id: number; done: true }                    // stream finished
   | { id: number; error: string }
   | { type: 'log'; msg: string };
 
@@ -53,6 +54,12 @@ export class TTSService {
   /** Increments per utterance so a stale worker result never plays over a newer one. */
   private token = 0;
   private current: HTMLAudioElement | null = null;
+  // Ordered playback queue: a sentence chunk only plays when it's the NEXT seq,
+  // so audio always plays in the original sentence order regardless of which
+  // chunk's synthesis finishes first.
+  private chunkUrls = new Map<number, string>();
+  private nextSeq = 0;
+  private playing = false;
 
   /** Speak an NPC's line in its assigned voice (emotes stripped). Fail-open. */
   speakSubject(subject: { id?: string; gender: Gender }, line: string): void {
@@ -68,7 +75,17 @@ export class TTSService {
   cancel(): void {
     this.token++;
     /* istanbul ignore next — browser-only */
+    this.resetPlayback();
+  }
+
+  /** Drop the playback queue + stop the current clip (a new utterance supersedes). */
+  /* istanbul ignore next — browser-only */
+  private resetPlayback(): void {
     if (this.current) { try { this.current.pause(); } catch { /* noop */ } this.current = null; }
+    this.chunkUrls.forEach((url) => URL.revokeObjectURL(url));
+    this.chunkUrls.clear();
+    this.nextSeq = 0;
+    this.playing = false;
   }
 
   /**
@@ -89,6 +106,7 @@ export class TTSService {
   private async dispatch(voice: string, text: string): Promise<void> {
     if (this.failed) return;
     const id = ++this.token;
+    this.resetPlayback(); // a new line supersedes whatever was queued/playing
     /* eslint-disable no-console */
     try {
       if (!this.worker) {
@@ -107,25 +125,48 @@ export class TTSService {
     /* eslint-enable no-console */
   }
 
-  /* istanbul ignore next — browser-only: handle a worker result, play on the voice bus */
+  /* istanbul ignore next — browser-only: queue a worker result, play in seq order */
   private onWorkerMessage(data: WorkerOut): void {
     /* eslint-disable no-console */
     if ('type' in data) { console.warn('[TTS]', data.msg); return; }
     if ('error' in data) { console.warn('[TTS] synth failed:', data.error); return; }
     if (data.id !== this.token) return; // superseded by a newer utterance
+    if ('done' in data) return;         // stream finished; queue drains on its own
+    // Buffer this sentence chunk by its seq, then play in strict order.
+    this.chunkUrls.set(data.seq, URL.createObjectURL(new Blob([data.wav], { type: 'audio/wav' })));
+    this.playNextChunk();
+  }
+
+  /** Play the chunk whose seq == nextSeq, if present; chain to the next on end. */
+  /* istanbul ignore next — browser-only playback */
+  private playNextChunk(): void {
+    if (this.playing) return;
+    const url = this.chunkUrls.get(this.nextSeq);
+    if (!url) return; // the next-in-order chunk hasn't arrived yet
+    this.chunkUrls.delete(this.nextSeq);
     const gain = this.voiceGain();
-    if (gain <= 0) { console.warn('[TTS] voice bus muted/zero — check Options › Sound (Voice volume + TTS on, master not muted)'); return; }
+    const advance = (): void => {
+      URL.revokeObjectURL(url);
+      this.playing = false;
+      this.nextSeq++;
+      this.playNextChunk();
+    };
+    if (gain <= 0) { // muted — drain the queue without audio so order stays intact
+      console.warn('[TTS] voice bus muted/zero — check Options › Sound (Voice volume + TTS on, master not muted)');
+      advance();
+      return;
+    }
     try {
-      const url = URL.createObjectURL(new Blob([data.wav], { type: 'audio/wav' }));
       const el = new Audio(url);
       el.volume = gain;
       this.current = el;
-      const cleanup = (): void => { URL.revokeObjectURL(url); };
-      el.addEventListener('ended', cleanup, { once: true });
-      el.addEventListener('error', cleanup, { once: true });
-      void el.play().catch(() => cleanup());
+      this.playing = true;
+      el.addEventListener('ended', advance, { once: true });
+      el.addEventListener('error', advance, { once: true });
+      void el.play().catch(advance);
     } catch (err) {
       console.warn('[TTS] playback failed:', err);
+      advance();
     }
     /* eslint-enable no-console */
   }

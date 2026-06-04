@@ -8,11 +8,15 @@ import { KOKORO_MODEL_ID, KOKORO_DTYPE } from '@systems/TTSConfig';
 
 interface SpeakMsg { id: number; voice: string; text: string; }
 type Out =
-  | { id: number; wav: ArrayBuffer }
+  | { id: number; seq: number; wav: ArrayBuffer } // one synthesized sentence chunk
+  | { id: number; done: true }                    // stream finished
   | { id: number; error: string }
   | { type: 'log'; msg: string };
 
-interface KokoroModel { generate(text: string, opts: { voice: string }): Promise<{ toWav(): ArrayBuffer }> }
+interface KokoroModel {
+  /** Stream synthesis sentence-by-sentence (kokoro-js splits the text itself). */
+  stream(text: string, opts: { voice: string }): AsyncGenerator<{ audio: { toWav(): ArrayBuffer } }>;
+}
 
 // `self` is typed as Window under the DOM lib; cast to the minimal worker surface.
 const ctx = self as unknown as {
@@ -21,6 +25,8 @@ const ctx = self as unknown as {
 };
 
 let modelPromise: Promise<KokoroModel> | null = null;
+/** Id of the most recent utterance; a newer one supersedes an in-flight stream. */
+let latestId = 0;
 
 async function loadModel(): Promise<KokoroModel> {
   const { KokoroTTS } = await import('kokoro-js');
@@ -45,12 +51,22 @@ function getModel(): Promise<KokoroModel> {
 
 ctx.addEventListener('message', (e: MessageEvent<SpeakMsg>) => {
   const { id, voice, text } = e.data;
+  latestId = id; // a newer utterance supersedes any in-flight stream
   void (async (): Promise<void> => {
     try {
       const model = await getModel();
-      const audio = await model.generate(text, { voice });
-      const wav = audio.toWav();
-      ctx.postMessage({ id, wav }, [wav]);
+      if (id !== latestId) return; // superseded while the model loaded
+      // Stream sentence-by-sentence (kokoro-js splits the full text itself —
+      // the agent's wording/expressiveness is untouched). Chunks are produced
+      // and posted strictly in order (seq 0,1,2…); the main thread plays them
+      // in that order. Time-to-first-audio drops to one sentence.
+      let seq = 0;
+      for await (const chunk of model.stream(text, { voice })) {
+        if (id !== latestId) return; // a newer utterance arrived — stop early
+        const wav = chunk.audio.toWav();
+        ctx.postMessage({ id, seq: seq++, wav }, [wav]);
+      }
+      ctx.postMessage({ id, done: true });
     } catch (err) {
       ctx.postMessage({ id, error: String(err) });
     }
