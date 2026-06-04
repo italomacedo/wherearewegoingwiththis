@@ -75,9 +75,6 @@ import { buildWalkGrid, gridPathfinder } from '@systems/combat/CombatMovement';
 import { recruitSides, RecruitParticipant, SIDE_INITIATOR, SIDE_TARGET } from '@systems/combat/CombatRecruiter';
 import { COMBAT_OBSTACLES, COMBAT_BOUNDS, ZONE_HALF } from '@assets/WorldAssetCatalog';
 
-/** ⚠️ TEMP Phase-16 playtest flag — seeds starting credsticks so buying is testable. REMOVE before merge. */
-const DEBUG_ECONOMY_CREDITS = 40;
-
 export class GameWorldScene extends BaseScene {
   /** Setting used for the ambient "react to surroundings" narration (global chat). */
   private static readonly SURROUNDINGS =
@@ -251,12 +248,6 @@ export class GameWorldScene extends BaseScene {
     this.playerName = session.character.name;
     this.playerStats = session.character.stats ?? createDefaultStats();
     this.playerInventory = Inventory.fromState(session.inventory ?? defaultInventoryState());
-    // ⚠️ TEMP (Phase 16 playtest) — seed credits so buying from a vendor can be
-    // tested without first looting credsticks. REMOVE before merge.
-    /* istanbul ignore next — dev-only seed, browser playtest aid */
-    if (DEBUG_ECONOMY_CREDITS > 0 && this.playerInventory.count('credstick') === 0) {
-      this.playerInventory.add('credstick', DEBUG_ECONOMY_CREDITS);
-    }
     this.heldAttach = session.heldAttach ?? {};
     this.npcMemory = session.npcMemory ?? {};
     this.gameTimeSeconds = session.gameTimeSeconds;
