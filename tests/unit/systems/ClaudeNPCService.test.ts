@@ -260,6 +260,31 @@ describe('ClaudeNPCService', () => {
     expect(r.deterministic).toBe(false);
   });
 
+  it('classifyCommerce parses a trade offer + acceptance, scoped to a commerce id', async () => {
+    const { bridge, lastParams } = makeBridge(
+      'OFFER=trade\nITEM=knife\nTARGET=none\nREWARD_ITEM=none\nREWARD_CREDITS=0\nACCEPT=yes',
+    );
+    const service = new ClaudeNPCService({ claudePath: 'claude', bridge });
+    const r = await service.classifyCommerce('npc_mback', 'I can sell you a knife.', 'deal', ['knife'], ['zara']);
+    expect(r.offer).toBe('trade');
+    expect(r.itemId).toBe('knife');
+    expect(r.accept).toBe(true);
+    const params = lastParams.value as { npcId: string };
+    expect(params.npcId).toBe('npc_mback::commerce');
+  });
+
+  it('classifyCommerce fails open to a no-op offer when the CLI errors', async () => {
+    const bridge: ClaudeBridge = {
+      claudeQuery: jest.fn(async () => { throw new Error('cli down'); }),
+      claudeCancel: jest.fn(async () => {}),
+      onClaudeResponseChunk: jest.fn(() => () => {}),
+      onClaudeResponseDone: jest.fn(() => () => {}),
+    };
+    const service = new ClaudeNPCService({ claudePath: 'claude', bridge });
+    const r = await service.classifyCommerce('npc_mback', 'x', 'y', ['knife'], ['zara']);
+    expect(r.offer).toBe('none');
+  });
+
   it('narrate returns the one-shot reply, scoped to an ambient id', async () => {
     const { bridge, lastParams } = makeBridge('Rain ticks off the awning.');
     const service = new ClaudeNPCService({ claudePath: 'claude', bridge });

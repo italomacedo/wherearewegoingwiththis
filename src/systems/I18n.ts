@@ -155,6 +155,11 @@ export const STRINGS: Record<string, Entry> = {
   'item.armor_spc_head': e('Spaceframe Helm', 'Elmo Espacial'),
   'item.armor_spc_top': e('Spaceframe Cuirass', 'Couraça Espacial'),
   'item.armor_spc_legs': e('Spaceframe Greaves', 'Perneiras Espaciais'),
+  // Economy (Phase 16) — chat-driven trade + kill-contracts.
+  'economy.bought': e('Bought {item} for {price} credits.', 'Comprou {item} por {price} créditos.'),
+  'economy.noCredits': e("You can't afford that.", 'Você não tem créditos suficientes.'),
+  'economy.missionAccepted': e('Contract accepted: take out {target}.', 'Contrato aceito: elimine {target}.'),
+  'economy.missionComplete': e('Contract paid out by {giver}.', 'Contrato pago por {giver}.'),
 
   // ─── Dialog ────────────────────────────────────────────────────────────────
   'dialog.openChannel': e('Open channel', 'Canal aberto'),

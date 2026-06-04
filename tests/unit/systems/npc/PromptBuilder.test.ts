@@ -269,6 +269,11 @@ describe('PromptBuilder', () => {
     it('returns empty when nothing to sell and no rivals', () => {
       expect(PromptBuilder.buildCommerceContext({ sellable: [], rivals: [], payableCredits: 0, payableItems: [] })).toBe('');
     });
+    it('a rival with no payable reward falls back to "a favour"', () => {
+      const p = PromptBuilder.buildCommerceContext({ sellable: [], rivals: ['Rook'], payableCredits: 0, payableItems: [] });
+      expect(p).toContain('Rook');
+      expect(p).toContain('a favour');
+    });
   });
 
   describe('buildCommerceClassifierPrompt (Phase 16)', () => {
@@ -282,6 +287,11 @@ describe('PromptBuilder', () => {
       expect(p).toContain('knife');
       expect(p).toContain('zara');
       expect(p).toContain('deal');
+    });
+    it('lists "none" when there are no sellable ids or rivals', () => {
+      const p = PromptBuilder.buildCommerceClassifierPrompt('hello', 'hi', [], []);
+      expect(p).toContain('Sellable ids: none');
+      expect(p).toContain('Rival ids: none');
     });
   });
 

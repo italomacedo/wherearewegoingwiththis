@@ -12,6 +12,8 @@ export interface WorldSnapshot {
   recentEvents: string[]; // up to 3 short event lines
   /** Human-readable reply language for the NPC (e.g. "English"). Defaults to English. */
   language?: string;
+  /** Extra per-turn context (e.g. Phase-16 commerce levers). Appended verbatim. */
+  extraContext?: string;
 }
 
 export interface PromptInputs {
@@ -63,6 +65,8 @@ export class PromptBuilder {
     lines.push(
       `The player is ${Math.round(world.distanceMeters)}m away. Player action: ${world.playerAction}.`
     );
+
+    if (world.extraContext) lines.push(world.extraContext);
 
     if (history.length > 0) {
       lines.push('');

@@ -2,6 +2,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { NPCAgent } from '@entities/NPCAgent';
 import { PromptBuilder, WorldSnapshot } from '@systems/npc/PromptBuilder';
 import { ActionClassification, parseActionClassification } from '@systems/npc/EmoteIntent';
+import { CommerceParse, parseCommerceResponse } from '@systems/economy/Commerce';
 import { estimateTokens } from '@systems/TokenMeter';
 
 /**
@@ -150,6 +151,24 @@ export class ClaudeNPCService {
       return parseActionClassification(raw);
     } catch {
       return { deterministic: false, skillId: null, attribute: null, difficulty: 50, hostile: false };
+    }
+  }
+
+  /**
+   * One-shot commerce classifier (Phase 16): does the exchange contain a trade /
+   * mission offer the player accepted? Fails OPEN to a no-op parse on CLI error.
+   */
+  async classifyCommerce(
+    npcId: string, npcReply: string, playerMessage: string,
+    sellableIds: string[], rivalIds: string[],
+  ): Promise<CommerceParse> {
+    const noop: CommerceParse = { offer: 'none', itemId: null, targetId: null, rewardItemId: null, rewardCredits: 0, accept: false };
+    try {
+      const prompt = PromptBuilder.buildCommerceClassifierPrompt(npcReply, playerMessage, sellableIds, rivalIds);
+      const raw = await this.oneShot(`${npcId}::commerce`, prompt, 'commerce-classify');
+      return parseCommerceResponse(raw, { sellableIds, rivalIds });
+    } catch {
+      return noop;
     }
   }
 

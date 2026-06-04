@@ -58,6 +58,14 @@ describe('Missions (pure)', () => {
       expect(validateMissionOffer(giver, 'mback', 'zara', { kind: 'item', itemId: 'knife' }, present)).toBeNull();
       // credits but zero balance
       expect(validateMissionOffer(giver, 'mback', 'zara', { kind: 'credits', credits: 10 }, present)).toBeNull();
+      // item reward with no item id
+      expect(validateMissionOffer(giver, 'mback', 'zara', { kind: 'item' }, present)).toBeNull();
+    });
+
+    it('a credit reward with no amount defaults to a 1-credit floor (when affordable)', () => {
+      const giver = makeGiver({ antagonists: ['zara'], items: [{ id: 'credstick', qty: 3 }] });
+      const m = validateMissionOffer(giver, 'mback', 'zara', { kind: 'credits' }, present);
+      expect(m?.rewardCredits).toBe(1);
     });
   });
 
