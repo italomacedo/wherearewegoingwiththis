@@ -147,14 +147,30 @@ export class TileScenery {
   private addSolidCollider(holder: TransformNode, key: string): void {
     if (!this.scene.isPhysicsEnabled()) return;
     holder.computeWorldMatrix(true);
+    // Force the (instanced) child meshes to bake their world matrix so the bounds
+    // are valid — a stale/NaN bbox would make a malformed Havok box that aborts the
+    // engine the moment the dynamic nave touches it on descent (Fase 17H crash fix).
+    for (const m of holder.getChildMeshes()) m.computeWorldMatrix(true);
     const { min, max } = holder.getHierarchyBoundingVectors(true);
-    const size = max.subtract(min);
-    if (size.x < 0.05 || size.y < 0.05 || size.z < 0.05) return;
-    this.addCollider(min.add(max).scale(0.5), size, `tile-col-${key}`);
+    const sx = max.x - min.x;
+    const sy = max.y - min.y;
+    const sz = max.z - min.z;
+    const cx = (min.x + max.x) / 2;
+    const cy = (min.y + max.y) / 2;
+    const cz = (min.z + max.z) / 2;
+    // Reject degenerate / non-finite / absurd bounds (instanced bbox can glitch).
+    const ok = [sx, sy, sz, cx, cy, cz].every((v) => Number.isFinite(v))
+      && sx >= 0.05 && sy >= 0.05 && sz >= 0.05
+      && sx <= 300 && sy <= 300 && sz <= 300;
+    if (!ok) return;
+    this.addCollider(new Vector3(cx, cy, cz), new Vector3(sx, sy, sz), `tile-col-${key}`);
   }
 
   private addCollider(center: Vector3, size: Vector3, name: string): void {
     if (!this.scene.isPhysicsEnabled()) return;
+    // Never feed Havok a non-finite/degenerate box (it aborts the engine natively).
+    if (![size.x, size.y, size.z, center.x, center.y, center.z].every((v) => Number.isFinite(v))) return;
+    if (size.x < 0.01 || size.y < 0.01 || size.z < 0.01) return;
     const box = MeshBuilder.CreateBox(name, { width: size.x, height: size.y, depth: size.z }, this.scene);
     box.position.copyFrom(center);
     box.isVisible = false;
