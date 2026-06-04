@@ -180,6 +180,14 @@ export interface CharacterAppearance {
    * `bodyBase` (back-compat). Resolve via `resolveAvatarParts`.
    */
   avatarPieces: Record<string, string | null>;
+  /**
+   * Per-region "keep authored colours" flags (Phase 15). When a region
+   * (`head`/`top`/`bottom`) is true, the assembler skips ALL recolouring of that
+   * region's meshes, preserving the GLB's original material colours. Used by the
+   * creator's "Original" toggles and auto-set for worn-armor regions (armor keeps
+   * its own colours). Absent/false = recolour as usual (back-compat).
+   */
+  keepRegionColor?: Partial<Record<AvatarPartRegion, boolean>>;
 }
 
 // Ethnicity is encoded in the body-base key (one MakeHuman GLB per ethnicity),
@@ -244,6 +252,7 @@ export const DEFAULT_APPEARANCE: CharacterAppearance = {
   accessories: [],
   implants: [],
   avatarPieces: {},
+  keepRegionColor: {},
 };
 
 export const BODY_BASES = [
@@ -323,6 +332,33 @@ export function resolveAvatarParts(
   return { head: pick('head'), top: pick('top'), bottom: pick('bottom') };
 }
 
+/**
+ * Return a COPY of `base` with worn-armor molds overlaid onto `avatarPieces` for the
+ * given regions (head/top/bottom → an outfit mold key). The saved appearance is never
+ * mutated — armor is a render-time overlay so unequipping reverts to the base look.
+ * Regions with no armor keep the base piece. Pure + testable (Phase 15).
+ */
+export function applyArmorOverlay(
+  base: CharacterAppearance,
+  armorParts: Partial<Record<AvatarPartRegion, string>>,
+): CharacterAppearance {
+  const pieces: Record<string, string | null> = { ...(base.avatarPieces ?? {}) };
+  const keep: Partial<Record<AvatarPartRegion, boolean>> = { ...(base.keepRegionColor ?? {}) };
+  (['head', 'top', 'bottom'] as AvatarPartRegion[]).forEach((region) => {
+    const mold = armorParts[region];
+    if (mold) {
+      pieces[region] = mold;
+      keep[region] = true; // armor keeps its own authored colours (no recolour)
+    }
+  });
+  return { ...base, avatarPieces: pieces, keepRegionColor: keep };
+}
+
+/** Whether a region's meshes should keep their authored colours (skip recolour). */
+export function keepColorForRegion(a: CharacterAppearance, region: AvatarPartRegion): boolean {
+  return a.keepRegionColor?.[region] === true;
+}
+
 // ─── Accessors (callers never reach into raw fields) ────────────────────────────
 
 export function getSkinTone(a: CharacterAppearance): string {
@@ -358,6 +394,7 @@ export function cloneAppearance(a: CharacterAppearance): CharacterAppearance {
     accessories: [...a.accessories],
     implants: [...a.implants],
     avatarPieces: { ...a.avatarPieces },
+    keepRegionColor: { ...(a.keepRegionColor ?? {}) },
   };
 }
 
@@ -398,6 +435,7 @@ export function migrateAppearance(raw: unknown): CharacterAppearance {
       accessories: Array.isArray(r.accessories) ? [...r.accessories] : [],
       implants: Array.isArray(r.implants) ? [...r.implants] : [],
       avatarPieces: { ...(r.avatarPieces ?? {}) },
+      keepRegionColor: { ...(r.keepRegionColor ?? {}) },
     };
   }
 

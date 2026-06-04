@@ -24,9 +24,9 @@ import { VehicleController } from '@entities/VehicleController';
 import { MercadoSombrasZone } from '@entities/zones/MercadoSombrasZone';
 import { WorldZone } from '@entities/WorldZone';
 import { GameClock, DayPeriod } from '@systems/GameClock';
-import { CharacterAppearance, DEFAULT_APPEARANCE } from '@entities/CharacterData';
+import { CharacterAppearance, DEFAULT_APPEARANCE, applyArmorOverlay } from '@entities/CharacterData';
 import { Inventory, defaultInventoryState } from '@entities/Inventory';
-import { weaponProfile, itemDef, isMeleeWeapon, isFirearm } from '@entities/items/ItemCatalog';
+import { weaponProfile, itemDef, isMeleeWeapon, isFirearm, armorOverlayParts } from '@entities/items/ItemCatalog';
 import { InventoryOverlay } from '@systems/InventoryOverlay';
 import { HeldItemRig, resolveAttachWith, boneFor, AttachOverrides, flashlightActive, holdsAimPose } from '@systems/HeldItems';
 import { AdjustOverlay } from '@systems/AdjustOverlay';
@@ -238,10 +238,6 @@ export class GameWorldScene extends BaseScene {
     this.playerName = session.character.name;
     this.playerStats = session.character.stats ?? createDefaultStats();
     this.playerInventory = Inventory.fromState(session.inventory ?? defaultInventoryState());
-    // TEMP (Phase 10.4 attach tuning) — seed a test loadout into an empty inventory
-    // so all attach points (hand weapon, back pack, flashlight, firearm, food) can
-    // be inspected without looting. REMOVE before merge; empty start is the rule.
-    /* istanbul ignore next — dev-only seed, browser playtest aid */
     this.heldAttach = session.heldAttach ?? {};
     this.npcMemory = session.npcMemory ?? {};
     this.gameTimeSeconds = session.gameTimeSeconds;
@@ -371,6 +367,8 @@ export class GameWorldScene extends BaseScene {
       this.babylonScene, this.player.getSkeleton(), this.player.getRenderParts()[0] ?? null,
     );
     void this.syncPlayerHeldItems();
+    // If the save has armor equipped, swap the avatar's regions to match (Phase 15).
+    if (this.playerInventory.equippedArmorIds().length > 0) void this.rebuildPlayerArmor();
 
     // Park a flying motorcycle near the spawn point. Confine it to the closed
     // street (flying out of bounds and back was crashing the game).
@@ -403,6 +401,8 @@ export class GameWorldScene extends BaseScene {
       onClose: () => this.cameraSystem?.exitConversationMode(),
       // "Adjust" button on an equipped row → open the calibration tool for it.
       onAdjust: (itemId, slot) => this.openAdjustFor(itemId, slot),
+      // Armor equipped/removed → swap the avatar's region mesh (Phase 15).
+      onEquipArmor: () => { void this.rebuildPlayerArmor(); },
     });
 
     // Adjust tool (Phase 10.4b): live-calibrate a held prop's attach transform.
@@ -948,6 +948,25 @@ export class GameWorldScene extends BaseScene {
     return assembled.rootMesh;
   }
 
+  /**
+   * Rebuild the hero avatar to reflect worn armor (Phase 15): overlay the
+   * equipped armor molds onto the base appearance and re-assemble the rig, then
+   * re-attach held props (the skeleton is new). No-op without a spawned player.
+   */
+  /* istanbul ignore next — browser-only avatar reassembly */
+  private async rebuildPlayerArmor(): Promise<void> {
+    if (!this.player) return;
+    const gender = genderOfOutfit(this.appearance.bodyBase);
+    const parts = armorOverlayParts(this.playerInventory.equippedArmorIds(), gender);
+    await this.player.rebuildAppearance(applyArmorOverlay(this.appearance, parts));
+    // The skeleton changed — recreate the held-prop rig against the new rig.
+    this.playerHeldRig?.dispose();
+    this.playerHeldRig = new HeldItemRig(
+      this.babylonScene, this.player.getSkeleton(), this.player.getRenderParts()[0] ?? null,
+    );
+    await this.syncPlayerHeldItems();
+  }
+
   /** Re-attach the hero's visible props to match its current inventory slots. */
   /* istanbul ignore next — browser-only held-prop rig + effects */
   private async syncPlayerHeldItems(): Promise<void> {
@@ -1132,7 +1151,7 @@ export class GameWorldScene extends BaseScene {
       if (id === 'player') {
         const p = this.player?.getRoot().position ?? Vector3.Zero();
         const pw = this.playerInventory.combatWeaponId; // melee OR firearm (Phase 11)
-        combatants.push({ id, name: this.playerName, isPlayer: true, stats: this.playerStats, health: this.playerHealthState, pos: { x: p.x, z: p.z }, side, weapon: weaponProfile(pw), weaponName: this.weaponLabel(pw) });
+        combatants.push({ id, name: this.playerName, isPlayer: true, stats: this.playerStats, health: this.playerHealthState, pos: { x: p.x, z: p.z }, side, weapon: weaponProfile(pw), weaponName: this.weaponLabel(pw), damageReduction: this.playerInventory.totalDamageReduction() });
         this.combatWeaponId.set(id, pw);
         names[id] = this.playerName;
         if (this.player) sources[id] = this.player.getRoot();

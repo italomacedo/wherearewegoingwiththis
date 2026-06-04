@@ -96,6 +96,15 @@ describe('PlayerController', () => {
     expect(player.getPartCount()).toBeGreaterThan(0);
   });
 
+  it('rebuildAppearance replaces the rig in place, keeping position', async () => {
+    await player.spawn(new Vector3(2, 0, 4), DEFAULT_APPEARANCE);
+    expect(player.getPartCount()).toBeGreaterThan(0);
+    await player.rebuildAppearance({ ...DEFAULT_APPEARANCE, bodyBase: 'suit' });
+    expect(player.getPartCount()).toBeGreaterThan(0);
+    expect(player.getPosition().x).toBe(2);
+    expect(player.getPosition().z).toBe(4);
+  });
+
   // ─── update ─────────────────────────────────────────────────────────────
 
   it('update with no input does not move the player', async () => {

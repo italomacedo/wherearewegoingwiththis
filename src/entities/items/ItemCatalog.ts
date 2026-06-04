@@ -12,12 +12,19 @@
 import type { AttackKind, WeaponProfile } from '@systems/combat/CombatMath';
 import { FIST_PROFILE } from '@systems/combat/CombatMath';
 import type { SkillId } from '@entities/CharacterStats';
-import type { CombatClipState } from '@assets/AvatarMeshCatalog';
+import type { CombatClipState, Gender } from '@assets/AvatarMeshCatalog';
 
-export type ItemCategory = 'melee' | 'consumable' | 'misc';
+export type ItemCategory = 'melee' | 'consumable' | 'misc' | 'armor';
 
-/** Body slots of the paper-doll (Phase 10). main_hand = held; back = backpack. */
-export type EquipSlot = 'main_hand' | 'back';
+/**
+ * Body slots of the paper-doll. main_hand = held; back = backpack;
+ * head/top/bottom = armor pieces that swap the avatar's region mesh (Phase 15).
+ */
+export type EquipSlot = 'main_hand' | 'back' | 'head' | 'top' | 'bottom';
+
+/** Armor tiers + the avatar region a piece occupies (Phase 15). */
+export type ArmorTier = 'tactical' | 'space';
+export type ArmorRegion = 'head' | 'top' | 'bottom';
 
 /** Transform of a held item relative to its attach bone (tuned in-game / Electron). */
 export interface ItemAttach {
@@ -57,6 +64,11 @@ export interface ItemDef {
   attach?: ItemAttach;
   /** Combat clip key this weapon swings with (defaults by attack kind if absent). */
   holdClip?: CombatClipState;
+  // ── Phase 15: armor fields (armor items only) ──
+  /** Armor tier (drives the per-piece damage reduction). */
+  armorTier?: ArmorTier;
+  /** Avatar region this armor piece swaps when worn (also its equip slot). */
+  armorRegion?: ArmorRegion;
 }
 
 export interface WeaponDef {
@@ -107,10 +119,71 @@ export const ITEM_REGISTRY: Readonly<Record<string, ItemDef>> = Object.freeze({
   bread:       { id: 'bread',       nameKey: 'item.bread',       category: 'consumable', weight: 0.3, stackable: true, maxStack: 5, hungerRestore: 25, modelPath: 'items/food/bread.glb', attach: hold(0.13) },
   donut:       { id: 'donut',       nameKey: 'item.donut',       category: 'consumable', weight: 0.2, stackable: true, maxStack: 8, hungerRestore: 18, modelPath: 'items/food/donut1.glb', attach: hold(0.14) },
   sushi:       { id: 'sushi',       nameKey: 'item.sushi',       category: 'consumable', weight: 0.3, stackable: true, maxStack: 6, hungerRestore: 22, modelPath: 'items/food/sushi_roll1.glb', attach: hold(0.27) },
+  // ── Armor (Phase 15: worn pieces that swap an avatar region + reduce damage) ──
+  armor_tac_head: { id: 'armor_tac_head', nameKey: 'item.armor_tac_head', category: 'armor', weight: 2.0, stackable: false, maxStack: 1, equipSlot: 'head',   armorTier: 'tactical', armorRegion: 'head' },
+  armor_tac_top:  { id: 'armor_tac_top',  nameKey: 'item.armor_tac_top',  category: 'armor', weight: 5.0, stackable: false, maxStack: 1, equipSlot: 'top',    armorTier: 'tactical', armorRegion: 'top' },
+  armor_tac_legs: { id: 'armor_tac_legs', nameKey: 'item.armor_tac_legs', category: 'armor', weight: 4.0, stackable: false, maxStack: 1, equipSlot: 'bottom', armorTier: 'tactical', armorRegion: 'bottom' },
+  armor_spc_head: { id: 'armor_spc_head', nameKey: 'item.armor_spc_head', category: 'armor', weight: 3.0, stackable: false, maxStack: 1, equipSlot: 'head',   armorTier: 'space',    armorRegion: 'head' },
+  armor_spc_top:  { id: 'armor_spc_top',  nameKey: 'item.armor_spc_top',  category: 'armor', weight: 7.0, stackable: false, maxStack: 1, equipSlot: 'top',    armorTier: 'space',    armorRegion: 'top' },
+  armor_spc_legs: { id: 'armor_spc_legs', nameKey: 'item.armor_spc_legs', category: 'armor', weight: 5.0, stackable: false, maxStack: 1, equipSlot: 'bottom', armorTier: 'space',    armorRegion: 'bottom' },
   // ── Loot / misc (no mechanic yet — seeds future economy) ──
   scrap:  { id: 'scrap',  nameKey: 'item.scrap',  category: 'misc', weight: 0.3, stackable: true, maxStack: 20 },
   credstick: { id: 'credstick', nameKey: 'item.credstick', category: 'misc', weight: 0.1, stackable: true, maxStack: 50 },
 });
+
+/** The three armor body slots, in render/display order (head → top → bottom). */
+export const ARMOR_SLOTS: readonly EquipSlot[] = Object.freeze(['head', 'top', 'bottom']);
+
+/**
+ * Full-set damage reduction per tier (owner-locked): tactical 25%, space 50%.
+ * A single piece grants a third of this (the 3 pieces sum back to the full value).
+ */
+export const ARMOR_FULL_SET_REDUCTION: Readonly<Record<ArmorTier, number>> = Object.freeze({
+  tactical: 0.25,
+  space: 0.5,
+});
+
+/** Per-piece damage reduction fraction for a tier (full set ÷ 3). */
+export function armorPieceReduction(tier: ArmorTier): number {
+  return ARMOR_FULL_SET_REDUCTION[tier] / 3;
+}
+
+/**
+ * The Quaternius outfit mold a given armor tier borrows its region mesh from, per
+ * gender: tactical → ♂ SWAT / ♀ Soldier; space → ♂ Spacesuit / ♀ Sci-Fi. These keys
+ * are also removed from the creator's outfit pickers (Phase 15.6).
+ */
+export const ARMOR_MOLDS: Readonly<Record<ArmorTier, Record<Gender, string>>> = Object.freeze({
+  tactical: { male: 'swat', female: 'w_soldier' },
+  space: { male: 'spacesuit', female: 'w_scifi' },
+});
+
+/** Outfit keys that are now armor molds — filtered out of the creator's pickers. */
+export const ARMOR_OUTFIT_KEYS: readonly string[] = Object.freeze([
+  ARMOR_MOLDS.tactical.male, ARMOR_MOLDS.tactical.female,
+  ARMOR_MOLDS.space.male, ARMOR_MOLDS.space.female,
+]);
+
+/** The outfit mold a tier maps to for a gender (the region donor for the overlay). */
+export function armorMoldFor(tier: ArmorTier, gender: Gender): string {
+  return ARMOR_MOLDS[tier][gender];
+}
+
+/**
+ * Resolve equipped armor item ids into a region → outfit-mold map for the avatar
+ * overlay (gender-correct). Non-armor ids are ignored. Pure (Phase 15).
+ */
+export function armorOverlayParts(
+  equippedArmorIds: readonly string[],
+  gender: Gender,
+): Partial<Record<ArmorRegion, string>> {
+  const parts: Partial<Record<ArmorRegion, string>> = {};
+  for (const id of equippedArmorIds) {
+    const def = ITEM_BY_ID.get(id);
+    if (def?.armorTier && def.armorRegion) parts[def.armorRegion] = armorMoldFor(def.armorTier, gender);
+  }
+  return parts;
+}
 
 export const WEAPON_REGISTRY: Readonly<Record<string, WeaponDef>> = Object.freeze({
   knife:   { id: 'knife',   attackKind: 'melee', skill: 'combate_corpo_a_corpo', damageBase: 12, variance: 6, range: 1 },
@@ -143,6 +216,21 @@ export function isMeleeWeapon(id: string): boolean {
 /** True when the item is a firearm (ranged weapon) — cosmetic only this phase. */
 export function isFirearm(id: string): boolean {
   return WEAPON_BY_ID.get(id)?.attackKind === 'ranged';
+}
+
+/** True when the item is a wearable armor piece (Phase 15). */
+export function isArmor(id: string): boolean { return ITEM_BY_ID.get(id)?.category === 'armor'; }
+
+/** The armor tier of an item (undefined if it is not armor). */
+export function itemArmorTier(id: string): ArmorTier | undefined { return ITEM_BY_ID.get(id)?.armorTier; }
+
+/** The armor region/slot of an item (undefined if it is not armor). */
+export function itemArmorRegion(id: string): ArmorRegion | undefined { return ITEM_BY_ID.get(id)?.armorRegion; }
+
+/** Damage-reduction fraction an item grants while worn (0 if it is not armor). */
+export function itemDamageReduction(id: string): number {
+  const tier = ITEM_BY_ID.get(id)?.armorTier;
+  return tier ? armorPieceReduction(tier) : 0;
 }
 
 /** GLB model path for the item's visible held/worn prop (undefined if it has none). */

@@ -96,12 +96,35 @@ export class PlayerController {
     });
     this.root.position = position.clone();
 
+    // Start the idle clip immediately so the avatar doesn't sit in a stray
+    // auto-played pose (e.g. a looping Death clip) until the first WASD input.
+    this.playingState = null;
+    this.updateAnimation();
+
     // When physics is live, drive the hero with a Havok character controller so it
     // collides with the world. Headless / no-physics keeps the kinematic path.
     if (typeof document !== 'undefined' && this.scene.isPhysicsEnabled()) {
       /* istanbul ignore next — Havok character controller is browser/Electron only */
       this.initPhysicsController(position);
     }
+  }
+
+  /**
+   * Rebuild the avatar meshes from a new appearance in place (Phase 15: equipping
+   * armor swaps an avatar region). Keeps the root + physics capsule + facing; only
+   * the visible rig is replaced. The caller re-attaches held props after this
+   * (the skeleton is new). Position/animation state are preserved.
+   */
+  async rebuildAppearance(appearance: CharacterAppearance): Promise<void> {
+    const assembler = new CharacterAssembler(this.scene);
+    const next = await assembler.assemble(appearance);
+    // Dispose the old rig (meshes + clips) before adopting the new one.
+    this.assembled?.dispose();
+    this.assembled = next;
+    this.parts = next.meshes;
+    this.parts.forEach((m) => { if (!m.parent) m.parent = this.root; });
+    this.playingState = null; // force the current loco clip to re-apply on the new rig
+    this.updateAnimation();
   }
 
   /* istanbul ignore next — browser/Electron only */

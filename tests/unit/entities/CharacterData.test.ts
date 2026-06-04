@@ -3,7 +3,7 @@ import {
   SLOT_REGISTRY, MORPH_REGISTRY, EXCLUSIVE_GROUPS,
   applySlot, resolveLayers, clampMorph, cloneAppearance, migrateAppearance,
   getSkinTone, getHair, getHairColor, getBaseTop, getOuterwear, getBottom, getFootwear,
-  bodyBaseKey, parseGender, parseEthnicity, resolveAvatarParts,
+  bodyBaseKey, parseGender, parseEthnicity, resolveAvatarParts, applyArmorOverlay, keepColorForRegion,
 } from '../../../src/entities/CharacterData';
 
 describe('CharacterData', () => {
@@ -296,6 +296,31 @@ describe('CharacterData', () => {
     it('a migrated legacy save renders the whole-outfit look (all = bodyBase)', () => {
       const a = migrateAppearance({ bodyBase: 'w_punk' });
       expect(resolveAvatarParts(a)).toEqual({ head: 'w_punk', top: 'w_punk', bottom: 'w_punk' });
+    });
+  });
+
+  describe('applyArmorOverlay (Phase 15)', () => {
+    it('overlays armor molds onto the chosen regions without mutating the base', () => {
+      const base: CharacterAppearance = { ...DEFAULT_APPEARANCE, bodyBase: 'punk', avatarPieces: { head: 'suit' } };
+      const out = applyArmorOverlay(base, { head: 'swat', top: 'swat' });
+      // base regions: head suit / top punk(inherited); armor overrides head+top.
+      expect(resolveAvatarParts(out)).toEqual({ head: 'swat', top: 'swat', bottom: 'punk' });
+      // base is untouched
+      expect(base.avatarPieces).toEqual({ head: 'suit' });
+    });
+
+    it('no armor parts returns an equivalent appearance', () => {
+      const base: CharacterAppearance = { ...DEFAULT_APPEARANCE, bodyBase: 'suit', avatarPieces: {} };
+      expect(resolveAvatarParts(applyArmorOverlay(base, {}))).toEqual({ head: 'suit', top: 'suit', bottom: 'suit' });
+    });
+
+    it('armored regions are flagged to keep their authored colours', () => {
+      const base: CharacterAppearance = { ...DEFAULT_APPEARANCE, bodyBase: 'punk' };
+      const out = applyArmorOverlay(base, { head: 'swat', bottom: 'swat' });
+      expect(keepColorForRegion(out, 'head')).toBe(true);
+      expect(keepColorForRegion(out, 'bottom')).toBe(true);
+      expect(keepColorForRegion(out, 'top')).toBe(false); // not armored → recoloured as usual
+      expect(keepColorForRegion(base, 'head')).toBe(false); // base untouched
     });
   });
 });

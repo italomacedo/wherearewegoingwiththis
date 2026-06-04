@@ -148,6 +148,13 @@ export const STRINGS: Record<string, Entry> = {
   'item.medkit': e('Medkit', 'Kit Médico'),
   'item.scrap': e('Scrap', 'Sucata'),
   'item.credstick': e('Credstick', 'Cartão de Créditos'),
+  // Armor pieces (Phase 15) — tactical (25% set) / space (50% set).
+  'item.armor_tac_head': e('Tactical Helmet', 'Capacete Tático'),
+  'item.armor_tac_top': e('Tactical Vest', 'Colete Tático'),
+  'item.armor_tac_legs': e('Tactical Greaves', 'Perneiras Táticas'),
+  'item.armor_spc_head': e('Spaceframe Helm', 'Elmo Espacial'),
+  'item.armor_spc_top': e('Spaceframe Cuirass', 'Couraça Espacial'),
+  'item.armor_spc_legs': e('Spaceframe Greaves', 'Perneiras Espaciais'),
 
   // ─── Dialog ────────────────────────────────────────────────────────────────
   'dialog.openChannel': e('Open channel', 'Canal aberto'),
@@ -175,6 +182,11 @@ export const STRINGS: Record<string, Entry> = {
   'creator.topColor': e('Top Color', 'Cor de Cima'),
   'creator.bottomColor': e('Bottom Color', 'Cor de Baixo'),
   'creator.hairColor': e('Hair Color', 'Cor do Cabelo'),
+  'creator.headOriginal': e('Head Colors', 'Cores da Cabeça'),
+  'creator.topOriginal': e('Top Colors', 'Cores de Cima'),
+  'creator.bottomOriginal': e('Bottom Colors', 'Cores de Baixo'),
+  'creator.original': e('Original', 'Original'),
+  'creator.custom': e('Custom', 'Personalizado'),
   'creator.attributes': e('ATTRIBUTES — pick your primary (30%)', 'ATRIBUTOS — escolha o primário (30%)'),
   'creator.startingSkills': e('STARTING SKILLS', 'SKILLS INICIAIS'),
   'creator.skillCounter': e('Majors {majors}/2 · Minors {minors}/3', 'Maiores {majors}/2 · Menores {minors}/3'),

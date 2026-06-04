@@ -141,6 +141,20 @@ export function outfitsForGender(gender: Gender): Outfit[] {
   return OUTFITS.filter((o) => o.gender === gender);
 }
 
+/**
+ * Modular regions an outfit GLB does NOT provide (verified from the GLB node list).
+ * `farmer` ships no `Farmer_Legs` mesh (only `_Feet`), so as a bottom donor its legs
+ * render invisible — exclude it from the bottom picker. Keyed by outfit key.
+ */
+export const OUTFIT_MISSING_PARTS: Readonly<Record<string, ReadonlyArray<'head' | 'top' | 'bottom'>>> = Object.freeze({
+  farmer: ['bottom'],
+});
+
+/** Whether an outfit provides a given modular region (head/top/bottom). */
+export function outfitProvidesPart(key: string, region: 'head' | 'top' | 'bottom'): boolean {
+  return !(OUTFIT_MISSING_PARTS[key] ?? []).includes(region);
+}
+
 export function outfitByKey(key: string): Outfit | undefined {
   return OUTFITS.find((o) => o.key === key);
 }
