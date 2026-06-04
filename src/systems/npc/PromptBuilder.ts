@@ -41,7 +41,9 @@ export class PromptBuilder {
     PromptBuilder.identityLines(definition).forEach((l) => lines.push(l));
     lines.push(
       `Respond in ${language}, 2-3 sentences. ` +
-      '*asterisks* = physical action/emote (react as event, not speech). Never break character or mention being an AI.'
+      '*asterisks* = physical action/emote (react as event, not speech). Never break character or mention being an AI. ' +
+      'Never invent jobs, quests, heists, deadlines, or meeting places — the only work that exists is a contract to ' +
+      'kill a rival who is physically present here, and only when one is named in your context.'
     );
     return lines.join('\n');
   }
@@ -233,7 +235,11 @@ export class PromptBuilder {
         inputs.payableCredits > 0 ? `up to ${inputs.payableCredits} credits` : '',
         inputs.payableItems.length > 0 ? `or one of: ${inputs.payableItems.join(', ')}` : '',
       ].filter(Boolean).join(' ');
-      lines.push(`Rivals here you'd like gone: ${inputs.rivals.join(', ')}. You could pay ${reward || 'a favour'} to have one dealt with.`);
+      lines.push(
+        `Rivals present you want gone: ${inputs.rivals.join(', ')}. The ONLY contract you can offer is to pay ` +
+        `${reward || 'a favour'} for KILLING one of them — name the target and the reward plainly. ` +
+        `Do NOT invent heists, objectives, times, or locations.`,
+      );
     }
     if (lines.length === 0) return '';
     lines.push('Only bring up selling or a contract if the conversation leads there (the player asks to buy or looks for work). Stay in character.');
