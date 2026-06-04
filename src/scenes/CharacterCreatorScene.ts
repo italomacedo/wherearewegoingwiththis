@@ -17,6 +17,7 @@ import {
   choosePerkReplacing, perksForTier, toggleStartingSkill, startingSkillState,
 } from '@entities/CharacterStats';
 import { type Gender, outfitsForGender, genderOfOutfit } from '@assets/AvatarMeshCatalog';
+import { ARMOR_OUTFIT_KEYS } from '@entities/items/ItemCatalog';
 import { t, hasKey } from '@systems/I18n';
 
 // Maps the pure schema's English labels to i18n keys (creator chrome).
@@ -299,9 +300,18 @@ export class CharacterCreatorScene extends BaseScene {
     return this.characterData.appearance.bodyBase;
   }
 
+  /**
+   * Selectable outfit keys for the creator: the gender's outfits MINUS the armor
+   * molds (swat/spacesuit/w_soldier/w_scifi) — those are now obtained as armor items
+   * in-game (Phase 15), not chosen at creation.
+   */
+  private selectableKeys(gender: Gender): string[] {
+    return outfitsForGender(gender).map((o) => o.key).filter((k) => !ARMOR_OUTFIT_KEYS.includes(k));
+  }
+
   /** Cycle the whole outfit through the current gender's outfits. */
   async cycleOutfit(dir: 1 | -1): Promise<void> {
-    const keys = outfitsForGender(this.getGender()).map((o) => o.key);
+    const keys = this.selectableKeys(this.getGender());
     if (keys.length === 0) return;
     const idx = keys.indexOf(this.getOutfit());
     const start = idx === -1 ? 0 : idx;
@@ -327,7 +337,7 @@ export class CharacterCreatorScene extends BaseScene {
 
   /** Cycle one region's donor through the current gender's outfits. */
   async cyclePart(region: AvatarPartRegion, dir: 1 | -1): Promise<void> {
-    const keys = outfitsForGender(this.getGender()).map((o) => o.key);
+    const keys = this.selectableKeys(this.getGender());
     if (keys.length === 0) return;
     const idx = keys.indexOf(this.getPart(region));
     const start = idx === -1 ? 0 : idx;
@@ -340,10 +350,10 @@ export class CharacterCreatorScene extends BaseScene {
     await this.rebuildCharacter();
   }
 
-  /** Switch gender — resets to the first whole outfit of that gender. */
+  /** Switch gender — resets to the first selectable (non-armor) outfit of that gender. */
   async setGender(gender: Gender): Promise<void> {
-    const first = outfitsForGender(gender)[0];
-    if (first) await this.setOutfit(first.key);
+    const first = this.selectableKeys(gender)[0];
+    if (first) await this.setOutfit(first);
   }
 
   getGender(): Gender {

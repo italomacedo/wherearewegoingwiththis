@@ -5,6 +5,7 @@ import { GameSession } from '../../../src/core/GameSession';
 import { SaveService } from '../../../src/systems/SaveService';
 import { DEFAULT_APPEARANCE } from '../../../src/entities/CharacterData';
 import { outfitsForGender, DEFAULT_OUTFIT } from '../../../src/assets/AvatarMeshCatalog';
+import { ARMOR_OUTFIT_KEYS } from '../../../src/entities/items/ItemCatalog';
 
 const mockSceneManager = {
   loadScene: jest.fn().mockResolvedValue(undefined),
@@ -96,6 +97,26 @@ describe('CharacterCreatorScene (Quaternius outfits)', () => {
     await scene.setPart('head', keys[0]!);
     await scene.cyclePart('head', -1);
     expect(scene.getPart('head')).toBe(keys[keys.length - 1]);
+  });
+
+  it('cyclers never select an armor mold (swat/spacesuit/w_soldier/w_scifi)', async () => {
+    await scene.onEnter();
+    // Walk a full lap of the head cycler and confirm no armor mold ever appears.
+    await scene.setPart('head', DEFAULT_OUTFIT);
+    const seen = new Set<string>();
+    for (let i = 0; i < outfitsForGender('male').length + 2; i++) {
+      await scene.cyclePart('head', 1);
+      seen.add(scene.getPart('head'));
+    }
+    for (const armor of ARMOR_OUTFIT_KEYS) expect(seen.has(armor)).toBe(false);
+    // Females too.
+    await scene.setGender('female');
+    const seenF = new Set<string>();
+    for (let i = 0; i < outfitsForGender('female').length + 2; i++) {
+      await scene.cyclePart('top', 1);
+      seenF.add(scene.getPart('top'));
+    }
+    for (const armor of ARMOR_OUTFIT_KEYS) expect(seenF.has(armor)).toBe(false);
   });
 
   it('setOutfit resets the modular composition to a whole outfit', async () => {
