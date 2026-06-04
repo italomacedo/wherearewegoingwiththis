@@ -52,3 +52,17 @@ onnxruntime-web). The model is fetched from the Hugging Face hub on first run
 | UI error | https://freesound.org/people/steaq/sounds/594210/ | steaq |
 | Eating | https://freesound.org/people/Erbsland-Music/sounds/634123/ | Erbsland-Music |
 | Stomach growl | https://freesound.org/people/Breviceps/sounds/447911/ | Breviceps |
+
+## 3D Models — Quaternius (CC0 1.0, public domain)
+
+All character, world, prop and nature models are CC0 from Quaternius
+(https://quaternius.com / https://github.com/quaternius). No attribution required;
+listed for provenance.
+
+| Pack | Use |
+|---|---|
+| Ultimate Modular Men / Women | Player + NPC avatars (modular head/top/bottom) |
+| Cyberpunk / Downtown City MegaKit | Downtown street buildings, doors, props |
+| Ultimate Nature Pack (Jun 2019) | Procedural park/forest/desert tiles (trees, cacti, rocks, foliage) |
+| Survival + Ultimate Food Packs | Items, food, trash, weapons |
+| Animated Animals | Stray dog ambience |

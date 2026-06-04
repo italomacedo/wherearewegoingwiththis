@@ -485,7 +485,7 @@ export class GameWorldScene extends BaseScene {
     const key = tileKey(c.tx, c.tz);
     if (this.tileScenery.has(key)) return;
     const gen = generateTile(c.tx, c.tz, this.worldSeed);
-    const scenery = new TileScenery(this.babylonScene, gen.coord, gen.props, this.worldSeed);
+    const scenery = new TileScenery(this.babylonScene, gen.coord, gen.props, this.worldSeed, gen.ground);
     void scenery.build();
     this.tileScenery.set(key, scenery);
     void this.spawnTileNpcs(key, gen.npcDefs);

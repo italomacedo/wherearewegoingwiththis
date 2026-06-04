@@ -32,6 +32,7 @@ export class TileScenery {
     private readonly coord: TileCoord,
     private readonly props: TileProp[],
     private readonly worldSeed: number,
+    private readonly groundColor: [number, number, number],
   ) {}
 
   async build(): Promise<void> {
@@ -47,7 +48,10 @@ export class TileScenery {
     const ground = MeshBuilder.CreateGround(`tile-ground-${tx}-${tz}`, { width: TILE_SIZE, height: TILE_SIZE }, this.scene);
     ground.position.set(cx, 0, cz);
     const mat = new StandardMaterial(`tile-ground-mat-${tx}-${tz}`, this.scene);
-    mat.diffuseColor = new Color3(0.16 + range(rng, 0, 0.06), 0.16 + range(rng, 0, 0.06), 0.19 + range(rng, 0, 0.06));
+    // Themed base tint + a small seeded jitter so neighbours of the same theme vary.
+    const [r, g, b] = this.groundColor;
+    const j = range(rng, -0.02, 0.02);
+    mat.diffuseColor = new Color3(r + j, g + j, b + j);
     mat.specularColor = new Color3(0, 0, 0);
     ground.material = mat;
     this.meshes.push(ground);
