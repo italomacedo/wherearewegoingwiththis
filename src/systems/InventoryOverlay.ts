@@ -21,6 +21,8 @@ export interface InventoryOverlayHandlers {
   onAdjust?: (itemId: string, slot: EquipSlot) => void;
   /** Armor (head/top/bottom) equipped or removed — rebuild the avatar region. */
   onEquipArmor?: () => void;
+  /** One unit of an item was dropped — place it on the ground at the player (Fase 18). */
+  onDrop?: (itemId: string) => void;
 }
 
 export type InventoryMode = 'manage' | 'loot';
@@ -147,9 +149,13 @@ export class InventoryOverlay {
     this.refresh();
   }
 
-  /** Drop one of an item. */
+  /** Drop one of an item onto the ground at the player's feet (Fase 18). */
   drop(id: string): void {
-    if (this.player.remove(id, 1) > 0) { this.handlers.onChange?.(); this.refresh(); }
+    if (this.player.remove(id, 1) > 0) {
+      this.handlers.onDrop?.(id);   // scene records + renders the ground pile
+      this.handlers.onChange?.();
+      this.refresh();
+    }
   }
 
   /** Loot one of an item from the corpse into the player's pack (capacity-aware). */

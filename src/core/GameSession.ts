@@ -8,6 +8,7 @@ import { HungerState } from '@entities/Hunger';
 import { InventoryState, defaultInventoryState } from '@entities/Inventory';
 import type { AttachOverrides } from '@systems/HeldItems';
 import type { Mission } from '@systems/economy/Missions';
+import type { GroundItem } from '@systems/world/GroundItems';
 
 export interface WorldState {
   zone: string;
@@ -44,6 +45,7 @@ export class GameSession {
     public playerHunger: HungerState = { ...DEFAULT_PLAYER_HUNGER },
     public heldAttach: AttachOverrides = {},
     public missions: Mission[] = [],
+    public groundItems: GroundItem[] = [],
   ) {}
 
   /** Builds a session from a persisted save. */
@@ -60,6 +62,7 @@ export class GameSession {
       save.playerHunger ?? { ...DEFAULT_PLAYER_HUNGER },
       save.heldAttach ?? {},
       save.missions ?? [],
+      save.groundItems ?? [],
     );
   }
 }

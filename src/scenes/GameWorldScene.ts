@@ -1,7 +1,7 @@
 import {
   Engine, Color4, Color3, Vector3, Matrix, AbstractMesh, TransformNode, MeshBuilder,
   PhysicsAggregate, PhysicsShapeType, PhysicsMotionType, AnimationGroup, Animation, LinesMesh,
-  SpotLight,
+  SpotLight, StandardMaterial,
 } from '@babylonjs/core';
 import { BaseScene } from './BaseScene';
 import { ServiceLocator } from '@core/ServiceLocator';
@@ -77,6 +77,7 @@ import { COMBAT_OBSTACLES, COMBAT_BOUNDS } from '@assets/WorldAssetCatalog';
 import { WorldStreamer } from '@systems/world/WorldStreamer';
 import { TileScenery } from '@systems/world/TileScenery';
 import { tileOf, tileKey, worldFloorBox, worldBounds, neighbors, type TileCoord } from '@systems/world/WorldGrid';
+import { GroundItem, addGroundItem, removeGroundItemAt, nearestGroundItemIndex } from '@systems/world/GroundItems';
 import { generateTile } from '@assets/world/ThemeRegistry';
 import { AssetCache, babylonContainerLoader } from '@systems/world/AssetCache';
 
@@ -112,6 +113,8 @@ export class GameWorldScene extends BaseScene {
   private static readonly NPC_RADIUS = 1;
   /** Prop instantiations per scenery-pump (time-slice → no burst hitch). */
   private static readonly TILE_LOAD_BUDGET = 2;
+  /** How close (metres) the player must be to pick up a dropped pile (Fase 18). */
+  private static readonly PICKUP_RADIUS = 2;
   /** World seed for deterministic tile generation (from the save; Phase D persists it). */
   private worldSeed = 1;
   private clock = new GameClock(); // wall-clock mode by default (mirrors the PC clock)
@@ -127,6 +130,10 @@ export class GameWorldScene extends BaseScene {
   private chatMode: 'npc' | 'global' = 'npc';
   private pauseMenu: PauseMenu | null = null;
   private inventoryOverlay: InventoryOverlay | null = null;
+  /** Items dropped into the world (Fase 18), persisted in SaveGame.groundItems. */
+  private groundItems: GroundItem[] = [];
+  /** Live pickup markers, keyed by their GroundItem (browser-only). */
+  private groundMarkers = new Map<GroundItem, AbstractMesh>();
   /** Cached AudioManager (resolved lazily) + footstep cadence accumulator. */
   private audio: AudioManager | null = null;
   private tts: TTSService | null = null;
@@ -289,6 +296,7 @@ export class GameWorldScene extends BaseScene {
     this.playerHealthState = session.playerHealth ?? { ...DEFAULT_PLAYER_HEALTH };
     this.playerHunger = Hunger.fromState(session.playerHunger);
     this.missions = session.missions ?? [];
+    this.groundItems = session.groundItems ?? [];
     this.vehicleState = session.vehicle ?? {
       health: { ...DEFAULT_VEHICLE_STATE.health }, destroyed: false,
     };
@@ -331,7 +339,7 @@ export class GameWorldScene extends BaseScene {
     const playerHunger = this.playerHunger.toState();
     SaveService.save({
       ...save, character, world, gameTimeSeconds: this.gameTimeSeconds, npcMemory: memory, playerHealth, vehicle, inventory,
-      heldAttach: this.heldAttach, playerHunger, missions: this.missions,
+      heldAttach: this.heldAttach, playerHunger, missions: this.missions, groundItems: this.groundItems,
     });
 
     const session = ServiceLocator.tryGet<GameSession>('gameSession');
@@ -346,6 +354,7 @@ export class GameWorldScene extends BaseScene {
       session.heldAttach = this.heldAttach;
       session.playerHunger = playerHunger;
       session.missions = this.missions;
+      session.groundItems = this.groundItems;
     }
   }
 
@@ -460,6 +469,8 @@ export class GameWorldScene extends BaseScene {
       onAdjust: (itemId, slot) => this.openAdjustFor(itemId, slot),
       // Armor equipped/removed → swap the avatar's region mesh (Phase 15).
       onEquipArmor: () => { void this.rebuildPlayerArmor(); },
+      // Dropped item → drop a pickup pile at the player's feet (Fase 18).
+      onDrop: (itemId) => this.dropToGround(itemId),
     });
 
     // Adjust tool (Phase 10.4b): live-calibrate a held prop's attach transform.
@@ -508,6 +519,7 @@ export class GameWorldScene extends BaseScene {
     });
     this.worldStreamer.setCurrent(tileOf(spawn.x, spawn.z));
     this.updateNpcRing(); // seed the inner NPC ring
+    this.renderGroundMarkers(); // dropped-item piles persisted in this save (Fase 18)
   }
 
   /** Build a procedural neighbor tile's SCENERY (skip (0,0); props stream via the pump). */
@@ -823,6 +835,9 @@ export class GameWorldScene extends BaseScene {
     this.worldStreamer = null;
     this.tileScenery.forEach((s) => s.dispose());
     this.tileScenery.clear();
+    /* istanbul ignore next — browser-only marker disposal */
+    this.groundMarkers.forEach((m) => m.dispose());
+    this.groundMarkers.clear();
     this.tileNpcIds.clear();
     this.npcTiles.clear();
     this.npcSpawnQueue = [];
@@ -2039,6 +2054,62 @@ export class GameWorldScene extends BaseScene {
     return this.inputSystem.isSprinting() ? 'running' : 'walking';
   }
 
+  // ─── Dropped ground items (Fase 18) ──────────────────────────────────────────
+
+  /** Drop one unit of an item as a pickup pile at the player's feet. */
+  /* istanbul ignore next — browser-only drop; the pure GroundItems helpers are tested */
+  private dropToGround(itemId: string): void {
+    if (!this.player) return;
+    const p = this.player.getPosition();
+    const c = this.worldStreamer?.getCurrentTile() ?? tileOf(p.x, p.z);
+    const item: GroundItem = { tile: [c.tx, c.tz], pos: [p.x, 0.3, p.z], id: itemId, qty: 1 };
+    this.groundItems = addGroundItem(this.groundItems, item);
+    this.spawnGroundMarker(item);
+    // The overlay's onChange (fired right after onDrop) persists the new groundItems.
+  }
+
+  /** Build pickup markers for every persisted ground pile (on scene enter). */
+  /* istanbul ignore next — browser-only marker meshes */
+  private renderGroundMarkers(): void {
+    if (typeof document === 'undefined') return;
+    for (const item of this.groundItems) this.spawnGroundMarker(item);
+  }
+
+  /** A small glowing box marking a dropped pile. */
+  /* istanbul ignore next — browser-only marker mesh */
+  private spawnGroundMarker(item: GroundItem): void {
+    if (typeof document === 'undefined' || this.groundMarkers.has(item)) return;
+    const m = MeshBuilder.CreateBox(`ground-${this.groundMarkers.size}`, { size: 0.4 }, this.babylonScene);
+    m.position.set(item.pos[0], item.pos[1], item.pos[2]);
+    const mat = new StandardMaterial(`gmat-${this.groundMarkers.size}`, this.babylonScene);
+    mat.emissiveColor = new Color3(0.1, 0.9, 0.7);
+    m.material = mat;
+    m.isPickable = false;
+    this.groundMarkers.set(item, m);
+  }
+
+  /** Pick up the nearest pile in reach into the pack (capacity-aware). */
+  /* istanbul ignore next — browser-only pickup; nearestGroundItemIndex is tested */
+  private tryPickupGroundItem(): void {
+    if (!this.player) return;
+    const p = this.player.getPosition();
+    const idx = nearestGroundItemIndex(this.groundItems, p.x, p.z, GameWorldScene.PICKUP_RADIUS);
+    if (idx < 0) return;
+    const item = this.groundItems[idx];
+    const moved = this.playerInventory.addRespectingCapacity(item.id, item.qty);
+    if (moved <= 0) return; // pack full / too heavy — leave it on the ground
+    if (moved >= item.qty) {
+      this.groundMarkers.get(item)?.dispose();
+      this.groundMarkers.delete(item);
+      this.groundItems = removeGroundItemAt(this.groundItems, idx);
+    } else {
+      item.qty -= moved; // partial pickup — the rest stays in the pile
+    }
+    this.sfx('ui_click');
+    this.persistSession();
+    void this.syncPlayerHeldItems();
+  }
+
   private handleInteractInput(): void {
     if (!this.inputSystem || !this.npcManager || !this.player || !this.dialog) return;
     if (!this.inputSystem.wasJustPressed('interact')) return;
@@ -2049,6 +2120,11 @@ export class GameWorldScene extends BaseScene {
       return;
     }
     const agent = this.npcManager.getConversableAgent(this.player.getPosition());
+    if (!agent) {
+      // No NPC in reach — E picks up a dropped pile if one is close (Fase 18).
+      this.tryPickupGroundItem();
+      return;
+    }
     if (agent && agent.isDefeated()) {
       // A corpse never converses (no live persona) — searching it opens the loot
       // overlay, transferring the dead NPC's items to the player (Phase 9).
@@ -2692,6 +2768,15 @@ export class GameWorldScene extends BaseScene {
         return agent.isNameKnown() ? t('hud.searchTo', { name: agent.definition.name }) : t('hud.search');
       }
       if (agent) return agent.isNameKnown() ? t('hud.talkTo', { name: agent.definition.name }) : t('hud.talk');
+    }
+    // No NPC/bike in reach — offer to pick up a nearby dropped pile (Fase 18).
+    if (this.player) {
+      const pp = this.player.getPosition();
+      const idx = nearestGroundItemIndex(this.groundItems, pp.x, pp.z, GameWorldScene.PICKUP_RADIUS);
+      if (idx >= 0) {
+        const def = itemDef(this.groundItems[idx].id);
+        return t('hud.pickUp', { name: def ? t(def.nameKey) : this.groundItems[idx].id });
+      }
     }
     return null;
   }

@@ -7,6 +7,7 @@ import { NPCDisposition } from '@entities/NPCAgent';
 import { InventoryState, defaultInventoryState } from '@entities/Inventory';
 import type { AttachOverrides } from '@systems/HeldItems';
 import type { Mission } from '@systems/economy/Missions';
+import type { GroundItem } from '@systems/world/GroundItems';
 
 /**
  * Per-NPC persisted memory: conversation state, the dynamic disposition toward the
@@ -58,6 +59,8 @@ export interface SaveGame {
   heldAttach: AttachOverrides;
   /** Active/complete kill-contracts the player has taken on (Phase 16). */
   missions: Mission[];
+  /** Items the player dropped into the world, by tile (Fase 18). */
+  groundItems: GroundItem[];
   flags: Record<string, boolean | number | string>;
   npcMemory: NPCMemory;
 }
@@ -150,6 +153,7 @@ export class SaveService {
       inventory: defaultInventoryState(),
       heldAttach: {},
       missions: [],
+      groundItems: [],
       flags: {},
       npcMemory: {},
     };
@@ -305,6 +309,7 @@ export class SaveService {
     if (!save.inventory) save.inventory = defaultInventoryState();
     if (!save.heldAttach) save.heldAttach = {};
     if (!save.missions) save.missions = [];
+    if (!save.groundItems) save.groundItems = [];
     // Fase 17: backfill the procedural-world seed (derived stably from the saveId
     // so a legacy save always regenerates the same world) + the current tile.
     if (save.world) {
