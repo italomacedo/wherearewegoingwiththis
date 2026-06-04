@@ -19,6 +19,11 @@ export interface VehicleConfig {
   damagePerSpeed: number;  // HP lost per unit of impact speed above the safe threshold
   /** Half-extent (m) the nave is confined to on X/Z (the closed street). Infinity = unbounded. */
   horizontalHalfExtent: number;
+  /**
+   * Axis-aligned X/Z confinement box (Fase 17 — the whole mosaic world, which is
+   * offset, not centred at the origin). Takes precedence over `horizontalHalfExtent`.
+   */
+  horizontalBounds?: { minX: number; maxX: number; minZ: number; maxZ: number };
 }
 
 /**
@@ -170,12 +175,20 @@ export class VehicleController {
     // Confine to the closed street: clamp X/Z to the half-extent (stops the nave
     // from flying out of the playable area over the walls — out-of-bounds state
     // was crashing the game). Zero the velocity into the wall so it doesn't stick.
-    const h = config.horizontalHalfExtent;
-    if (Number.isFinite(h)) {
-      if (position.x > h) { position.x = h; if (velocity.x > 0) velocity.x = 0; }
-      else if (position.x < -h) { position.x = -h; if (velocity.x < 0) velocity.x = 0; }
-      if (position.z > h) { position.z = h; if (velocity.z > 0) velocity.z = 0; }
-      else if (position.z < -h) { position.z = -h; if (velocity.z < 0) velocity.z = 0; }
+    const b = config.horizontalBounds;
+    if (b) {
+      if (position.x > b.maxX) { position.x = b.maxX; if (velocity.x > 0) velocity.x = 0; }
+      else if (position.x < b.minX) { position.x = b.minX; if (velocity.x < 0) velocity.x = 0; }
+      if (position.z > b.maxZ) { position.z = b.maxZ; if (velocity.z > 0) velocity.z = 0; }
+      else if (position.z < b.minZ) { position.z = b.minZ; if (velocity.z < 0) velocity.z = 0; }
+    } else {
+      const h = config.horizontalHalfExtent;
+      if (Number.isFinite(h)) {
+        if (position.x > h) { position.x = h; if (velocity.x > 0) velocity.x = 0; }
+        else if (position.x < -h) { position.x = -h; if (velocity.x < 0) velocity.x = 0; }
+        if (position.z > h) { position.z = h; if (velocity.z > 0) velocity.z = 0; }
+        else if (position.z < -h) { position.z = -h; if (velocity.z < 0) velocity.z = 0; }
+      }
     }
 
     return { position, velocity, landed, impactSpeed };

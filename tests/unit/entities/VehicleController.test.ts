@@ -64,6 +64,38 @@ describe('VehicleController.computeFlightStep (pure flight model)', () => {
     expect(next.landed).toBe(true);
   });
 
+  it('confines to an offset horizontalBounds box (whole mosaic world, Fase 17)', () => {
+    const cfg = { ...DEFAULT_VEHICLE_CONFIG, horizontalBounds: { minX: -28, maxX: 1408, minZ: -28, maxZ: 1408 } };
+    // Past the east/north edge → clamped to maxX/maxZ, inward velocity zeroed.
+    const far = VehicleController.computeFlightStep(
+      { position: new Vector3(2000, 10, 2000), velocity: new Vector3(5, 0, 5) },
+      { axis: { x: 0, z: 0 }, vertical: 0 }, 0, 0.1, cfg,
+    );
+    expect(far.position.x).toBe(1408);
+    expect(far.position.z).toBe(1408);
+    expect(far.velocity.x).toBe(0);
+    expect(far.velocity.z).toBe(0);
+    // The far +X corner is reachable (NOT clamped to ±30 around the origin).
+    const inside = VehicleController.computeFlightStep(
+      { position: new Vector3(900, 10, 600), velocity: Vector3.Zero() },
+      { axis: { x: 0, z: 0 }, vertical: 0 }, 0, 0.1, cfg,
+    );
+    expect(inside.position.x).toBeCloseTo(900);
+    expect(inside.position.z).toBeCloseTo(600);
+  });
+
+  it('legacy symmetric horizontalHalfExtent still clamps both axes (no bounds)', () => {
+    const cfg = { ...DEFAULT_VEHICLE_CONFIG, horizontalHalfExtent: 30 };
+    const pos = VehicleController.computeFlightStep(
+      { position: new Vector3(-100, 10, 100), velocity: new Vector3(-5, 0, 5) },
+      { axis: { x: 0, z: 0 }, vertical: 0 }, 0, 0.1, cfg,
+    );
+    expect(pos.position.x).toBe(-30);
+    expect(pos.position.z).toBe(30);
+    expect(pos.velocity.x).toBe(0);
+    expect(pos.velocity.z).toBe(0);
+  });
+
   it('hovers above a rooftop at surfaceFloor + hoverHeight while powered', () => {
     const roof = 8;
     const start: VehicleFlightState = {

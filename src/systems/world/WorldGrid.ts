@@ -154,6 +154,13 @@ export function worldCenter(): [number, number, number] {
   return [c, 0, c];
 }
 
+/** Axis-aligned world extent on X/Z (tile 0 min .. tile 23 max), shrunk by `margin`. */
+export function worldBounds(margin = 0): { minX: number; maxX: number; minZ: number; maxZ: number } {
+  const lo = -ZONE_HALF + margin;
+  const hi = GRID_MAX * TILE_SIZE + ZONE_HALF - margin;
+  return { minX: lo, maxX: hi, minZ: lo, maxZ: hi };
+}
+
 /** One big static floor box covering the whole world (no per-tile floor seams). */
 export function worldFloorBox(): ColliderBox {
   const [cx, , cz] = worldCenter();

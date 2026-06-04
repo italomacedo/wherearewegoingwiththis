@@ -73,10 +73,10 @@ import {
 } from '@systems/combat/CombatMath';
 import { buildWalkGrid, gridPathfinder } from '@systems/combat/CombatMovement';
 import { recruitSides, RecruitParticipant, SIDE_INITIATOR, SIDE_TARGET } from '@systems/combat/CombatRecruiter';
-import { COMBAT_OBSTACLES, COMBAT_BOUNDS, ZONE_HALF } from '@assets/WorldAssetCatalog';
+import { COMBAT_OBSTACLES, COMBAT_BOUNDS } from '@assets/WorldAssetCatalog';
 import { WorldStreamer } from '@systems/world/WorldStreamer';
 import { TileScenery } from '@systems/world/TileScenery';
-import { tileOf, tileKey, worldFloorBox, type TileCoord } from '@systems/world/WorldGrid';
+import { tileOf, tileKey, worldFloorBox, worldBounds, type TileCoord } from '@systems/world/WorldGrid';
 import { generateTile } from '@assets/world/ThemeRegistry';
 
 export class GameWorldScene extends BaseScene {
@@ -400,7 +400,9 @@ export class GameWorldScene extends BaseScene {
 
     // Park a flying motorcycle near the spawn point. Confine it to the closed
     // street (flying out of bounds and back was crashing the game).
-    this.vehicle = new VehicleController(this.babylonScene, { horizontalHalfExtent: ZONE_HALF });
+    // Confine the nave to the whole mosaic world (Fase 17) — inside the border
+    // walls (small margin), since the world is offset, not centred at the origin.
+    this.vehicle = new VehicleController(this.babylonScene, { horizontalBounds: worldBounds(2) });
     this.vehicle.spawn(zone.getSpawnPoint().add(new Vector3(4, 0, 0)));
     this.vehicle.setHealthState(this.vehicleState.health);
     this.vehicle.setDestroyed(this.vehicleState.destroyed);

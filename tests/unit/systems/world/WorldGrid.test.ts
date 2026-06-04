@@ -2,7 +2,7 @@ import {
   TILE_SIZE, GRID_MIN, GRID_MAX, GRID_SIZE,
   tileKey, inBounds, tileOf, tileCenter, tileLocalToWorld,
   neighbors3x3, ringDiff, isBorderEdge,
-  borderWallColliders, worldFloorBox, worldCenter, WORLD_HALF_EXTENT,
+  borderWallColliders, worldFloorBox, worldCenter, WORLD_HALF_EXTENT, worldBounds,
 } from '@systems/world/WorldGrid';
 
 describe('WorldGrid (pure)', () => {
@@ -148,6 +148,10 @@ describe('WorldGrid (pure)', () => {
       expect(f.key).toBe('col-world-floor');
       expect(f.size).toEqual([1440, 1, 1440]);
       expect(f.position).toEqual([690, -0.5, 690]);
+    });
+    it('worldBounds covers the offset world extent, shrunk by margin (defaults to 0)', () => {
+      expect(worldBounds()).toEqual({ minX: -30, maxX: 1410, minZ: -30, maxZ: 1410 });
+      expect(worldBounds(2)).toEqual({ minX: -28, maxX: 1408, minZ: -28, maxZ: 1408 });
     });
   });
 });
