@@ -1,6 +1,6 @@
 # ADR-0029 — Procedural World Mosaic (24×24 seamless streaming)
 
-**Status:** Accepted (Fase 17 A–G code-complete on `feat/procedural-world`; awaiting Electron playtest).
+**Status:** Accepted (Fase 17 A–G + 17H **merged to `main`**, owner-validated in Electron; crash fixed).
 **Date:** 2026-06
 **Supersedes:** the single static `MercadoSombrasZone` as the whole world (it becomes tile (0,0)).
 
@@ -82,11 +82,28 @@ Fix:
 Deferred: routing NPC outfit GLBs through `AssetCache` + instancing skinned avatars (skeleton-rebind on a
 clone — Lesson 33 territory); downtown `loadRealAssets` via the cache (loads once, not a streaming cost).
 
+### Crash fix — autonomy scoped to the player's current quadrant (owner-validated)
+Flying/exploring the streamed world **crashed the Electron MAIN process** (PID gone, no JS stack) after
+~10 `claude.exe` deliberations. Not Havok and not Lesson 34's unhandled stream error (that net was
+already in place) — the root cause was the **VOLUME** of autonomous LLM subprocesses: the 5×5/3×3 world
+keeps ~20 procedural NPCs loaded and autonomy deliberated **all** of them (each its own
+`ClaudeCallQueue` cooldown key → rapid rotation). Serializing to 1 concurrent call did NOT fix it — it's
+cumulative process pressure on `main`, not concurrency. Owner-rejected: "only authored NPCs autonomous."
+**Owner-mandated fix:** autonomy follows the player's quadrant.
+- `NPCAgent.setAwake(b)/isAwake()` — default `true` (headless/tests stay autonomous); `NPCManager.tickAutonomy`
+  early-returns on `!isAwake()` (no deliberation enqueued, no `claude.exe` spawned).
+- `GameWorldScene.updateAwakeNpcs()` — called from `updateNpcRing()`, which `streamWorld()` runs **only on
+  tile change** — wakes exactly the current tile's NPC set (`tileNpcIds.get(curKey)`, or the authored
+  `zoneNpcIds` at (0,0)) and hibernates everyone else.
+- `driveAutonomy` also early-returns while `vehicle.isOccupied()` — flight crosses a quadrant every few
+  seconds (a wake burst) and NPCs can't be engaged from the air.
+Hibernating NPCs stay 100% interactive on contact (E / proximity / combat). See Lesson 42. (`feat/streaming-perf`.)
+
 ## Consequences
 - Dealers (`arm_dealer`/`armor_dealer`) carry sellable loadouts → the existing `Economy`/`Commerce`/
   `Missions` chat flow works on procedural NPCs with no change.
-- NPC autonomy auto-scopes to loaded-tile agents (the agents map only holds them); `ClaudeCallQueue`
-  still bounds total Claude cost.
+- NPC autonomy is scoped to the player's **CURRENT quadrant** (wake/hibernate), NOT all loaded-tile
+  agents — see "Crash fix" under Fase 17H above; `ClaudeCallQueue` still bounds total Claude cost on top.
 
 ## Deferred / known follow-ups
 - **Nave confinement** stays ±30 around origin (atmospheric, near downtown) — world-wide flight (clamp
