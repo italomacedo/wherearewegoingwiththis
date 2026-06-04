@@ -18,6 +18,8 @@ export type NPCMemory = Record<string, ConversationState & {
   relationships?: Record<string, NPCDisposition>;
   events?: string[];
   inventory?: InventoryState;
+  /** Death status (Fase 18): a defeated NPC reloads dead, not alive. */
+  defeated?: boolean;
 }>;
 
 export interface VehicleSaveState {

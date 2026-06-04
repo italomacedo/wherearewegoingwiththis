@@ -307,7 +307,11 @@ export class GameWorldScene extends BaseScene {
     const save = SaveService.load(this.saveId);
     if (!save) return;
 
-    const memory = this.npcManager?.serializeMemory() ?? {};
+    // Merge the memory accumulated from already-DESPAWNED tiles (flushed into
+    // this.npcMemory on unload) with the currently-loaded agents' live memory
+    // (the latter wins). Without this, saving in the streamed world dropped the
+    // memory of every NPC outside the loaded ring (Fase 18).
+    const memory = { ...this.npcMemory, ...(this.npcManager?.serializeMemory() ?? {}) };
     const pos = this.player?.getPosition();
     const ct = this.worldStreamer?.getCurrentTile();
     const world = {
