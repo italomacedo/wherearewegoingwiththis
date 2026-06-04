@@ -92,7 +92,7 @@ export class MercadoSombrasZone extends WorldZone {
     // be laid on top later for flavour.)
     ground.position.y = 0;
     const mat = new StandardMaterial('ground-mat', scene);
-    mat.diffuseColor = new Color3(0.2, 0.2, 0.23); // mid-dark asphalt grey (reads under night ambient)
+    mat.diffuseColor = new Color3(0.32, 0.32, 0.34); // mid grey asphalt (matches the procedural tiles)
     mat.specularColor = new Color3(0, 0, 0); // no sheen → no harsh flashlight hotspot
     ground.material = mat;
     this.meshes.push(ground);
@@ -103,8 +103,8 @@ export class MercadoSombrasZone extends WorldZone {
    * The outer asphalt ring is the road (continuous with the neighbour tiles).
    */
   private buildUrbanFrame(scene: Scene): void {
-    const asphalt = new Color3(0.13, 0.13, 0.15);
-    const sidewalk = new Color3(0.40, 0.40, 0.44);
+    const asphalt = new Color3(0.32, 0.32, 0.34); // mid grey road (matches TileScenery)
+    const sidewalk = new Color3(0.46, 0.46, 0.50);
     const interior = new Color3(0.2, 0.2, 0.23); // downtown lot grey
     for (const p of framePlanes(0, 0)) {
       const g = MeshBuilder.CreateGround(p.key, { width: p.size[0], height: p.size[1] }, scene);
