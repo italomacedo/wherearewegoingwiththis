@@ -148,6 +148,13 @@ export const STRINGS: Record<string, Entry> = {
   'item.medkit': e('Medkit', 'Kit Médico'),
   'item.scrap': e('Scrap', 'Sucata'),
   'item.credstick': e('Credstick', 'Cartão de Créditos'),
+  // Armor pieces (Phase 15) — tactical (25% set) / space (50% set).
+  'item.armor_tac_head': e('Tactical Helmet', 'Capacete Tático'),
+  'item.armor_tac_top': e('Tactical Vest', 'Colete Tático'),
+  'item.armor_tac_legs': e('Tactical Greaves', 'Perneiras Táticas'),
+  'item.armor_spc_head': e('Spaceframe Helm', 'Elmo Espacial'),
+  'item.armor_spc_top': e('Spaceframe Cuirass', 'Couraça Espacial'),
+  'item.armor_spc_legs': e('Spaceframe Greaves', 'Perneiras Espaciais'),
 
   // ─── Dialog ────────────────────────────────────────────────────────────────
   'dialog.openChannel': e('Open channel', 'Canal aberto'),
