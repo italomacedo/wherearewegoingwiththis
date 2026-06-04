@@ -210,6 +210,11 @@ export class NPCManager {
 
     this.agents.forEach((agent) => {
       const id = agent.definition.id;
+      // Only NPCs in the player's CURRENT quadrant are awake; the rest hibernate.
+      // A 24×24 procedural world has too many NPCs to each spawn a heavyweight
+      // `claude` CLI per reflection — that volume crashed the Electron main process
+      // (Fase 17H). Hibernating NPCs stay fully interactive (player-initiated chat).
+      if (!agent.isAwake()) return;
       if (agent.isDefeated()) return; // the dead take no autonomous turns
       if (agent.shouldInitiateCombat(ctx.playerPresent)) {
         agent.setIntent({ kind: 'attack' });

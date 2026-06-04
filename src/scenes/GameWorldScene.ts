@@ -101,6 +101,8 @@ export class GameWorldScene extends BaseScene {
   private assetCache: AssetCache | null = null;
   /** Tiles (within the NPC radius) that currently have their NPCs spawned. */
   private npcTiles = new Set<string>();
+  /** The authored hub NPC ids (tile 0,0): awake only while the player is in (0,0). */
+  private zoneNpcIds: string[] = [];
   /** Time-sliced NPC-visual build queue (≤1 heavy avatar assemble per frame). */
   private npcSpawnQueue: Array<{ key: string; def: NPCDefinition }> = [];
   /** Guard so only one scenery-load pump runs at a time (serializes GLB work). */
@@ -567,6 +569,21 @@ export class GameWorldScene extends BaseScene {
     for (const key of want) {
       if (!this.npcTiles.has(key)) this.enqueueTileNpcs(key);
     }
+    this.updateAwakeNpcs();
+  }
+
+  /**
+   * Only the player's CURRENT quadrant's NPCs run background autonomy; the rest
+   * hibernate. Caps the heavyweight `claude` CLI deliberation spawns to one tile's
+   * NPCs (Fase 17H crash fix). Hibernating NPCs stay fully interactive on contact.
+   */
+  /* istanbul ignore next — browser-only; gated by updateNpcRing which headless skips */
+  private updateAwakeNpcs(): void {
+    if (!this.npcManager || !this.worldStreamer) return;
+    const cur = this.worldStreamer.getCurrentTile();
+    const curKey = tileKey(cur.tx, cur.tz);
+    const awake = new Set<string>(curKey === '0,0' ? this.zoneNpcIds : (this.tileNpcIds.get(curKey) ?? []));
+    for (const a of this.npcManager.getAgents()) a.setAwake(awake.has(a.definition.id));
   }
 
   /** Spawn a tile's logical NPC agents now; queue their (heavy) avatars for the pump. */
@@ -1077,6 +1094,7 @@ export class GameWorldScene extends BaseScene {
     ServiceLocator.register('npcManager', this.npcManager);
 
     const definitions = [createZara(), createMback()];
+    this.zoneNpcIds = definitions.map((d) => d.id);
     for (const def of definitions) {
       const conversation = NPCManager.restoreConversation(this.npcMemory, def.id);
       const agent = this.npcManager.spawn(def, conversation);
@@ -1231,6 +1249,10 @@ export class GameWorldScene extends BaseScene {
     if (typeof document === 'undefined') return;
     if (!this.npcManager || !this.autonomyQueue) return;
     if (!SettingsService.get('npcAutonomy')) return;
+    // No background deliberation while piloting the nave: flying crosses quadrants
+    // every few seconds (rapidly waking NPCs), and you can't engage them from the
+    // air anyway — this bounds the Claude CLI spawns during flight (Fase 17H).
+    if (this.vehicle?.isOccupied()) return;
 
     this.autonomyAccumMs += dt * 1000;
     if (this.autonomyAccumMs < GameWorldScene.AUTONOMY_TICK_MS) return;
