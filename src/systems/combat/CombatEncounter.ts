@@ -48,6 +48,11 @@ export interface CombatantInit {
   weapon?: WeaponProfile;
   /** Display label of the weapon (e.g. "Knife" / "fists") for the combat log. */
   weaponName?: string;
+  /**
+   * Fraction of incoming damage this combatant absorbs via worn armor (Phase 15),
+   * 0..0.9. Applied to every hit before it reaches HP. Defaults to 0 (no armor).
+   */
+  damageReduction?: number;
 }
 
 export type CombatActionType = 'attack' | 'move' | 'cover' | 'hunker' | 'reload' | 'flee' | 'end_turn';
@@ -412,7 +417,10 @@ export class CombatEncounter {
         if (!hit.success) {
           return { kind: 'miss', actorId, targetId, distance: dist, ap: actor.ap, probability, roll, attackKind: kind, friendlyFire, weaponName };
         }
-        const damage = rollWeaponDamage(actor.init.stats, actor.weapon, this.rng);
+        const raw = rollWeaponDamage(actor.init.stats, actor.weapon, this.rng);
+        // Worn armor (Phase 15) absorbs a fraction of the hit before it reaches HP.
+        const reduction = clamp(target.init.damageReduction ?? 0, 0, 0.9);
+        const damage = Math.max(0, Math.round(raw * (1 - reduction)));
         target.health.applyDamage(damage);
         const dead = target.health.isDead();
         if (dead) this.resolve(); // side-based win/lose (N-way)

@@ -207,6 +207,23 @@ describe('CombatEncounter — attacks', () => {
     expect(zara.hp.current).toBeLessThan(30);
   });
 
+  it("a target's armor damageReduction lowers the hit damage", () => {
+    const base: CombatantInit[] = [
+      { id: 'player', name: 'Hero', isPlayer: true, stats: stats({ destreza: 60, firearms: 80 }), health: { current: 100, max: 100 } },
+      { id: 'zara', name: 'Zara', isPlayer: false, stats: stats({ destreza: 40, perception: 20 }), health: { current: 100, max: 100 } },
+    ];
+    const bare = new CombatEncounter(base.map((c) => ({ ...c })), { rng: seq(0, 0) });
+    const evBare = bare.apply({ type: 'attack', attackKind: 'ranged' });
+
+    const armored = base.map((c) => (c.id === 'zara' ? { ...c, damageReduction: 0.5 } : { ...c }));
+    const enc = new CombatEncounter(armored, { rng: seq(0, 0) });
+    const ev = enc.apply({ type: 'attack', attackKind: 'ranged' });
+
+    expect(ev.kind).toBe('hit');
+    expect(ev.damage).toBe(Math.round((evBare.damage ?? 0) * 0.5));
+    expect(ev.damage).toBeLessThan(evBare.damage ?? 0);
+  });
+
   it('attack events carry the to-hit probability and the attack kind', () => {
     const enc = new CombatEncounter(makeCombatants(), { rng: seq(0, 0) });
     const ev = enc.apply({ type: 'attack', attackKind: 'ranged' });

@@ -1132,7 +1132,7 @@ export class GameWorldScene extends BaseScene {
       if (id === 'player') {
         const p = this.player?.getRoot().position ?? Vector3.Zero();
         const pw = this.playerInventory.combatWeaponId; // melee OR firearm (Phase 11)
-        combatants.push({ id, name: this.playerName, isPlayer: true, stats: this.playerStats, health: this.playerHealthState, pos: { x: p.x, z: p.z }, side, weapon: weaponProfile(pw), weaponName: this.weaponLabel(pw) });
+        combatants.push({ id, name: this.playerName, isPlayer: true, stats: this.playerStats, health: this.playerHealthState, pos: { x: p.x, z: p.z }, side, weapon: weaponProfile(pw), weaponName: this.weaponLabel(pw), damageReduction: this.playerInventory.totalDamageReduction() });
         this.combatWeaponId.set(id, pw);
         names[id] = this.playerName;
         if (this.player) sources[id] = this.player.getRoot();
