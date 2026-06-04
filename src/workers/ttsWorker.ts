@@ -15,7 +15,7 @@ type Out =
 
 interface KokoroModel {
   /** Stream synthesis sentence-by-sentence (kokoro-js splits the text itself). */
-  stream(text: string, opts: { voice: string }): AsyncGenerator<{ audio: { toWav(): ArrayBuffer } }>;
+  stream(text: string, opts: { voice: string }): AsyncGenerator<{ text?: string; audio: { toWav(): ArrayBuffer } }>;
 }
 
 // `self` is typed as Window under the DOM lib; cast to the minimal worker surface.
@@ -63,9 +63,11 @@ ctx.addEventListener('message', (e: MessageEvent<SpeakMsg>) => {
       let seq = 0;
       for await (const chunk of model.stream(text, { voice })) {
         if (id !== latestId) return; // a newer utterance arrived — stop early
+        ctx.postMessage({ type: 'log', msg: `worker chunk seq=${seq} "${(chunk.text ?? '').slice(0, 40)}"` });
         const wav = chunk.audio.toWav();
         ctx.postMessage({ id, seq: seq++, wav }, [wav]);
       }
+      ctx.postMessage({ type: 'log', msg: `stream done (${seq} chunks)` });
       ctx.postMessage({ id, done: true });
     } catch (err) {
       ctx.postMessage({ id, error: String(err) });
