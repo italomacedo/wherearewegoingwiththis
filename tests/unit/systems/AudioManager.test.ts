@@ -148,3 +148,54 @@ describe('AudioManager — instance + settings wiring', () => {
     expect(bus.listenerCount('scene:loaded')).toBe(0);
   });
 });
+
+// ─── Music lifecycle: no orphaned beds across rapid track changes (browser path) ──
+describe('AudioManager — music lifecycle', () => {
+  class FakeAudio {
+    static created: FakeAudio[] = [];
+    src: string; loop = false; volume = 1; paused = true;
+    constructor(src: string) { this.src = src; FakeAudio.created.push(this); }
+    play(): Promise<void> { this.paused = false; return Promise.resolve(); }
+    pause(): void { this.paused = true; }
+  }
+  const g = globalThis as unknown as { document?: unknown; Audio?: unknown };
+
+  beforeEach(() => {
+    FakeAudio.created = [];
+    g.document = {};            // make `typeof document !== 'undefined'`
+    g.Audio = FakeAudio;        // make `typeof Audio !== 'undefined'`
+    jest.useFakeTimers();
+  });
+  afterEach(() => {
+    jest.useRealTimers();
+    delete g.document; delete g.Audio;
+    SettingsService.reset(); SettingsService.clearMemoryStore();
+  });
+
+  const playing = () => FakeAudio.created.filter((a) => !a.paused);
+
+  it('interrupted fades never orphan a bed (combat→gameover→menu leaves ONLY menu playing)', () => {
+    const am = new AudioManager();
+    am.playMusic('combat');
+    am.playMusic('gameover'); // interrupts the combat fade-in
+    am.playMusic('menu');     // interrupts the gameover fade-in
+    jest.advanceTimersByTime(1500); // > MUSIC_FADE_MS — let all fades finish
+    expect(playing()).toHaveLength(1);
+    expect(playing()[0].src).toContain('menu');
+  });
+
+  it('stopMusic pauses the current bed AND everything still fading out', () => {
+    const am = new AudioManager();
+    am.playMusic('world');
+    am.playMusic('combat'); // world now in the fade-out set
+    am.stopMusic();
+    expect(FakeAudio.created.every((a) => a.paused)).toBe(true);
+  });
+
+  it('replaying the same track is a no-op (no duplicate element)', () => {
+    const am = new AudioManager();
+    am.playMusic('world');
+    am.playMusic('world');
+    expect(FakeAudio.created).toHaveLength(1);
+  });
+});

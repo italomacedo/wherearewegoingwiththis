@@ -115,6 +115,9 @@ export class GameWorldScene extends BaseScene {
   private static readonly TILE_LOAD_BUDGET = 2;
   /** How close (metres) the player must be to pick up a dropped pile (Fase 18). */
   private static readonly PICKUP_RADIUS = 2;
+  /** Only NPCs within this radius of a fight can be recruited into it — keeps the
+   * streamed world's neighbouring-tile NPCs out of a local brawl (Fase 18). */
+  private static readonly COMBAT_RECRUIT_RADIUS = 30;
   /** World seed for deterministic tile generation (from the save; Phase D persists it). */
   private worldSeed = 1;
   private clock = new GameClock(); // wall-clock mode by default (mirrors the PC clock)
@@ -1082,8 +1085,27 @@ export class GameWorldScene extends BaseScene {
 
   /** When the hero dies, freeze the run and show the Game Over menu (once). */
   private checkGameOver(): void {
-    if (this.gameOver || !this.player?.isDead()) return;
+    if (this.gameOver) return;
+    // The player's combat HP lives in the controller and only syncs back to the
+    // PlayerController in endCombat. In a MULTI-combatant fight the player's death
+    // doesn't end the encounter (it continues as a spectator brawl), so endCombat
+    // never runs — the run would never end and the combat music would loop on past
+    // the death. Detect the dead player combatant here too. (Fase 18 bugfix.)
+    const pc = this.combat?.isOpen()
+      ? this.combat.getController()?.getState().combatants.find((c) => c.isPlayer)
+      : undefined;
+    const diedInCombat = !!pc && pc.hp.current <= 0;
+    if (!this.player?.isDead() && !diedInCombat) return;
     this.gameOver = true;
+    if (diedInCombat) {
+      // Sync the lethal HP and tear down the live fight (stops the combat turn loop).
+      // close() does NOT fire onEnd → endCombat (which would switch to the 'world'
+      // bed); we go straight to the game-over bed below.
+      this.playerHealthState = { current: 0, max: this.playerHealthState.max };
+      this.player?.setHealthState(this.playerHealthState);
+      this.combat?.close();
+      this.combatEnc = null;
+    }
     (this.audio ??= ServiceLocator.tryGet<AudioManager>('audio'))?.playMusic('gameover');
     this.gameOverMenu?.openMenu();
   }
@@ -1349,12 +1371,28 @@ export class GameWorldScene extends BaseScene {
     }
 
     const playerInvolved = initiatorId === 'player' || targetId === 'player';
-    // Whole-scene recruitment: each NPC's relationships come from its disposition
-    // (toward the player) and its ledger (toward other NPCs).
+    // Local recruitment: only NPCs within COMBAT_RECRUIT_RADIUS of one of the two
+    // seed fighters can join. In the streamed mosaic ~20 NPCs are loaded across the
+    // 3×3 tile ring, so whole-scene recruitment dragged in NPCs from neighbouring
+    // quadrants; the radius keeps a brawl local (the seeds always qualify). (Fase 18.)
+    const posOf = (id: string): { x: number; z: number } | null => {
+      if (id === 'player') { const p = this.player?.getRoot().position; return p ? { x: p.x, z: p.z } : null; }
+      const h = this.npcHolderById.get(id)?.position ?? mgr.getAgent(id)?.getPosition();
+      return h ? { x: h.x, z: h.z } : null;
+    };
+    const anchors = [posOf(initiatorId), posOf(targetId)].filter(Boolean) as Array<{ x: number; z: number }>;
+    const nearFight = (id: string): boolean => {
+      if (id === initiatorId || id === targetId) return true; // seeds always in
+      const p = posOf(id);
+      return !!p && anchors.some((a) => Math.hypot(p.x - a.x, p.z - a.z) <= GameWorldScene.COMBAT_RECRUIT_RADIUS);
+    };
+    // Each NPC's relationships come from its disposition (toward the player) and
+    // its ledger (toward other NPCs).
     const participants: RecruitParticipant[] = [];
     if (playerInvolved) participants.push({ id: 'player', relationTo: () => 'neutral' });
     for (const a of mgr.getAgents()) {
-      if (a.isDefeated()) continue; // the dead don't rejoin fights
+      if (a.isDefeated()) continue;           // the dead don't rejoin fights
+      if (!nearFight(a.definition.id)) continue; // out-of-radius NPCs stay out
       participants.push({
         id: a.definition.id,
         relationTo: (other) => (other === 'player' ? a.getDisposition() : a.getRelationship(other)),

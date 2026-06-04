@@ -205,6 +205,8 @@ describe('PromptBuilder', () => {
       expect(p).toContain('Wary but fair.');
       expect(p).toContain('English');
       expect(p).toContain('mention being an AI');
+      // Anti-hallucination: the only mission is a kill-contract on a present rival.
+      expect(p).toContain('Never invent jobs');
     });
 
     it('uses the provided language', () => {
@@ -265,6 +267,9 @@ describe('PromptBuilder', () => {
       expect(p).toContain('20 credits');
       expect(p).toContain('Medkit');
       expect(p).toContain('leads there');
+      // The contract is bounded to killing a present rival — no invented heists.
+      expect(p).toContain('KILLING');
+      expect(p).toContain('Do NOT invent');
     });
     it('returns empty when nothing to sell and no rivals', () => {
       expect(PromptBuilder.buildCommerceContext({ sellable: [], rivals: [], payableCredits: 0, payableItems: [] })).toBe('');
