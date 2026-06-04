@@ -119,6 +119,34 @@ describe('CharacterCreatorScene (Quaternius outfits)', () => {
     for (const armor of ARMOR_OUTFIT_KEYS) expect(seenF.has(armor)).toBe(false);
   });
 
+  it('the Bottom cycler never selects farmer (it has no legs mesh)', async () => {
+    await scene.onEnter();
+    await scene.setGender('male');
+    const seen = new Set<string>();
+    for (let i = 0; i < outfitsForGender('male').length + 2; i++) {
+      await scene.cyclePart('bottom', 1);
+      seen.add(scene.getPart('bottom'));
+    }
+    expect(seen.has('farmer')).toBe(false);
+    // farmer is still available for head/top (it only lacks legs).
+    const headSeen = new Set<string>();
+    for (let i = 0; i < outfitsForGender('male').length + 2; i++) {
+      await scene.cyclePart('head', 1);
+      headSeen.add(scene.getPart('head'));
+    }
+    expect(headSeen.has('farmer')).toBe(true);
+  });
+
+  it('toggleKeepColor flips the per-region keep-colour flag', async () => {
+    await scene.onEnter();
+    expect(scene.getKeepColor('top')).toBe(false);
+    await scene.toggleKeepColor('top');
+    expect(scene.getKeepColor('top')).toBe(true);
+    expect(scene.getCharacterData().appearance.keepRegionColor?.top).toBe(true);
+    await scene.toggleKeepColor('top');
+    expect(scene.getKeepColor('top')).toBe(false);
+  });
+
   it('setOutfit resets the modular composition to a whole outfit', async () => {
     await scene.onEnter();
     await scene.setPart('head', 'suit');
@@ -231,6 +259,12 @@ describe('buildCreatorSchema (pure)', () => {
     expect(parts.map((c) => (c.kind === 'part' ? c.region : null))).toEqual(['head', 'top', 'bottom']);
     const colorKeys = controls.flatMap((c) => (c.kind === 'color' ? [c.colorKey] : []));
     expect(colorKeys).toEqual(expect.arrayContaining(['top', 'bottom', 'hair']));
+  });
+
+  it('Outfit category has a keep-colour toggle for each region', () => {
+    const controls = schema.find((c) => c.title === 'Outfit')!.controls;
+    const keeps = controls.flatMap((c) => (c.kind === 'keepColor' ? [c.region] : []));
+    expect(keeps).toEqual(['head', 'top', 'bottom']);
   });
 
   it('every colour control has a non-empty preset palette', () => {

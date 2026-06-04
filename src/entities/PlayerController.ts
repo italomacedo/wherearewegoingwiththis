@@ -96,6 +96,11 @@ export class PlayerController {
     });
     this.root.position = position.clone();
 
+    // Start the idle clip immediately so the avatar doesn't sit in a stray
+    // auto-played pose (e.g. a looping Death clip) until the first WASD input.
+    this.playingState = null;
+    this.updateAnimation();
+
     // When physics is live, drive the hero with a Havok character controller so it
     // collides with the world. Headless / no-physics keeps the kinematic path.
     if (typeof document !== 'undefined' && this.scene.isPhysicsEnabled()) {

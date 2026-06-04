@@ -9,6 +9,7 @@ import { ServiceLocator } from '@core/ServiceLocator';
 import { GameSession } from '@core/GameSession';
 import {
   CharacterData, DEFAULT_APPEARANCE, ColorKey, AvatarPartRegion, cloneAppearance, resolveAvatarParts,
+  keepColorForRegion,
 } from '@entities/CharacterData';
 import {
   CharacterStats, AttributeId, ATTRIBUTES, SKILLS, StartingSkillPick, StartTier,
@@ -16,7 +17,7 @@ import {
   allocateStartingSkills, isValidStartingSkills, choosePerk as applyChoosePerk,
   choosePerkReplacing, perksForTier, toggleStartingSkill, startingSkillState,
 } from '@entities/CharacterStats';
-import { type Gender, outfitsForGender, genderOfOutfit } from '@assets/AvatarMeshCatalog';
+import { type Gender, outfitsForGender, genderOfOutfit, outfitProvidesPart } from '@assets/AvatarMeshCatalog';
 import { ARMOR_OUTFIT_KEYS } from '@entities/items/ItemCatalog';
 import { t, hasKey } from '@systems/I18n';
 
@@ -36,6 +37,9 @@ const CREATOR_LABEL_KEY: Record<string, string> = {
   'Top Color': 'creator.topColor',
   'Bottom Color': 'creator.bottomColor',
   'Hair Color': 'creator.hairColor',
+  'Head Original': 'creator.headOriginal',
+  'Top Original': 'creator.topOriginal',
+  'Bottom Original': 'creator.bottomOriginal',
 };
 
 // ─── Character-creator UI schema (pure, data-driven) ────────────────────────────
@@ -44,7 +48,9 @@ export type ControlSpec =
   | { kind: 'gender'; label: string }
   | { kind: 'color'; label: string; colorKey: ColorKey; presets: string[] }
   // Cycle through the current gender's outfits for one modular region (head/top/bottom).
-  | { kind: 'part'; label: string; region: AvatarPartRegion };
+  | { kind: 'part'; label: string; region: AvatarPartRegion }
+  // Toggle "keep authored colours" for a region (skip recolour) — Phase 15.
+  | { kind: 'keepColor'; label: string; region: AvatarPartRegion };
 
 export interface CategorySpec {
   title: string;
@@ -97,6 +103,9 @@ export function buildCreatorSchema(): CategorySpec[] {
         colorControl('top', 'Top Color'),
         colorControl('bottom', 'Bottom Color'),
         colorControl('hair', 'Hair Color'),
+        { kind: 'keepColor', label: 'Head Original', region: 'head' },
+        { kind: 'keepColor', label: 'Top Original', region: 'top' },
+        { kind: 'keepColor', label: 'Bottom Original', region: 'bottom' },
       ],
     },
   ];
@@ -305,8 +314,15 @@ export class CharacterCreatorScene extends BaseScene {
    * molds (swat/spacesuit/w_soldier/w_scifi) — those are now obtained as armor items
    * in-game (Phase 15), not chosen at creation.
    */
-  private selectableKeys(gender: Gender): string[] {
-    return outfitsForGender(gender).map((o) => o.key).filter((k) => !ARMOR_OUTFIT_KEYS.includes(k));
+  private selectableKeys(gender: Gender, region?: AvatarPartRegion): string[] {
+    return outfitsForGender(gender)
+      .map((o) => o.key)
+      .filter((k) => !ARMOR_OUTFIT_KEYS.includes(k))
+      // A region picker only offers molds that provide that region (e.g. `farmer`
+      // has no legs → excluded from Bottom). A whole-outfit pick needs all regions.
+      .filter((k) => region
+        ? outfitProvidesPart(k, region)
+        : (['head', 'top', 'bottom'] as AvatarPartRegion[]).every((r) => outfitProvidesPart(k, r)));
   }
 
   /** Cycle the whole outfit through the current gender's outfits. */
@@ -337,11 +353,26 @@ export class CharacterCreatorScene extends BaseScene {
 
   /** Cycle one region's donor through the current gender's outfits. */
   async cyclePart(region: AvatarPartRegion, dir: 1 | -1): Promise<void> {
-    const keys = this.selectableKeys(this.getGender());
+    const keys = this.selectableKeys(this.getGender(), region);
     if (keys.length === 0) return;
     const idx = keys.indexOf(this.getPart(region));
     const start = idx === -1 ? 0 : idx;
     await this.setPart(region, keys[(start + dir + keys.length) % keys.length]!);
+  }
+
+  /** Whether a region keeps its authored colours (no recolour). */
+  getKeepColor(region: AvatarPartRegion): boolean {
+    return keepColorForRegion(this.characterData.appearance, region);
+  }
+
+  /** Toggle "keep authored colours" for a region, then rebuild. */
+  async toggleKeepColor(region: AvatarPartRegion): Promise<void> {
+    const appearance = cloneAppearance(this.characterData.appearance);
+    const keep = { ...(appearance.keepRegionColor ?? {}) };
+    keep[region] = !keep[region];
+    appearance.keepRegionColor = keep;
+    this.characterData = { ...this.characterData, appearance };
+    await this.rebuildCharacter();
   }
 
   /** Set a region tint (skin/eye/hair/top/bottom…) and rebuild. */
@@ -709,6 +740,21 @@ export class CharacterCreatorScene extends BaseScene {
         row.addControl(b);
       });
       parent.addControl(row);
+      return;
+    }
+
+    if (spec.kind === 'keepColor') {
+      // A single toggle button: Custom ↔ Original (keep authored colours).
+      const r = spec.region;
+      const btn = Button.CreateSimpleButton(`keep-${r}`, this.getKeepColor(r) ? t('creator.original') : t('creator.custom'));
+      btn.width = '160px'; btn.height = '30px';
+      btn.color = '#00FFCC'; btn.background = 'rgba(0,30,40,0.8)'; btn.fontFamily = 'monospace';
+      btn.onPointerUpObservable.add(() => {
+        void this.toggleKeepColor(r).then(() => {
+          if (btn.textBlock) btn.textBlock.text = this.getKeepColor(r) ? t('creator.original') : t('creator.custom');
+        });
+      });
+      parent.addControl(btn);
       return;
     }
 

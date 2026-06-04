@@ -3,7 +3,7 @@ import {
   LOCO_CLIP_GROUND_SPEED, LOCO_SPEED_RATIO_MIN, LOCO_SPEED_RATIO_MAX, computeLocoSpeedRatio,
   outfitsForGender, outfitByKey, genderOfOutfit, tintRoleForMaterial,
   partRegionOf, isStrippableMesh, tintRoleForMaterialInRegion, HAIR_MATERIAL_OVERRIDES,
-  planModularLoad,
+  planModularLoad, outfitProvidesPart, OUTFIT_MISSING_PARTS,
 } from '../../../src/assets/AvatarMeshCatalog';
 
 describe('AvatarMeshCatalog — Quaternius Ultimate Modular outfits (pure)', () => {
@@ -32,6 +32,15 @@ describe('AvatarMeshCatalog — Quaternius Ultimate Modular outfits (pure)', () 
     const female = outfitsForGender('female').map((o) => o.key);
     expect(female).toEqual(expect.arrayContaining(['w_scifi', 'w_soldier', 'w_punk']));
     expect(outfitsForGender('female').every((o) => o.gender === 'female')).toBe(true);
+  });
+
+  it('outfitProvidesPart: farmer has no bottom (legs) mesh; others provide all', () => {
+    expect(OUTFIT_MISSING_PARTS.farmer).toEqual(['bottom']);
+    expect(outfitProvidesPart('farmer', 'bottom')).toBe(false);
+    expect(outfitProvidesPart('farmer', 'head')).toBe(true);
+    expect(outfitProvidesPart('farmer', 'top')).toBe(true);
+    expect(outfitProvidesPart('suit', 'bottom')).toBe(true);
+    expect(outfitProvidesPart('unknown', 'bottom')).toBe(true); // unknown = assume provides
   });
 
   it('outfitByKey / genderOfOutfit resolve', () => {

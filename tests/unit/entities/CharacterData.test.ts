@@ -3,7 +3,7 @@ import {
   SLOT_REGISTRY, MORPH_REGISTRY, EXCLUSIVE_GROUPS,
   applySlot, resolveLayers, clampMorph, cloneAppearance, migrateAppearance,
   getSkinTone, getHair, getHairColor, getBaseTop, getOuterwear, getBottom, getFootwear,
-  bodyBaseKey, parseGender, parseEthnicity, resolveAvatarParts, applyArmorOverlay,
+  bodyBaseKey, parseGender, parseEthnicity, resolveAvatarParts, applyArmorOverlay, keepColorForRegion,
 } from '../../../src/entities/CharacterData';
 
 describe('CharacterData', () => {
@@ -312,6 +312,15 @@ describe('CharacterData', () => {
     it('no armor parts returns an equivalent appearance', () => {
       const base: CharacterAppearance = { ...DEFAULT_APPEARANCE, bodyBase: 'suit', avatarPieces: {} };
       expect(resolveAvatarParts(applyArmorOverlay(base, {}))).toEqual({ head: 'suit', top: 'suit', bottom: 'suit' });
+    });
+
+    it('armored regions are flagged to keep their authored colours', () => {
+      const base: CharacterAppearance = { ...DEFAULT_APPEARANCE, bodyBase: 'punk' };
+      const out = applyArmorOverlay(base, { head: 'swat', bottom: 'swat' });
+      expect(keepColorForRegion(out, 'head')).toBe(true);
+      expect(keepColorForRegion(out, 'bottom')).toBe(true);
+      expect(keepColorForRegion(out, 'top')).toBe(false); // not armored → recoloured as usual
+      expect(keepColorForRegion(base, 'head')).toBe(false); // base untouched
     });
   });
 });

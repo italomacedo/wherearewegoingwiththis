@@ -192,6 +192,12 @@ export class CharacterAssembler {
     let skeleton: Skeleton | null = null;
     let animationGroups: AnimationGroup[] = [];
     const colors = { ...DEFAULT_COLORS, ...appearance.colors };
+    // Regions flagged to keep their authored colours (armor + creator "Original").
+    const keepRegionColor = appearance.keepRegionColor ?? {};
+    const keepMeshRegion = (r: MeshRegion | null): boolean =>
+      (r === 'head' && !!keepRegionColor.head) ||
+      (r === 'top' && !!keepRegionColor.top) ||
+      (r === 'lower' && !!keepRegionColor.bottom);
     // Modular composition: head from one outfit, top (Body) from another, lower
     // (Legs+Feet) from a third — all share an identical-order rig within a gender,
     // so borrowed meshes rebind to the donor skeleton by bone index. An all-equal
@@ -226,6 +232,9 @@ export class CharacterAssembler {
         kept.push(g);
       }
       for (const g of donorContainer.animationGroups) { if (!kept.includes(g)) g.dispose(); }
+      // The glTF loader may auto-start a clip on load (e.g. the first/Death clip) —
+      // stop them all so the avatar shows no stray loop until the consumer starts idle.
+      kept.forEach((g) => g.stop());
       animationGroups = kept;
 
       // 3) For each source: keep its assigned region meshes. CRITICAL ORDER —
@@ -248,7 +257,7 @@ export class CharacterAssembler {
               if (donorRoot) mesh.setParent(donorRoot);   // re-home (preserve world) before dispose
               mesh.alwaysSelectAsActiveMesh = true;        // re-skinned bounds may be stale → never false-cull
             }
-            this.tintRegionMesh(mesh, region, item.outfitKey, colors);
+            if (!keepMeshRegion(region)) this.tintRegionMesh(mesh, region, item.outfitKey, colors);
             meshes.push(mesh);
           } else if (isDonor) {
             if (region === null) meshes.push(mesh);        // keep the donor's root/transform nodes
