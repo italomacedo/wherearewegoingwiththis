@@ -1,6 +1,6 @@
 import { Vector3 } from '@babylonjs/core';
 import {
-  NPCAgent, NPCDefinition, worsenedDisposition, dispositionMagnitude, DISPOSITION_SCALE,
+  NPCAgent, NPCDefinition, worsenedDisposition, improvedDisposition, dispositionMagnitude, DISPOSITION_SCALE,
   friendlyFireDefection,
 } from '../../../src/entities/NPCAgent';
 
@@ -10,6 +10,12 @@ describe('disposition scale helpers (pure)', () => {
     expect(worsenedDisposition('neutral')).toBe('wary');
     expect(worsenedDisposition('wary')).toBe('hostile');
     expect(worsenedDisposition('hostile')).toBe('hostile');
+  });
+  it('improvedDisposition steps toward friendly and clamps', () => {
+    expect(improvedDisposition('hostile')).toBe('wary');
+    expect(improvedDisposition('wary')).toBe('neutral');
+    expect(improvedDisposition('neutral')).toBe('friendly');
+    expect(improvedDisposition('friendly')).toBe('friendly');
   });
   it('dispositionMagnitude is the distance from neutral', () => {
     expect(dispositionMagnitude('neutral')).toBe(0);
@@ -157,6 +163,8 @@ describe('NPCAgent', () => {
     expect(a.worsenDisposition()).toBe('wary');
     expect(a.worsenDisposition()).toBe('hostile');
     expect(a.worsenDisposition()).toBe('hostile'); // clamped
+    expect(a.improveDisposition()).toBe('wary');
+    expect(a.improveDisposition()).toBe('neutral');
   });
 
   it('onHostilePlayerAction worsens + issues an ultimatum the first time, not when already hostile', () => {
