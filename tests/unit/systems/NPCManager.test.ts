@@ -254,6 +254,31 @@ describe('NPCManager', () => {
     expect(NPCManager.restoreInventory(undefined, 'npc_a')).toBeUndefined();
   });
 
+  it('serializeMemory collapses a defeated NPC to death status + corpse inventory (Fase 18)', () => {
+    const agent = manager.spawn({ ...def, initialDisposition: 'friendly', loadout: [{ id: 'knife', qty: 1 }] });
+    agent.conversation.recordExchange('hi', 'hello');
+    agent.rememberEvent('something happened');
+    agent.markDefeated();
+    const entry = manager.serializeMemory()['npc_a'];
+    expect(entry.defeated).toBe(true);
+    expect(entry.history).toEqual([]);          // conversation dropped (never talks again)
+    expect(entry.disposition).toBeUndefined();   // disposition dropped
+    expect(entry.events).toBeUndefined();        // witnessed events dropped
+    expect(entry.relationships).toBeUndefined(); // ledger dropped
+    expect(entry.inventory!.items).toEqual([{ id: 'knife', qty: 1 }]); // corpse loot kept
+  });
+
+  it('spawnWithMemory restores the defeated status so a killed NPC stays dead (Fase 18)', () => {
+    const memory = { npc_a: { mode: 'stateless' as const, sessionId: null, history: [], defeated: true } };
+    const agent = manager.spawnWithMemory(def, memory);
+    expect(agent.isDefeated()).toBe(true);
+  });
+
+  it('spawnWithMemory leaves an NPC alive when no defeated flag is saved (Fase 18)', () => {
+    const agent = manager.spawnWithMemory(def, undefined);
+    expect(agent.isDefeated()).toBe(false);
+  });
+
   it('dispose clears agents and cooldowns', () => {
     manager.spawn(def);
     manager.dispose();

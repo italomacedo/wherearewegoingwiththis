@@ -23,6 +23,8 @@ export type NPCMemoryEntry = ConversationState & {
   events?: string[];
   /** Persisted inventory (Phase 9), so a looted corpse stays looted across reloads. */
   inventory?: InventoryState;
+  /** Death status (Fase 18): a defeated NPC reloads dead, not alive. */
+  defeated?: boolean;
 };
 export type NPCMemoryMap = Record<string, NPCMemoryEntry>;
 
@@ -293,8 +295,18 @@ export class NPCManager {
 
   // ─── Save / load memory ───────────────────────────────────────────────────
 
-  /** The full persisted memory entry for one agent. */
+  /** The persisted memory entry for one agent. A defeated NPC never converses or
+   * deliberates again, so we drop its conversation/disposition/ledger/events and
+   * keep only the death status + the corpse inventory (so loot state survives a
+   * reload) — keeps the save lean (Fase 18, owner-decided). */
   private memoryOf(agent: NPCAgent): NPCMemoryEntry {
+    if (agent.isDefeated()) {
+      return {
+        mode: 'stateless', sessionId: null, history: [],
+        defeated: true,
+        inventory: agent.getInventoryState(),
+      };
+    }
     return {
       ...agent.conversation.toState(),
       disposition: agent.getDisposition(),
@@ -322,6 +334,7 @@ export class NPCManager {
     if (ledger) agent.restoreRelationships(ledger);
     agent.restoreEvents(NPCManager.restoreEvents(memory, def.id));
     agent.restoreInventory(NPCManager.restoreInventory(memory, def.id));
+    if (memory?.[def.id]?.defeated) agent.markDefeated(); // stays dead across reloads (Fase 18)
     return agent;
   }
 

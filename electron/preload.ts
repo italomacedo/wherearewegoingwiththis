@@ -25,6 +25,11 @@ export interface ElectronAPI {
   windowMaximize: () => Promise<void>;
   windowClose: () => Promise<void>;
   openExternal: (url: string) => Promise<void>;
+  /** Save games persisted as JSON files in userData/saves (ADR-0006). */
+  saveList: () => Promise<unknown[]>;
+  saveLoad: (saveId: string) => Promise<unknown | null>;
+  saveWrite: (saveGame: unknown) => Promise<boolean>;
+  saveDelete: (saveId: string) => Promise<boolean>;
 }
 
 const api: ElectronAPI = {
@@ -49,6 +54,11 @@ const api: ElectronAPI = {
   windowMaximize: () => ipcRenderer.invoke('window-maximize'),
   windowClose: () => ipcRenderer.invoke('window-close'),
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
+
+  saveList: () => ipcRenderer.invoke('save:list'),
+  saveLoad: (saveId) => ipcRenderer.invoke('save:load', saveId),
+  saveWrite: (saveGame) => ipcRenderer.invoke('save:write', saveGame),
+  saveDelete: (saveId) => ipcRenderer.invoke('save:delete', saveId),
 };
 
 contextBridge.exposeInMainWorld('electronAPI', api);

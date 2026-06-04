@@ -118,6 +118,7 @@ export const STRINGS: Record<string, Entry> = {
   'hud.searchTo': e('[E] Search {name}', '[E] Revistar {name}'),
   'hud.enterBike': e('[F] Enter bike', '[F] Entrar na nave'),
   'hud.exitBike': e('[F] Exit bike', '[F] Sair da nave'),
+  'hud.pickUp': e('[E] Pick up {name}', '[E] Pegar {name}'),
   'hud.naveStatus': e('NAVE {pct}%', 'NAVE {pct}%'),
   'hud.naveDestroyed': e('NAVE DESTROYED', 'NAVE DESTRUÍDA'),
 

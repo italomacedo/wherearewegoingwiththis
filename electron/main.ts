@@ -359,6 +359,51 @@ ipcMain.handle('open-external', (_event, url: string) => {
   shell.openExternal(url);
 });
 
+// ─── Save games: JSON files in userData/saves (ADR-0006) ──────────────────────
+// The renderer cannot touch fs, so all save I/O goes through these handlers. This
+// replaces the old localStorage backend, which has a ~5 MB per-origin quota that
+// the procedural world's growing npcMemory blew (QuotaExceeded → save silently
+// lost). Disk files have no such cap. Writes go temp-then-rename = atomic.
+function savesDir(): string {
+  const dir = path.join(app.getPath('userData'), 'saves');
+  try { fs.mkdirSync(dir, { recursive: true }); } catch { /* ignore */ }
+  return dir;
+}
+
+ipcMain.handle('save:list', () => {
+  try {
+    const dir = savesDir();
+    return fs.readdirSync(dir)
+      .filter((f) => f.endsWith('.json'))
+      .map((f) => {
+        try { return JSON.parse(fs.readFileSync(path.join(dir, f), 'utf-8')); }
+        catch { return null; }
+      })
+      .filter((s) => s !== null);
+  } catch { return []; }
+});
+
+ipcMain.handle('save:load', (_event, saveId: string) => {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(savesDir(), `${saveId}.json`), 'utf-8'));
+  } catch { return null; }
+});
+
+ipcMain.handle('save:write', (_event, saveGame: { saveId: string }) => {
+  try {
+    const final = path.join(savesDir(), `${saveGame.saveId}.json`);
+    const tmp = `${final}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(saveGame));
+    fs.renameSync(tmp, final);
+    return true;
+  } catch (err) { console.error('[Save] write failed:', err); return false; }
+});
+
+ipcMain.handle('save:delete', (_event, saveId: string) => {
+  try { fs.rmSync(path.join(savesDir(), `${saveId}.json`), { force: true }); return true; }
+  catch { return false; }
+});
+
 /* eslint-disable-next-line no-console */
 app.on('child-process-gone', (_e, details) => console.error('[CRASH] child-process-gone:', JSON.stringify(details)));
 

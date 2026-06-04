@@ -147,12 +147,24 @@ describe('InventoryOverlay (pure state + actions)', () => {
     expect(inv.count('knife')).toBe(1);
   });
 
-  it('drop removes one of an item', () => {
+  it('drop removes one of an item and notifies onDrop (ground pile)', () => {
     const inv = new Inventory();
     inv.add('scrap', 3);
+    const dropped: string[] = [];
+    overlay.setHandlers({ onDrop: (id) => dropped.push(id) });
     overlay.openManage(inv);
     overlay.drop('scrap');
     expect(inv.count('scrap')).toBe(2);
+    expect(dropped).toEqual(['scrap']);
+  });
+
+  it('drop does not notify onDrop when the item is not held', () => {
+    const inv = new Inventory();
+    let calls = 0;
+    overlay.setHandlers({ onDrop: () => { calls += 1; } });
+    overlay.openManage(inv);
+    overlay.drop('scrap');
+    expect(calls).toBe(0);
   });
 
   it('openLoot lists the corpse and take transfers into the player (capacity-aware)', () => {

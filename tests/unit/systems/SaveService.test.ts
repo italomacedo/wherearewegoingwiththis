@@ -339,4 +339,36 @@ describe('SaveService', () => {
     const loaded = SaveService.load(save.saveId)!;
     expect(loaded.npcMemory).toEqual({});
   });
+
+  // ─── File-based persistence via the Electron IPC bridge (Fase 18.1) ─────────
+  describe('Electron IPC backend', () => {
+    const win = globalThis as unknown as { window?: { electronAPI?: unknown } };
+    afterEach(() => { delete win.window; SaveService.reset(); });
+
+    it('init() hydrates the in-memory store from disk and save() writes through', async () => {
+      const onDisk = SaveService.createNewSave(testCharacter, 'Disk Save');
+      const written: SaveGame[] = [];
+      win.window = {
+        electronAPI: {
+          saveList: async () => [JSON.parse(JSON.stringify(onDisk))],
+          saveWrite: async (s: SaveGame) => { written.push(s); return true; },
+          saveDelete: async () => true,
+        },
+      };
+
+      await SaveService.init();
+      // Hydrated: the disk save is now listable + loadable synchronously.
+      expect(SaveService.listMeta().some((m) => m.saveId === onDisk.saveId)).toBe(true);
+      expect(SaveService.load(onDisk.saveId)?.saveName).toBe('Disk Save');
+
+      // save() writes through to disk via the bridge (not localStorage).
+      const fresh = SaveService.createNewSave(testCharacter, 'Fresh');
+      SaveService.save(fresh);
+      expect(written.some((s) => s.saveId === fresh.saveId)).toBe(true);
+    });
+
+    it('init() is a no-op (no throw) when no Electron bridge is present', async () => {
+      await expect(SaveService.init()).resolves.toBeUndefined();
+    });
+  });
 });

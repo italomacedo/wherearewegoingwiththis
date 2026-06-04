@@ -7,6 +7,7 @@ import { NPCDisposition } from '@entities/NPCAgent';
 import { InventoryState, defaultInventoryState } from '@entities/Inventory';
 import type { AttachOverrides } from '@systems/HeldItems';
 import type { Mission } from '@systems/economy/Missions';
+import type { GroundItem } from '@systems/world/GroundItems';
 
 /**
  * Per-NPC persisted memory: conversation state, the dynamic disposition toward the
@@ -18,6 +19,8 @@ export type NPCMemory = Record<string, ConversationState & {
   relationships?: Record<string, NPCDisposition>;
   events?: string[];
   inventory?: InventoryState;
+  /** Death status (Fase 18): a defeated NPC reloads dead, not alive. */
+  defeated?: boolean;
 }>;
 
 export interface VehicleSaveState {
@@ -56,6 +59,8 @@ export interface SaveGame {
   heldAttach: AttachOverrides;
   /** Active/complete kill-contracts the player has taken on (Phase 16). */
   missions: Mission[];
+  /** Items the player dropped into the world, by tile (Fase 18). */
+  groundItems: GroundItem[];
   flags: Record<string, boolean | number | string>;
   npcMemory: NPCMemory;
 }
@@ -72,9 +77,58 @@ const STORAGE_KEY_PREFIX = 'beirario-save-';
 const SAVES_INDEX_KEY = 'beirario-saves-index';
 
 export class SaveService {
-  /** In-memory store for Node.js/Jest environments */
+  /** In-memory store: the single source of truth at runtime (synchronous reads).
+   * Hydrated from disk by init() on boot, written through to disk on save(). */
   private static memoryStore = new Map<string, SaveGame>();
   private static memoryIndex: string[] = [];
+
+  /** The Electron save IPC bridge, if running in the desktop app. */
+  /* istanbul ignore next — browser/IPC accessor */
+  private static api(): typeof window.electronAPI | undefined {
+    return typeof window !== 'undefined' ? window.electronAPI : undefined;
+  }
+
+  /**
+   * Hydrate the in-memory store from disk (Electron) once at boot, so the
+   * synchronous load()/listMeta() the scenes call see persisted saves. Disk
+   * files (userData/saves/*.json) have no localStorage 5 MB cap. Falls through
+   * to the localStorage backend in the browser preview, and to pure memory in
+   * tests (no window). Never rejects — failure leaves an empty store.
+   */
+  /* istanbul ignore next — browser/IPC boot path */
+  static async init(): Promise<void> {
+    const api = SaveService.api();
+    if (!api?.saveList) return; // browser preview / tests → localStorage/memory
+    try {
+      const saves = (await api.saveList()) as SaveGame[];
+      for (const s of saves) {
+        SaveService.memoryStore.set(s.saveId, s);
+        if (!SaveService.memoryIndex.includes(s.saveId)) SaveService.memoryIndex.push(s.saveId);
+      }
+      SaveService.importLegacyLocalStorage(api);
+    } catch { /* leave store empty — never block boot */ }
+  }
+
+  /** One-time migration: copy any pre-existing localStorage saves to disk so a
+   * player who saved under the old backend doesn't lose their game. Disk wins. */
+  /* istanbul ignore next — browser/IPC migration */
+  private static importLegacyLocalStorage(api: NonNullable<typeof window.electronAPI>): void {
+    if (typeof localStorage === 'undefined') return;
+    let ids: string[];
+    try { ids = JSON.parse(localStorage.getItem(SAVES_INDEX_KEY) ?? '[]') as string[]; }
+    catch { return; }
+    for (const id of ids) {
+      if (SaveService.memoryStore.has(id)) continue; // already on disk
+      const raw = localStorage.getItem(`${STORAGE_KEY_PREFIX}${id}`);
+      if (!raw) continue;
+      try {
+        const s = JSON.parse(raw) as SaveGame;
+        SaveService.memoryStore.set(s.saveId, s);
+        if (!SaveService.memoryIndex.includes(s.saveId)) SaveService.memoryIndex.push(s.saveId);
+        void api.saveWrite(s);
+      } catch { /* skip a corrupt legacy entry */ }
+    }
+  }
 
   static createNewSave(character: CharacterData, saveName?: string): SaveGame {
     const now = new Date().toISOString();
@@ -99,6 +153,7 @@ export class SaveService {
       inventory: defaultInventoryState(),
       heldAttach: {},
       missions: [],
+      groundItems: [],
       flags: {},
       npcMemory: {},
     };
@@ -141,10 +196,22 @@ export class SaveService {
     if (!SaveService.memoryIndex.includes(updated.saveId)) {
       SaveService.memoryIndex = [...SaveService.memoryIndex, updated.saveId];
     }
-    /* istanbul ignore next */
+    SaveService.persist(updated);
+  }
+
+  /** Write-through: persist to disk via IPC (Electron) or, failing that, to
+   * localStorage (browser preview). The disk path has no quota; the localStorage
+   * setItem is wrapped so a QuotaExceededError can never abort the in-memory save
+   * (the bug that made saves silently vanish). Tests (no window) skip both. */
+  /* istanbul ignore next — browser/IPC persistence */
+  private static persist(save: SaveGame): void {
+    const api = SaveService.api();
+    if (api?.saveWrite) { void api.saveWrite(save).catch(() => { /* logged in main */ }); return; }
     if (typeof localStorage !== 'undefined') {
-      localStorage.setItem(`${STORAGE_KEY_PREFIX}${updated.saveId}`, JSON.stringify(updated));
-      localStorage.setItem(SAVES_INDEX_KEY, JSON.stringify(SaveService.memoryIndex));
+      try {
+        localStorage.setItem(`${STORAGE_KEY_PREFIX}${save.saveId}`, JSON.stringify(save));
+        localStorage.setItem(SAVES_INDEX_KEY, JSON.stringify(SaveService.memoryIndex));
+      } catch { /* quota/full — disk path is preferred; best-effort here */ }
     }
   }
 
@@ -242,6 +309,7 @@ export class SaveService {
     if (!save.inventory) save.inventory = defaultInventoryState();
     if (!save.heldAttach) save.heldAttach = {};
     if (!save.missions) save.missions = [];
+    if (!save.groundItems) save.groundItems = [];
     // Fase 17: backfill the procedural-world seed (derived stably from the saveId
     // so a legacy save always regenerates the same world) + the current tile.
     if (save.world) {
