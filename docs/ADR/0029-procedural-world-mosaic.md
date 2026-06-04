@@ -99,6 +99,25 @@ cumulative process pressure on `main`, not concurrency. Owner-rejected: "only au
   seconds (a wake burst) and NPCs can't be engaged from the air.
 Hibernating NPCs stay 100% interactive on contact (E / proximity / combat). See Lesson 42. (`feat/streaming-perf`.)
 
+## Save deltas (Fase 18) — what the streamed world persists
+The layout regenerates from `worldSeed`, so the save stores only **player-caused
+mutable deltas**, keyed so they survive a tile streaming out and back in:
+- **NPC state** lives in the flat `npcMemory` keyed by the globally-unique per-tile
+  id (`${role}_t${tx}_${tz}_${i}`) — the id already scopes by tile, so no separate
+  per-tile store is needed. `persistSession` now **merges** the memory flushed from
+  already-despawned tiles (`this.npcMemory`) with the loaded agents' live memory
+  (loaded wins); previously only loaded agents were saved, dropping off-ring NPCs.
+- A **defeated NPC** persists as `{ defeated:true, inventory }` only — its
+  conversation/disposition/ledger/events are dropped (it never converses again),
+  the corpse inventory is kept so loot state survives. This keeps the save lean as
+  the world is explored (owner-decided: keep living-NPC memory, dead = status only).
+  `spawnWithMemory` re-marks `defeated`, so a killed NPC reloads dead, not alive.
+- **Dropped items** persist in `SaveGame.groundItems` (`{tile,pos,id,qty}`), a flat
+  list filtered per tile on render — pure `src/systems/world/GroundItems.ts`. The
+  pile renders a pickup marker; `[E]` with no NPC in reach picks up the nearest one.
+
+(This closes the Fase-17 "defeated/dropped-item persistence" deferral below.)
+
 ## Consequences
 - Dealers (`arm_dealer`/`armor_dealer`) carry sellable loadouts → the existing `Economy`/`Commerce`/
   `Missions` chat flow works on procedural NPCs with no change.
@@ -112,5 +131,5 @@ Hibernating NPCs stay 100% interactive on contact (E / proximity / combat). See 
   downtown graph; off-(0,0) gossip pathing is simplistic. Future.
 - **Seam fog/lighting blend** — scene-global fog isn't yet eased per current theme (the themed ground
   already differentiates tiles). Future.
-- **Defeated/dropped-item persistence** keeps parity with pre-17 behavior (no per-tile delta store).
+- ~~**Defeated/dropped-item persistence**~~ — DONE in Fase 18 (see "Save deltas" above).
 - Visual **scale/density tuning** of nature props pending the Electron playtest.
