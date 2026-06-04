@@ -1,8 +1,20 @@
 # ADR-0029 — Procedural World Mosaic (24×24 seamless streaming)
 
-**Status:** Accepted (Fase 17 A–E code-complete on `feat/procedural-world`; awaiting Electron playtest).
+**Status:** Accepted (Fase 17 A–G code-complete on `feat/procedural-world`; awaiting Electron playtest).
 **Date:** 2026-06
 **Supersedes:** the single static `MercadoSombrasZone` as the whole world (it becomes tile (0,0)).
+
+## Fase 17G — city-grid layout (the roads ARE the grid)
+The road model was inverted: instead of a street through the middle of each tile, the **mosaic grid
+(tile edges/seams) is the asphalt road**. Only **urban** themes (downtown/market) get the frame — pure
+`src/assets/world/CityFrame.ts` (100% tested): `framePlanes` (asphalt 60 ▸ sidewalk 52 ▸ themed interior
+44, stacked), `crosswalkStripes` (emissive zebra across the road at each edge), `manholeSpots` (covers on
+the road ring), `interiorBuildingSlots` (2 rows × 3, central plaza, non-overlapping). `TileScenery` draws
+the frame for urban tiles (buildings placed in the slots, **scaled-to-fit** so they never overlap) and a
+full themed ground for nature tiles (off the grid). `MercadoSombrasZone` (0,0) adopts the same frame:
+removed the central asphalt/markings + the central catalog sidewalks + doors; buildings repositioned into
+the interior slots (fixes the overlap); world-border walls only (gap-filler brick walls dropped). Nave
+confined to the whole world (`worldBounds`). Themes other than urban blend edge-to-edge.
 
 ## Context
 The game had one static closed street. The owner wants an open world: a **24×24 mosaic of 60×60

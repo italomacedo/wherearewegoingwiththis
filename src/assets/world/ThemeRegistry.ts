@@ -23,14 +23,16 @@ import type { WorldProp } from '@assets/WorldAssetCatalog';
 import { type TileCoord, tileLocalToWorld } from '@systems/world/WorldGrid';
 import { type RollFn } from '@systems/SkillCheck';
 import { tileRng, pick, range, intRange, weightedPick } from '@systems/world/SeededRng';
+import { interiorBuildingSlots } from '@assets/world/CityFrame';
 
 export type ThemeId = 'downtown' | 'park' | 'forest' | 'desert' | 'market';
 export type NpcRole =
   | 'civilian' | 'runner' | 'corporate' | 'arm_dealer' | 'armor_dealer' | 'vehicle_dealer';
 export type TileLayout = 'urban' | 'scatter';
 
-/** A WorldProp plus whether it should block the player (gets a box collider). */
-export type TileProp = WorldProp & { solid?: boolean };
+/** A WorldProp plus whether it blocks the player (collider) + an optional footprint
+ *  the loader scales the GLB to fit (urban buildings → no overlap regardless of native size). */
+export type TileProp = WorldProp & { solid?: boolean; fit?: number };
 
 /** An authored NPC template — the seed fills in id + world position per tile. */
 export interface NpcArchetypeEntry {
@@ -70,6 +72,9 @@ export interface Archetype {
 export interface GeneratedTile {
   coord: TileCoord;
   theme: ThemeId;
+  /** Urban tiles get the asphalt-grid + sidewalk frame; nature tiles a full themed ground. */
+  urban: boolean;
+  /** Interior/full ground tint [r,g,b]. */
   ground: [number, number, number];
   props: TileProp[];
   npcDefs: NPCDefinition[];
@@ -358,20 +363,17 @@ export function themeOf(tx: number, tz: number, worldSeed: number): ThemeId {
   return weightedPick(rng, THEME_WEIGHTS).theme;
 }
 
-/** Lay urban buildings along the north + south edges (world-positioned). */
+/** Place urban buildings in the interior slots (two rows, central plaza), scaled
+ *  to fit so they never overlap. Some lots stay empty for variety. */
 function layBuildings(rng: RollFn, arch: Archetype, c: TileCoord): TileProp[] {
   const out: TileProp[] = [];
-  const xs = [-18, 0, 18];
-  for (const z of [10, -10]) {
-    for (let i = 0; i < xs.length; i++) {
-      if (rng() < 0.25) continue; // gaps so tiles vary
-      const model = pick(rng, arch.buildingPool);
-      const [x, , wz] = tileLocalToWorld(c.tx, c.tz, [xs[i] + range(rng, -2, 2), 0, z]);
-      out.push({
-        key: `t-bld-${c.tx}-${c.tz}-${z > 0 ? 'n' : 's'}-${i}`,
-        model, position: [x, 0, wz], rotationY: z > 0 ? Math.PI : 0, solid: true,
-      });
-    }
+  for (const slot of interiorBuildingSlots(c.tx, c.tz)) {
+    if (rng() < 0.2) continue; // empty lot
+    const model = pick(rng, arch.buildingPool);
+    out.push({
+      key: `t-bld-${slot.key}`, model, position: slot.position,
+      rotationY: slot.rotationY, solid: true, fit: slot.footprint,
+    });
   }
   return out;
 }
@@ -444,8 +446,9 @@ export function generateTile(tx: number, tz: number, worldSeed: number): Generat
   const rng = tileRng(worldSeed, tx, tz);
   rng(); // keep in sync with themeOf's burned draw so layout is stable
   const coord = { tx, tz };
-  const solids = arch.layout === 'urban' ? layBuildings(rng, arch, coord) : scatterSolids(rng, arch, coord);
+  const urban = arch.layout === 'urban';
+  const solids = urban ? layBuildings(rng, arch, coord) : scatterSolids(rng, arch, coord);
   const props = [...solids, ...scatterProps(rng, arch, coord)];
   const npcDefs = genNpcs(rng, arch, coord, theme);
-  return { coord, theme, ground: arch.ground, props, npcDefs };
+  return { coord, theme, urban, ground: arch.ground, props, npcDefs };
 }
