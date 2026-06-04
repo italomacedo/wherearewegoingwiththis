@@ -1,7 +1,7 @@
 import {
   Engine, Color4, Color3, Vector3, Matrix, AbstractMesh, TransformNode, MeshBuilder,
   PhysicsAggregate, PhysicsShapeType, PhysicsMotionType, AnimationGroup, Animation, LinesMesh,
-  SpotLight, Ray, Node,
+  SpotLight,
 } from '@babylonjs/core';
 import { BaseScene } from './BaseScene';
 import { ServiceLocator } from '@core/ServiceLocator';
@@ -567,34 +567,10 @@ export class GameWorldScene extends BaseScene {
     this.entityColliders.push(floor);
     this.entityAggregates.push(floorAgg);
 
-    this.installNaveFloorProbe();
+    // The nave is now a DYNAMIC Havok body (collides with buildings, lands on
+    // rooftops, blocks the hero) — built here, after the world floor exists.
+    this.vehicle?.enableDynamicPhysics();
     this.npcHolderById.forEach((holder, id) => this.buildNpcCapsule(id, holder));
-  }
-
-  /**
-   * Give the nave a downward surface probe so it hovers over / lands on rooftops
-   * instead of phasing through them. A ray from just above the nave straight
-   * down; the nearest solid hit below it (excluding the nave's own meshes/
-   * colliders and the hero) is the floor. No hit → street level (0).
-   */
-  /* istanbul ignore next — picking/raycast is browser/Electron only */
-  private installNaveFloorProbe(): void {
-    this.vehicle?.setFloorProvider((x, z) => {
-      const naveRoot = this.vehicle?.getRoot() ?? null;
-      const playerRoot = this.player?.getRoot() ?? null;
-      const originY = (this.vehicle?.getPosition().y ?? 0) + 0.5;
-      const ray = new Ray(new Vector3(x, originY, z), new Vector3(0, -1, 0), originY + 5);
-      const hit = this.babylonScene.pickWithRay(ray, (m) => {
-        if (!m.isPickable || m.name.startsWith('col-')) return false;
-        let n: Node | null = m;
-        while (n) {
-          if (n === naveRoot || n === playerRoot) return false;
-          n = n.parent;
-        }
-        return true;
-      });
-      return hit?.pickedPoint ? hit.pickedPoint.y : 0;
-    });
   }
 
   /**

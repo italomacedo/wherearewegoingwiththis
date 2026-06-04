@@ -84,6 +84,33 @@ describe('VehicleController.computeFlightStep (pure flight model)', () => {
     expect(inside.position.z).toBeCloseTo(600);
   });
 
+  it('computeDesiredVelocity: thrust+lift powered, gravity when off, speed-capped', () => {
+    // Powered hover (vertical 0): lift cancels gravity → no vertical accel, drag only.
+    const hov = VehicleController.computeDesiredVelocity(
+      Vector3.Zero(), { axis: { x: 0, z: 1 }, vertical: 0 }, 0, 0.1,
+    );
+    expect(hov.z).toBeGreaterThan(0);          // forward thrust
+    expect(hov.y).toBeCloseTo(0, 5);            // hoverLift - gravity = 0
+    // Engine off → gravity pulls down.
+    const off = VehicleController.computeDesiredVelocity(
+      Vector3.Zero(), { axis: { x: 0, z: 0 }, vertical: 0, engineOn: false }, 0, 0.1,
+    );
+    expect(off.y).toBeLessThan(0);
+    // Horizontal speed is capped.
+    const fast = VehicleController.computeDesiredVelocity(
+      new Vector3(100, 0, 100), { axis: { x: 0, z: 0 }, vertical: 0 }, 0, 0.001,
+    );
+    expect(Math.hypot(fast.x, fast.z)).toBeLessThanOrEqual(DEFAULT_VEHICLE_CONFIG.maxSpeed + 1e-6);
+  });
+
+  it('computeFlightStep still integrates computeDesiredVelocity (parity)', () => {
+    const next = VehicleController.computeFlightStep(
+      zeroState(), { axis: { x: 0, z: 1 }, vertical: 0 }, 0, 0.1,
+    );
+    expect(next.velocity.z).toBeGreaterThan(0);
+    expect(next.position.z).toBeGreaterThan(0);
+  });
+
   it('legacy symmetric horizontalHalfExtent still clamps both axes (no bounds)', () => {
     const cfg = { ...DEFAULT_VEHICLE_CONFIG, horizontalHalfExtent: 30 };
     const pos = VehicleController.computeFlightStep(

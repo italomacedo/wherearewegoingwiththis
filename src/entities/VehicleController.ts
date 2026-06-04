@@ -1,6 +1,6 @@
 import {
-  Scene, Vector3, TransformNode, AbstractMesh, MeshBuilder, StandardMaterial, Color3, Color4,
-  ParticleSystem, Texture,
+  Scene, Vector3, Quaternion, TransformNode, AbstractMesh, MeshBuilder, StandardMaterial, Color3, Color4,
+  ParticleSystem, Texture, PhysicsBody, PhysicsShapeBox, PhysicsMotionType,
 } from '@babylonjs/core';
 import { MovementAxis } from '@systems/InputSystem';
 import { Health, HealthState } from '@entities/Health';
@@ -82,10 +82,25 @@ export class VehicleController {
   private scene: Scene;
   private config: VehicleConfig;
   private root: TransformNode;
+  /** Holds the visual nave meshes; yawed for facing so the physics body (root) needn't rotate. */
+  private visualPivot: TransformNode;
   private parts: AbstractMesh[] = [];
   private state: VehicleFlightState;
   private occupied = false;
   private facing = 0;
+  /**
+   * Dynamic Havok body (browser/Electron). The nave is a real DYNAMIC rigid body so
+   * it collides naturally — bumps buildings, lands/rests on rooftops, blocks the
+   * hero — instead of a kinematic node that crashed Havok by penetrating statics.
+   * Flight = we set its linear velocity from the (tuned) flight math each frame and
+   * Havok integrates + resolves contacts. Gravity is OFF on the body (we apply it in
+   * the math, preserving feel) and rotation is locked (inertia 0). Null headlessly →
+   * the kinematic `computeFlightStep` path runs (tests).
+   */
+  private body: PhysicsBody | null = null;
+  private bodyShape: PhysicsShapeBox | null = null;
+  /** Previous body vertical velocity, to detect a hard landing (fall damage). */
+  private vyPrev = 0;
   private health = new Health(100);
   private destroyed = false;
   private smoking = false;
@@ -101,7 +116,50 @@ export class VehicleController {
     this.scene = scene;
     this.config = { ...DEFAULT_VEHICLE_CONFIG, ...config };
     this.root = new TransformNode('vehicle-root', scene);
+    this.visualPivot = new TransformNode('vehicle-visual', scene);
+    this.visualPivot.parent = this.root;
     this.state = { position: Vector3.Zero(), velocity: Vector3.Zero() };
+  }
+
+  /**
+   * Pure: the nave's desired velocity for one step (camera-relative thrust + lift
+   * while powered; gravity while off; drag; horizontal speed cap). Shared by the
+   * kinematic `computeFlightStep` (integrates it into a position) and the dynamic
+   * Havok path (feeds it to the rigid body, which integrates + resolves collisions).
+   */
+  static computeDesiredVelocity(
+    currentVelocity: Vector3,
+    input: VehicleFlightInput,
+    cameraYaw: number,
+    dt: number,
+    config: VehicleConfig = DEFAULT_VEHICLE_CONFIG,
+  ): Vector3 {
+    const engineOn = input.engineOn !== false;
+    const velocity = currentVelocity.clone();
+    if (engineOn) {
+      const cos = Math.cos(cameraYaw);
+      const sin = Math.sin(cameraYaw);
+      const dirX = input.axis.x * cos - input.axis.z * sin;
+      const dirZ = input.axis.x * sin + input.axis.z * cos;
+      velocity.x += dirX * config.thrust * dt;
+      velocity.z += dirZ * config.thrust * dt;
+      velocity.y += (config.hoverLift - config.gravity + input.vertical * config.ascendAccel) * dt;
+    } else {
+      velocity.y -= config.gravity * dt; // no pilot: gravity wins (it falls)
+    }
+    // Drag: horizontal always; vertical only while powered (engine-off free-fall).
+    const dragFactor = Math.max(0, 1 - config.drag * dt);
+    velocity.x *= dragFactor;
+    velocity.z *= dragFactor;
+    if (engineOn) velocity.y *= dragFactor;
+    // Cap horizontal speed.
+    const horiz = Math.hypot(velocity.x, velocity.z);
+    if (horiz > config.maxSpeed) {
+      const s = config.maxSpeed / horiz;
+      velocity.x *= s;
+      velocity.z *= s;
+    }
+    return velocity;
   }
 
   /**
@@ -119,35 +177,7 @@ export class VehicleController {
     surfaceFloor = 0
   ): VehicleFlightResult {
     const engineOn = input.engineOn !== false;
-    const velocity = state.velocity.clone();
-
-    if (engineOn) {
-      const cos = Math.cos(cameraYaw);
-      const sin = Math.sin(cameraYaw);
-      const dirX = input.axis.x * cos - input.axis.z * sin;
-      const dirZ = input.axis.x * sin + input.axis.z * cos;
-      velocity.x += dirX * config.thrust * dt;
-      velocity.z += dirZ * config.thrust * dt;
-      velocity.y += (config.hoverLift - config.gravity + input.vertical * config.ascendAccel) * dt;
-    } else {
-      // No pilot: no lift, no thrust — gravity wins.
-      velocity.y -= config.gravity * dt;
-    }
-
-    // Drag opposes motion (air resistance). Horizontal always; vertical only
-    // while powered — an engine-off bike free-falls so crashes actually hurt.
-    const dragFactor = Math.max(0, 1 - config.drag * dt);
-    velocity.x *= dragFactor;
-    velocity.z *= dragFactor;
-    if (engineOn) velocity.y *= dragFactor;
-
-    // Cap horizontal speed
-    const horiz = Math.hypot(velocity.x, velocity.z);
-    if (horiz > config.maxSpeed) {
-      const s = config.maxSpeed / horiz;
-      velocity.x *= s;
-      velocity.z *= s;
-    }
+    const velocity = VehicleController.computeDesiredVelocity(state.velocity, input, cameraYaw, dt, config);
 
     // Integrate position
     const position = state.position.add(velocity.scale(dt));
@@ -212,7 +242,7 @@ export class VehicleController {
   /** Builds the placeholder bike and parks it (resting on the ground). */
   spawn(position: Vector3): void {
     this.buildPlaceholder();
-    this.parts.forEach((m) => { if (!m.parent) m.parent = this.root; });
+    this.parts.forEach((m) => { if (!m.parent) m.parent = this.visualPivot; });
     this.state = {
       position: new Vector3(position.x, this.config.groundRestHeight, position.z),
       velocity: Vector3.Zero(),
@@ -242,7 +272,7 @@ export class VehicleController {
       this.parts = [];
 
       const meshes = container.meshes as AbstractMesh[];
-      for (const m of meshes) { if (!m.parent) m.parent = this.root; }
+      for (const m of meshes) { if (!m.parent) m.parent = this.visualPivot; }
       this.parts = meshes;
 
       const gltfRoot = meshes.find((m) => m.name === '__root__') ?? meshes[0];
@@ -250,6 +280,9 @@ export class VehicleController {
         gltfRoot.addRotation(0, VEHICLE_MODEL_YAW, 0);
         gltfRoot.scaling = gltfRoot.scaling.scale(VEHICLE_MODEL_SCALE);
       }
+      // Re-fit the dynamic collision body to the real model's bounds (was sized to
+      // the placeholder at spawn). No-op headlessly / if physics is off.
+      if (this.body) this.enableDynamicPhysics();
       console.warn('[Vehicle] loaded model:', VEHICLE_MODEL_PATH, `(${meshes.length} meshes)`);
     } catch (err) {
       console.warn('[Vehicle] model load failed, keeping placeholder:', VEHICLE_MODEL_PATH, err);
@@ -263,6 +296,8 @@ export class VehicleController {
    */
   update(dt: number, input: VehicleFlightInput, cameraYaw: number): void {
     if (this.destroyed) return;
+    /* istanbul ignore next — the dynamic Havok path is browser/Electron only */
+    if (this.body) { this.updateDynamic(dt, input, cameraYaw); return; }
     const engineOn = this.occupied;
     // Surface directly under the nave (rooftop or street); flat ground headlessly.
     const surfaceY = this.floorProvider
@@ -295,6 +330,81 @@ export class VehicleController {
       this.lastImpactDamage = (result.impactSpeed - this.config.safeImpactSpeed) * this.config.damagePerSpeed;
       this.health.applyDamage(this.lastImpactDamage);
       this.reactToHealth();
+    }
+  }
+
+  /**
+   * Promote the nave to a DYNAMIC Havok rigid body so it collides naturally
+   * (buildings, rooftops, the hero) without the kinematic-vs-static penetration that
+   * crashed Havok. Sized to the nave's current bounds (re-fit when the model loads).
+   * Gravity is OFF (we apply it in the flight math) and rotation is locked (inertia 0
+   * → the visual yaws via visualPivot, the body stays level). Browser/Electron only.
+   */
+  /* istanbul ignore next — Havok physics is browser/Electron only; verified manually */
+  enableDynamicPhysics(): void {
+    if (!this.scene.isPhysicsEnabled()) return;
+    if (this.body) { this.body.dispose(); this.body = null; }
+    this.root.computeWorldMatrix(true);
+    const { min, max } = this.root.getHierarchyBoundingVectors(true);
+    const ext = max.subtract(min);
+    if (ext.x < 0.05 || ext.y < 0.05 || ext.z < 0.05) return;
+    const center = min.add(max).scale(0.5).subtract(this.root.getAbsolutePosition());
+    this.bodyShape = new PhysicsShapeBox(center, Quaternion.Identity(), ext, this.scene);
+    const body = new PhysicsBody(this.root, PhysicsMotionType.DYNAMIC, false, this.scene);
+    body.shape = this.bodyShape;
+    body.setMassProperties({ mass: 1, inertia: Vector3.Zero() }); // inertia 0 → no tumble
+    body.setGravityFactor(0); // we apply gravity in computeDesiredVelocity (keeps the tuned feel)
+    body.setLinearVelocity(Vector3.Zero());
+    this.body = body;
+  }
+
+  /**
+   * Dynamic flight: feed the body the (tuned) desired velocity each frame; Havok
+   * integrates + resolves all contacts (no penetration → no crash; rests on roofs;
+   * blocks the hero). We still clamp to the world bounds / altitude ceiling and
+   * detect a hard landing from the arrested vertical velocity.
+   */
+  /* istanbul ignore next — Havok physics is browser/Electron only; verified manually */
+  private updateDynamic(dt: number, input: VehicleFlightInput, cameraYaw: number): void {
+    const body = this.body!;
+    const engineOn = this.occupied;
+    const stepInput: VehicleFlightInput = engineOn
+      ? { axis: input.axis, vertical: input.vertical, engineOn: true }
+      : { axis: { x: 0, z: 0 }, vertical: 0, engineOn: false };
+    const current = body.getLinearVelocity();
+
+    // Hard-landing detection: was falling fast last frame, arrested this frame.
+    if (this.vyPrev < -this.config.safeImpactSpeed && current.y > this.vyPrev * 0.4) {
+      const impactSpeed = -this.vyPrev;
+      this.lastImpactDamage = (impactSpeed - this.config.safeImpactSpeed) * this.config.damagePerSpeed;
+      this.health.applyDamage(this.lastImpactDamage);
+      this.reactToHealth();
+    }
+    this.vyPrev = current.y;
+
+    const v = VehicleController.computeDesiredVelocity(current, stepInput, cameraYaw, dt, this.config);
+    // Altitude ceiling.
+    if (this.root.position.y >= this.config.maxAltitude && v.y > 0) v.y = 0;
+    // World bounds: zero any velocity heading further out of the playable area.
+    const b = this.config.horizontalBounds;
+    if (b) {
+      if (this.root.position.x >= b.maxX && v.x > 0) v.x = 0;
+      else if (this.root.position.x <= b.minX && v.x < 0) v.x = 0;
+      if (this.root.position.z >= b.maxZ && v.z > 0) v.z = 0;
+      else if (this.root.position.z <= b.minZ && v.z < 0) v.z = 0;
+    }
+    body.setLinearVelocity(v);
+    body.setAngularVelocity(Vector3.Zero()); // belt-and-braces against any spin
+
+    // Mirror Havok's authoritative transform into our state (camera/streaming/getPosition).
+    this.state.position = this.root.position.clone();
+    this.state.velocity = v;
+
+    // Face the travel direction (yaw the VISUAL, not the body).
+    const horiz = Math.hypot(v.x, v.z);
+    if (horiz > 0.5) {
+      this.facing = Math.atan2(v.x, v.z);
+      this.visualPivot.rotation.y = this.facing - VEHICLE_MODEL_YAW;
     }
   }
 
@@ -362,6 +472,10 @@ export class VehicleController {
     this.smoking = false;
     this.occupied = false;
     this.state.velocity = Vector3.Zero();
+    // The wreck stops being flight-controlled (update() early-returns); let Havok
+    // gravity drop it so it doesn't freeze mid-air.
+    /* istanbul ignore next — physics body only exists in browser/Electron */
+    if (this.body) this.body.setGravityFactor(1);
     if (typeof document === 'undefined') return;
     /* istanbul ignore next — particle VFX is browser-only */
     this.explodeBrowser();
@@ -440,8 +554,11 @@ export class VehicleController {
   }
 
   dispose(): void {
+    /* istanbul ignore next — physics body only exists in browser/Electron */
+    if (this.body) { this.body.dispose(); this.body = null; this.bodyShape = null; }
     this.parts.forEach((m) => m.dispose());
     this.parts = [];
+    this.visualPivot.dispose();
     this.root.dispose();
   }
 }
