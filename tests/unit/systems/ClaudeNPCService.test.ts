@@ -103,12 +103,13 @@ describe('ClaudeNPCService', () => {
     const agent = new NPCAgent(def);
 
     await service.query(agent, world, 'hi');
-    const params = lastParams.value as { useSession?: boolean; sessionId?: string; prompt: string; systemPrompt?: string };
+    const params = lastParams.value as { useSession?: boolean; sessionId?: string; prompt: string; systemPrompt?: string; model?: string };
     expect(params.useSession).toBeUndefined();
     expect(params.sessionId).toBeUndefined();
     // Persona is now in systemPrompt, not in the main prompt
     expect(params.systemPrompt).toContain('Zara');
     expect(params.prompt).toContain('hi'); // dynamic context has the message
+    expect(params.model).toBe('haiku'); // cheap model for all NPC calls (Fase 14E)
   });
 
   it('graduates to session mode when context grows large', async () => {
@@ -205,9 +206,10 @@ describe('ClaudeNPCService', () => {
     const { bridge, lastParams } = makeBridge('ALLOW');
     const service = new ClaudeNPCService({ claudePath: 'claude', bridge });
     await expect(service.moderate('npc_zara', 'got chips?')).resolves.toBe(true);
-    const params = lastParams.value as { npcId: string; prompt: string };
+    const params = lastParams.value as { npcId: string; prompt: string; model?: string };
     expect(params.npcId).toBe('npc_zara::moderation');
     expect(params.prompt).toContain('ALLOW or BLOCK');
+    expect(params.model).toBe('haiku'); // cheap model for classifiers too (Fase 14E)
   });
 
   it('moderate blocks a message the classifier marks BLOCK', async () => {

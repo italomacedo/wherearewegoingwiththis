@@ -2,6 +2,7 @@ import { app, BrowserWindow, ipcMain, shell } from 'electron';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import fs from 'node:fs';
+import os from 'node:os';
 import { spawn, ChildProcess, SpawnOptions } from 'node:child_process';
 
 interface ClaudeInvocation {
@@ -219,13 +220,14 @@ function createWindow() {
 // Claude CLI NPC integration
 ipcMain.handle(
   'claude-query',
-  async (_event, { npcId, prompt, claudePath, sessionId, useSession, systemPrompt }: {
+  async (_event, { npcId, prompt, claudePath, sessionId, useSession, systemPrompt, model }: {
     npcId: string;
     prompt: string;
     claudePath: string;
     sessionId?: string;
     useSession?: boolean;
     systemPrompt?: string;
+    model?: string;
   }) => {
     return new Promise<void>((resolve, reject) => {
       // `--print` runs Claude non-interactively and emits plain text to stdout
@@ -235,14 +237,23 @@ ipcMain.handle(
         args.unshift('--session-id', sessionId);
       }
       // Static NPC persona passed as --system-prompt so the Claude API can cache
-      // it across calls (same text = cache hit within 5 minutes). (Fase 14C.)
+      // it across calls (same text = cache hit within 5 minutes). This also
+      // REPLACES Claude Code's large default coding-agent system prompt. (Fase 14C.)
       if (systemPrompt) {
         args.push('--system-prompt', systemPrompt);
+      }
+      // Use the cheapest model tier (Haiku) for all in-game NPC calls. (Fase 14E.)
+      if (model) {
+        args.push('--model', model);
       }
       // Resolve a robust launch strategy (prefers running cli.js with Electron's
       // bundled Node). The prompt is fed via stdin — never interpolated into the
       // command line — so there's no shell-injection risk.
       const { command, spawnArgs, options } = resolveClaudeInvocation(claudePath, args);
+      // Run from a neutral temp dir so Claude Code does NOT auto-discover and
+      // inject the project's large CLAUDE.md (~15k tokens) into every NPC call.
+      // (--bare would do this too but breaks OAuth/keychain auth; cwd is safe.) (Fase 14E.)
+      options.cwd = os.tmpdir();
       let configuredExists = false;
       try { configuredExists = fs.existsSync(claudePath); } catch { /* ignore */ }
       console.log(

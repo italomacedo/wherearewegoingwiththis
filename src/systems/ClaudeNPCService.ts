@@ -16,7 +16,16 @@ export interface ClaudeQueryParams {
   useSession?: boolean;
   /** Static NPC persona passed as --system-prompt for prompt caching. */
   systemPrompt?: string;
+  /** Model alias (e.g. 'haiku') for --model — cheap model for game NPC calls. */
+  model?: string;
 }
+
+/**
+ * Model used for ALL in-game Claude calls. Haiku is the cheapest tier and is
+ * ample for NPC dialogue + the trivial classifiers (moderation/action/intent/
+ * gossip). Owner's call (Fase 14E): "Haiku em tudo".
+ */
+export const NPC_MODEL = 'haiku';
 
 /** Minimal slice of the Electron API this service needs (injectable for tests). */
 export interface ClaudeBridge {
@@ -103,7 +112,7 @@ export class ClaudeNPCService {
     });
     ClaudeNPCService.traceFire('moderate', modId, prompt);
     try {
-      await this.bridge.claudeQuery({ npcId: modId, prompt, claudePath: this.claudePath });
+      await this.bridge.claudeQuery({ npcId: modId, prompt, claudePath: this.claudePath, model: NPC_MODEL });
     } catch {
       return true; // fail-open
     } finally {
@@ -163,7 +172,7 @@ export class ClaudeNPCService {
     });
     ClaudeNPCService.traceFire(label, id, prompt);
     try {
-      await this.bridge.claudeQuery({ npcId: id, prompt, claudePath: this.claudePath });
+      await this.bridge.claudeQuery({ npcId: id, prompt, claudePath: this.claudePath, model: NPC_MODEL });
     } finally {
       offChunk();
     }
@@ -228,6 +237,7 @@ export class ClaudeNPCService {
         prompt: PromptBuilder.buildDynamicContext(statelessInputs),
         claudePath: this.claudePath,
         systemPrompt,
+        model: NPC_MODEL,
       };
     }
 
@@ -246,6 +256,7 @@ export class ClaudeNPCService {
       useSession: true,
       // Pass persona on first session call (graduation primer); session carries it after.
       systemPrompt: justGraduated ? systemPrompt : undefined,
+      model: NPC_MODEL,
     };
   }
 

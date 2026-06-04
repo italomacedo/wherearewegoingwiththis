@@ -8,6 +8,8 @@ export interface ClaudeQueryParams {
   useSession?: boolean;
   /** Static NPC persona — passed as --system-prompt arg for prompt caching. */
   systemPrompt?: string;
+  /** Model alias (e.g. 'haiku') for --model — cheap model for game NPC calls. */
+  model?: string;
 }
 
 export interface ElectronAPI {
