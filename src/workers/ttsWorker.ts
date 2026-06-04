@@ -80,11 +80,9 @@ ctx.addEventListener('message', (e: MessageEvent<SpeakMsg>) => {
       let seq = 0;
       for await (const chunk of model.stream(input, { voice })) {
         if (id !== latestId) return; // a newer utterance arrived — stop early
-        ctx.postMessage({ type: 'log', msg: `worker chunk seq=${seq} "${(chunk.text ?? '').slice(0, 40)}"` });
         const wav = chunk.audio.toWav();
         ctx.postMessage({ id, seq: seq++, wav }, [wav]);
       }
-      ctx.postMessage({ type: 'log', msg: `stream done (${seq} chunks)` });
       ctx.postMessage({ id, done: true });
     } catch (err) {
       ctx.postMessage({ id, error: String(err) });

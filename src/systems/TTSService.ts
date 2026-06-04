@@ -83,8 +83,6 @@ export class TTSService {
   /** Stop all scheduled clips + clear the queue (a new utterance supersedes). */
   /* istanbul ignore next — browser-only */
   private resetPlayback(): void {
-    /* istanbul ignore next */
-    if (this.liveSources.size || this.decoded.size) { /* eslint-disable-next-line no-console */ console.warn(`[TTS] reset — stop ${this.liveSources.size} playing, drop ${this.decoded.size} queued`); }
     this.liveSources.forEach((s) => { try { s.stop(); } catch { /* already stopped */ } });
     this.liveSources.clear();
     this.decoded.clear();
@@ -163,8 +161,7 @@ export class TTSService {
     } catch (err) {
       console.warn('[TTS] decode failed seq', seq, err); // tombstone (null) so the queue doesn't stall
     }
-    if (id !== this.token) { console.warn('[TTS] drop seq', seq, '(superseded while decoding)'); return; }
-    console.warn('[TTS] decoded seq', seq, buf ? `${buf.duration.toFixed(2)}s` : 'FAILED');
+    if (id !== this.token) return; // superseded while decoding
     this.decoded.set(seq, buf);
     this.drainSchedule();
     /* eslint-enable no-console */
@@ -190,8 +187,6 @@ export class TTSService {
       this.scheduleCursor = startAt + buf.duration;
       this.liveSources.add(src);
       src.onended = (): void => { this.liveSources.delete(src); };
-      /* eslint-disable-next-line no-console */
-      console.warn(`[TTS] schedule seq ${this.scheduleSeq - 1} @ ${startAt.toFixed(2)} (now ${ctx.currentTime.toFixed(2)})`);
     }
   }
 
