@@ -76,8 +76,9 @@ import { recruitSides, RecruitParticipant, SIDE_INITIATOR, SIDE_TARGET } from '@
 import { COMBAT_OBSTACLES, COMBAT_BOUNDS } from '@assets/WorldAssetCatalog';
 import { WorldStreamer } from '@systems/world/WorldStreamer';
 import { TileScenery } from '@systems/world/TileScenery';
-import { tileOf, tileKey, worldFloorBox, worldBounds, type TileCoord } from '@systems/world/WorldGrid';
+import { tileOf, tileKey, worldFloorBox, worldBounds, neighbors, type TileCoord } from '@systems/world/WorldGrid';
 import { generateTile } from '@assets/world/ThemeRegistry';
+import { AssetCache, babylonContainerLoader } from '@systems/world/AssetCache';
 
 export class GameWorldScene extends BaseScene {
   /** Setting used for the ambient "react to surroundings" narration (global chat). */
@@ -96,6 +97,19 @@ export class GameWorldScene extends BaseScene {
   private tileScenery = new Map<string, TileScenery>();
   /** NPC ids spawned for each streamed tile (for selective despawn on unload). */
   private tileNpcIds = new Map<string, string[]>();
+  /** Shared GLB cache: parse each model once, instance clones per tile (Fase 17H). */
+  private assetCache: AssetCache | null = null;
+  /** Tiles (within the NPC radius) that currently have their NPCs spawned. */
+  private npcTiles = new Set<string>();
+  /** Time-sliced NPC-visual build queue (≤1 heavy avatar assemble per frame). */
+  private npcSpawnQueue: Array<{ key: string; def: NPCDefinition }> = [];
+  /** Guard so only one scenery-load pump runs at a time (serializes GLB work). */
+  private pumpingTiles = false;
+  /** Scenery preload radius (5×5) vs NPC radius (3×3). */
+  private static readonly SCENERY_RADIUS = 2;
+  private static readonly NPC_RADIUS = 1;
+  /** Prop instantiations per scenery-pump (time-slice → no burst hitch). */
+  private static readonly TILE_LOAD_BUDGET = 2;
   /** World seed for deterministic tile generation (from the save; Phase D persists it). */
   private worldSeed = 1;
   private clock = new GameClock(); // wall-clock mode by default (mirrors the PC clock)
@@ -469,18 +483,22 @@ export class GameWorldScene extends BaseScene {
     }
 
     // Seamless world streaming (Fase 17): tile (0,0) is the static downtown zone
-    // above; the streamer loads/unloads the procedural neighbor tiles around the
-    // player. Seed the current tile from the spawn position.
+    // above; the streamer loads/unloads procedural SCENERY tiles in a 5×5 ring
+    // (loaded ahead of a fast nave). NPCs (heavy avatars) only spawn in the inner
+    // 3×3 (NPC_RADIUS), and all GLB work streams in a few props/frame (Fase 17H).
+    this.assetCache = new AssetCache(babylonContainerLoader(this.babylonScene));
     const spawn = this.player.getPosition();
     this.worldStreamer = new WorldStreamer({
       onLoad: (c) => this.loadTile(c),
       onUnload: (c) => this.unloadTile(c),
+      radius: GameWorldScene.SCENERY_RADIUS,
     });
     this.worldStreamer.setCurrent(tileOf(spawn.x, spawn.z));
+    this.updateNpcRing(); // seed the inner NPC ring
   }
 
-  /** Build a procedural neighbor tile's content + NPCs (skip (0,0) — the static zone). */
-  /* istanbul ignore next — browser-only scenery/NPCs; the tile DATA is unit-tested */
+  /** Build a procedural neighbor tile's SCENERY (skip (0,0); props stream via the pump). */
+  /* istanbul ignore next — browser-only scenery; the tile DATA is unit-tested */
   private loadTile(c: TileCoord): void {
     if (c.tx === 0 && c.tz === 0) return; // the static downtown zone owns this tile
     if (typeof document === 'undefined') return; // headless: bookkeeping only
@@ -488,39 +506,95 @@ export class GameWorldScene extends BaseScene {
     if (this.tileScenery.has(key)) return;
     const gen = generateTile(c.tx, c.tz, this.worldSeed);
     const scenery = new TileScenery(this.babylonScene, gen.coord, gen.props, this.worldSeed, gen.ground, gen.urban);
-    void scenery.build();
+    scenery.build(); // cheap synchronous frame; props instantiate via pumpTileLoads
     this.tileScenery.set(key, scenery);
-    void this.spawnTileNpcs(key, gen.npcDefs);
   }
 
-  /** Spawn a streamed tile's procedural NPCs (logical agents + avatars + capsules). */
-  /* istanbul ignore next — browser-only NPC visuals; NPCManager.spawnTile is unit-tested */
-  private async spawnTileNpcs(key: string, defs: NPCDefinition[]): Promise<void> {
-    if (!this.npcManager || defs.length === 0) return;
-    this.npcManager.spawnTile(key, defs, this.npcMemory);
-    const ids: string[] = [];
-    for (const def of defs) {
-      if (!this.tileScenery.has(key)) break; // tile unloaded mid-spawn
-      await this.buildNPCVisual(def);
-      const holder = this.npcHolderById.get(def.id);
-      if (holder && this.babylonScene.isPhysicsEnabled()) this.buildNpcCapsule(def.id, holder);
-      ids.push(def.id);
-    }
-    this.tileNpcIds.set(key, ids);
-  }
-
-  /** Tear down a procedural neighbor tile + its NPCs (the static (0,0) zone never unloads). */
+  /** Tear down a procedural neighbor tile's scenery + any NPCs still on it. */
   /* istanbul ignore next — browser-only scenery/NPC disposal */
   private unloadTile(c: TileCoord): void {
     if (c.tx === 0 && c.tz === 0) return;
     const key = tileKey(c.tx, c.tz);
     this.tileScenery.get(key)?.dispose();
     this.tileScenery.delete(key);
+    this.despawnTileNpcs(key); // belt-and-braces (NPCs normally leave via the r1 ring first)
+  }
+
+  /** Instantiate a few queued props per frame across loading tiles (no burst hitch). */
+  /* istanbul ignore next — browser-only GLB instancing; AssetCache/budget are unit-tested */
+  private async pumpTileLoads(): Promise<void> {
+    if (this.pumpingTiles || !this.assetCache) return;
+    this.pumpingTiles = true;
+    try {
+      let budget = GameWorldScene.TILE_LOAD_BUDGET;
+      for (const sc of this.tileScenery.values()) {
+        while (budget > 0 && sc.pendingCount() > 0) {
+          await sc.step(this.assetCache);
+          budget -= 1;
+        }
+        if (budget <= 0) break;
+      }
+    } finally {
+      this.pumpingTiles = false;
+    }
+  }
+
+  /**
+   * Keep NPCs only within the inner 3×3 (NPC_RADIUS): spawn for tiles that just
+   * entered the ring, despawn for tiles that left it. Heavy avatar builds are queued
+   * (≤1/frame via pumpNpcSpawns). Called on every current-tile change.
+   */
+  /* istanbul ignore next — browser-only NPC orchestration; pure ring math is tested */
+  private updateNpcRing(): void {
+    if (typeof document === 'undefined') return; // headless: only the static (0,0) NPCs
+    if (!this.worldStreamer || !this.npcManager) return;
+    const cur = this.worldStreamer.getCurrentTile();
+    const want = new Set(
+      neighbors(cur.tx, cur.tz, GameWorldScene.NPC_RADIUS)
+        .map((c) => tileKey(c.tx, c.tz))
+        .filter((k) => k !== '0,0'), // (0,0) NPCs come from the static setupNPCs
+    );
+    for (const key of this.npcTiles) {
+      if (!want.has(key)) this.despawnTileNpcs(key);
+    }
+    for (const key of want) {
+      if (!this.npcTiles.has(key)) this.enqueueTileNpcs(key);
+    }
+  }
+
+  /** Spawn a tile's logical NPC agents now; queue their (heavy) avatars for the pump. */
+  /* istanbul ignore next — browser-only */
+  private enqueueTileNpcs(key: string): void {
+    if (this.npcTiles.has(key) || !this.npcManager) return;
+    const [tx, tz] = key.split(',').map(Number);
+    const gen = generateTile(tx, tz, this.worldSeed);
+    if (gen.npcDefs.length === 0) { this.npcTiles.add(key); return; }
+    this.npcManager.spawnTile(key, gen.npcDefs, this.npcMemory); // logical agents (cheap)
+    this.tileNpcIds.set(key, gen.npcDefs.map((d) => d.id));
+    for (const def of gen.npcDefs) this.npcSpawnQueue.push({ key, def });
+    this.npcTiles.add(key);
+  }
+
+  /** Build at most ONE queued NPC avatar per frame (the heaviest streaming cost). */
+  /* istanbul ignore next — browser-only avatar build */
+  private async pumpNpcSpawns(): Promise<void> {
+    const job = this.npcSpawnQueue.shift();
+    if (!job || !this.npcTiles.has(job.key)) return; // tile despawned meanwhile
+    await this.buildNPCVisual(job.def);
+    const holder = this.npcHolderById.get(job.def.id);
+    if (holder && this.babylonScene.isPhysicsEnabled()) this.buildNpcCapsule(job.def.id, holder);
+  }
+
+  /** Despawn a tile's NPCs (visuals + logical agents) and flush their memory. */
+  /* istanbul ignore next — browser-only NPC disposal */
+  private despawnTileNpcs(key: string): void {
+    if (!this.npcTiles.has(key)) return;
     for (const id of this.tileNpcIds.get(key) ?? []) this.disposeNpcById(id);
     this.tileNpcIds.delete(key);
-    // Flush the leaving NPCs' memory into the world memory so a revisit restores it.
+    this.npcSpawnQueue = this.npcSpawnQueue.filter((j) => j.key !== key); // drop unbuilt
     const result = this.npcManager?.despawnTile(key);
     if (result) Object.assign(this.npcMemory, result.memory);
+    this.npcTiles.delete(key);
   }
 
   /** Dispose one NPC's visual + collider + held rig and forget it (streamed unload). */
@@ -543,7 +617,13 @@ export class GameWorldScene extends BaseScene {
     // to an adjacent scene never streams its neighbours in.
     const driving = this.vehicle?.isOccupied() ?? false;
     const pos = driving ? this.vehicle?.getPosition() : this.player?.getPosition();
-    if (pos && this.worldStreamer) this.worldStreamer.update(pos.x, pos.z);
+    if (pos && this.worldStreamer) {
+      const changed = this.worldStreamer.update(pos.x, pos.z); // diff-streams scenery (5×5)
+      if (changed) this.updateNpcRing(); // re-scope NPCs to the inner 3×3
+    }
+    // Time-slice the heavy GLB/avatar work so streaming never bursts (Fase 17H).
+    void this.pumpTileLoads();
+    void this.pumpNpcSpawns();
   }
 
   /* istanbul ignore next — physics colliders are browser/Electron only */
@@ -716,6 +796,10 @@ export class GameWorldScene extends BaseScene {
     this.tileScenery.forEach((s) => s.dispose());
     this.tileScenery.clear();
     this.tileNpcIds.clear();
+    this.npcTiles.clear();
+    this.npcSpawnQueue = [];
+    this.assetCache?.clear();
+    this.assetCache = null;
     this.player?.dispose();
     this.vehicle?.dispose();
     this.zoneManager?.dispose();
