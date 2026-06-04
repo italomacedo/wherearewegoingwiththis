@@ -548,27 +548,14 @@ export class GameWorldScene extends BaseScene {
 
   /* istanbul ignore next — physics colliders are browser/Electron only */
   private buildEntityColliders(): void {
-    // The nave's collider is PARENTED to its root (ANIMATED body, disablePreStep=false)
-    // so it follows the nave when it flies / falls / is repositioned — same self-
-    // following mold as the NPC capsule (a static box stayed behind at the spawn).
-    const veh = this.vehicle?.getRoot();
-    if (veh) {
-      veh.computeWorldMatrix(true);
-      const { min, max } = veh.getHierarchyBoundingVectors(true);
-      const size = max.subtract(min);
-      if (size.x >= 0.05 && size.y >= 0.05 && size.z >= 0.05) {
-        const box = MeshBuilder.CreateBox('col-entity-nave', { width: size.x, height: size.y, depth: size.z }, this.babylonScene);
-        box.isVisible = false;
-        box.parent = veh;
-        // Local offset to the nave's geometric centre (root is unrotated/unscaled at spawn).
-        box.position.copyFrom(min.add(max).scale(0.5).subtract(veh.getAbsolutePosition()));
-        const agg = new PhysicsAggregate(box, PhysicsShapeType.BOX, { mass: 0 }, this.babylonScene);
-        agg.body.setMotionType(PhysicsMotionType.ANIMATED);
-        agg.body.disablePreStep = false;
-        this.entityColliders.push(box);
-        this.entityAggregates.push(agg);
-      }
-    }
+    // NOTE: the nave has NO physics collider. It moves kinematically (computeFlightStep
+    // + a downward surface raycast), so a Havok body is unnecessary — and it was the
+    // crash vector: hovering at hoverHeight above a rooftop (rooftop-landing probe),
+    // pressing descend drove its ANIMATED collider DOWN into the building's static box
+    // collider, and a kinematic-vs-static deep penetration aborts Havok natively (no
+    // JS log, closes the app). Removing it costs only hero-vs-parked-nave blocking
+    // (negligible for an atmospheric flyer). (Fase 17 crash fix.)
+
     // One big static floor under the WHOLE 24×24 world (no per-tile floor seams) —
     // so the hero never falls through walking onto a streamed neighbor tile. The
     // (0,0) zone keeps its own floor too (harmless overlap).
