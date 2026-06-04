@@ -26,6 +26,23 @@ describe('WorldStreamer (pure)', () => {
     expect(s.isLoaded(7, 5)).toBe(false);
   });
 
+  it('radius 2 loads a 5×5 ring and streams a 5-tile column on crossing', () => {
+    const loaded: string[] = [];
+    const unloaded: string[] = [];
+    const s = new WorldStreamer({
+      onLoad: (c) => { loaded.push(tileKey(c.tx, c.tz)); },
+      onUnload: (c) => { unloaded.push(tileKey(c.tx, c.tz)); },
+      hysteresis: 3, radius: 2,
+    });
+    s.setCurrent({ tx: 5, tz: 5 });
+    expect(s.getLoadedTiles()).toHaveLength(25); // 5×5
+    loaded.length = 0;
+    s.update(5 * TILE_SIZE + 34, 5 * TILE_SIZE); // cross east → tile 6
+    expect(s.getCurrentTile()).toEqual({ tx: 6, tz: 5 });
+    expect(loaded.sort()).toEqual(['8,3', '8,4', '8,5', '8,6', '8,7']); // new far column at tx+2
+    expect(unloaded.sort()).toEqual(['3,3', '3,4', '3,5', '3,6', '3,7']); // dropped trailing column
+  });
+
   it('setCurrent at a corner loads only the 4 in-grid tiles', () => {
     const { s, loaded } = makeStreamer();
     s.setCurrent({ tx: 0, tz: 0 });

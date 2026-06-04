@@ -1,7 +1,7 @@
 import {
   TILE_SIZE, GRID_MIN, GRID_MAX, GRID_SIZE,
   tileKey, inBounds, tileOf, tileCenter, tileLocalToWorld,
-  neighbors3x3, ringDiff, isBorderEdge,
+  neighbors, neighbors3x3, ringDiff, isBorderEdge,
   borderWallColliders, worldFloorBox, worldCenter, WORLD_HALF_EXTENT, worldBounds,
 } from '@systems/world/WorldGrid';
 
@@ -56,6 +56,17 @@ describe('WorldGrid (pure)', () => {
     });
     it('tileKey is stable', () => {
       expect(tileKey(3, 5)).toBe('3,5');
+    });
+  });
+
+  describe('neighbors (radius)', () => {
+    it('radius 1 == neighbors3x3 (9 interior)', () => {
+      expect(neighbors(5, 5, 1)).toEqual(neighbors3x3(5, 5));
+    });
+    it('radius 2 → 25 interior tiles, clamped at edges', () => {
+      expect(neighbors(5, 5, 2)).toHaveLength(25);
+      expect(neighbors(0, 0, 2)).toHaveLength(9);  // corner: 3×3 of the in-grid quadrant
+      expect(neighbors(0, 0, 2).every((c) => c.tx >= 0 && c.tz >= 0)).toBe(true);
     });
   });
 

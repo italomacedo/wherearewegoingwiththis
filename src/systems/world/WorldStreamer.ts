@@ -15,7 +15,7 @@
 
 import {
   TILE_SIZE, GRID_MIN, GRID_MAX,
-  type TileCoord, tileKey, neighbors3x3, ringDiff,
+  type TileCoord, tileKey, neighbors, ringDiff,
 } from '@systems/world/WorldGrid';
 import { ZONE_HALF } from '@assets/WorldAssetCatalog';
 
@@ -26,6 +26,8 @@ export interface WorldStreamerOptions {
   onUnload: (coord: TileCoord) => void;
   /** Metres past a tile edge before the current tile switches (default 3). */
   hysteresis?: number;
+  /** Ring radius to keep loaded (1 = 3×3, 2 = 5×5; default 1). */
+  radius?: number;
 }
 
 const clampIndex = (i: number): number => Math.max(GRID_MIN, Math.min(GRID_MAX, i));
@@ -34,6 +36,7 @@ export class WorldStreamer {
   private readonly onLoad: (coord: TileCoord) => void | Promise<void>;
   private readonly onUnload: (coord: TileCoord) => void;
   private readonly hysteresis: number;
+  private readonly radius: number;
   private current: TileCoord = { tx: 0, tz: 0 };
   private loaded = new Map<string, TileCoord>();
   private started = false;
@@ -42,12 +45,13 @@ export class WorldStreamer {
     this.onLoad = opts.onLoad;
     this.onUnload = opts.onUnload;
     this.hysteresis = opts.hysteresis ?? 3;
+    this.radius = opts.radius ?? 1;
   }
 
   /** Seed the current tile and load its full 3×3 ring (call once at spawn / after a teleport). */
   setCurrent(tile: TileCoord): void {
     this.current = { tx: clampIndex(tile.tx), tz: clampIndex(tile.tz) };
-    const want = neighbors3x3(this.current.tx, this.current.tz);
+    const want = neighbors(this.current.tx, this.current.tz, this.radius);
     const { toLoad, toUnload } = ringDiff([...this.loaded.values()], want);
     for (const c of toUnload) this.removeTile(c);
     for (const c of want) {
@@ -80,8 +84,8 @@ export class WorldStreamer {
 
     const next = { tx, tz };
     const { toLoad, toUnload } = ringDiff(
-      neighbors3x3(cur.tx, cur.tz),
-      neighbors3x3(next.tx, next.tz),
+      neighbors(cur.tx, cur.tz, this.radius),
+      neighbors(next.tx, next.tz, this.radius),
     );
     for (const c of toUnload) this.removeTile(c);
     for (const c of toLoad) this.addTile(c);

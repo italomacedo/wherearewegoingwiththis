@@ -78,17 +78,22 @@ export function tileLocalToWorld(
   return [local[0] + tx * TILE_SIZE, local[1], local[2] + tz * TILE_SIZE];
 }
 
-/** The ≤9 in-grid tiles of the 3×3 ring centred on (tx,tz). */
-export function neighbors3x3(tx: number, tz: number): TileCoord[] {
+/** The in-grid tiles of the (2·radius+1)² block centred on (tx,tz). */
+export function neighbors(tx: number, tz: number, radius: number): TileCoord[] {
   const out: TileCoord[] = [];
-  for (let dz = -1; dz <= 1; dz++) {
-    for (let dx = -1; dx <= 1; dx++) {
+  for (let dz = -radius; dz <= radius; dz++) {
+    for (let dx = -radius; dx <= radius; dx++) {
       const nx = tx + dx;
       const nz = tz + dz;
       if (inBounds(nx, nz)) out.push({ tx: nx, tz: nz });
     }
   }
   return out;
+}
+
+/** The ≤9 in-grid tiles of the 3×3 ring centred on (tx,tz) (= radius 1). */
+export function neighbors3x3(tx: number, tz: number): TileCoord[] {
+  return neighbors(tx, tz, 1);
 }
 
 /**
