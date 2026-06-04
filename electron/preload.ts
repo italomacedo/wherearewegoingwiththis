@@ -10,6 +10,8 @@ export interface ClaudeQueryParams {
   systemPrompt?: string;
   /** Model alias (e.g. 'haiku') for --model — cheap model for game NPC calls. */
   model?: string;
+  /** Reasoning effort (e.g. 'low') for --effort — minimizes thinking tokens. */
+  effort?: string;
 }
 
 export interface ElectronAPI {

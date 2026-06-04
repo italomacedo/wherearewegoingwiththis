@@ -18,6 +18,8 @@ export interface ClaudeQueryParams {
   systemPrompt?: string;
   /** Model alias (e.g. 'haiku') for --model — cheap model for game NPC calls. */
   model?: string;
+  /** Reasoning effort (e.g. 'low') for --effort — minimizes thinking tokens. */
+  effort?: string;
 }
 
 /**
@@ -26,6 +28,13 @@ export interface ClaudeQueryParams {
  * gossip). Owner's call (Fase 14E): "Haiku em tudo".
  */
 export const NPC_MODEL = 'haiku';
+
+/**
+ * Reasoning effort for ALL in-game Claude calls. 'low' minimizes thinking
+ * tokens (cheaper + faster) — ample for short NPC dialogue + the trivial
+ * classifiers. Owner's call (Fase 14E). Levels: low|medium|high|xhigh|max.
+ */
+export const NPC_EFFORT = 'low';
 
 /** Minimal slice of the Electron API this service needs (injectable for tests). */
 export interface ClaudeBridge {
@@ -112,7 +121,7 @@ export class ClaudeNPCService {
     });
     ClaudeNPCService.traceFire('moderate', modId, prompt);
     try {
-      await this.bridge.claudeQuery({ npcId: modId, prompt, claudePath: this.claudePath, model: NPC_MODEL });
+      await this.bridge.claudeQuery({ npcId: modId, prompt, claudePath: this.claudePath, model: NPC_MODEL, effort: NPC_EFFORT });
     } catch {
       return true; // fail-open
     } finally {
@@ -172,7 +181,7 @@ export class ClaudeNPCService {
     });
     ClaudeNPCService.traceFire(label, id, prompt);
     try {
-      await this.bridge.claudeQuery({ npcId: id, prompt, claudePath: this.claudePath, model: NPC_MODEL });
+      await this.bridge.claudeQuery({ npcId: id, prompt, claudePath: this.claudePath, model: NPC_MODEL, effort: NPC_EFFORT });
     } finally {
       offChunk();
     }
@@ -238,6 +247,7 @@ export class ClaudeNPCService {
         claudePath: this.claudePath,
         systemPrompt,
         model: NPC_MODEL,
+        effort: NPC_EFFORT,
       };
     }
 
@@ -257,6 +267,7 @@ export class ClaudeNPCService {
       // Pass persona on first session call (graduation primer); session carries it after.
       systemPrompt: justGraduated ? systemPrompt : undefined,
       model: NPC_MODEL,
+      effort: NPC_EFFORT,
     };
   }
 

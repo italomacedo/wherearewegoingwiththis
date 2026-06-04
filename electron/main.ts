@@ -220,7 +220,7 @@ function createWindow() {
 // Claude CLI NPC integration
 ipcMain.handle(
   'claude-query',
-  async (_event, { npcId, prompt, claudePath, sessionId, useSession, systemPrompt, model }: {
+  async (_event, { npcId, prompt, claudePath, sessionId, useSession, systemPrompt, model, effort }: {
     npcId: string;
     prompt: string;
     claudePath: string;
@@ -228,6 +228,7 @@ ipcMain.handle(
     useSession?: boolean;
     systemPrompt?: string;
     model?: string;
+    effort?: string;
   }) => {
     return new Promise<void>((resolve, reject) => {
       // `--print` runs Claude non-interactively and emits plain text to stdout
@@ -245,6 +246,11 @@ ipcMain.handle(
       // Use the cheapest model tier (Haiku) for all in-game NPC calls. (Fase 14E.)
       if (model) {
         args.push('--model', model);
+      }
+      // Minimize reasoning/thinking tokens (cheaper + faster) — ample for short
+      // NPC dialogue + the trivial classifiers. Levels: low|medium|high|xhigh|max. (Fase 14E.)
+      if (effort) {
+        args.push('--effort', effort);
       }
       // Resolve a robust launch strategy (prefers running cli.js with Electron's
       // bundled Node). The prompt is fed via stdin — never interpolated into the
