@@ -53,13 +53,15 @@ export class TTSService {
   private failed = false;
   /** Increments per utterance so a stale worker result never plays over a newer one. */
   private token = 0;
-  private current: HTMLAudioElement | null = null;
-  // Ordered playback queue: a sentence chunk only plays when it's the NEXT seq,
-  // so audio always plays in the original sentence order regardless of which
-  // chunk's synthesis finishes first.
-  private chunkUrls = new Map<number, string>();
-  private nextSeq = 0;
-  private playing = false;
+  // Gapless ordered playback via Web Audio: each sentence chunk is decoded then
+  // SCHEDULED back-to-back by seq on one AudioContext. This avoids the
+  // HTMLAudioElement pitfalls (per-clip play() rejections that silently dropped
+  // sentences) and guarantees strict sentence order.
+  private audioCtx: AudioContext | null = null;
+  private decoded = new Map<number, AudioBuffer | null>(); // null = decode failed (skip, don't stall)
+  private scheduleSeq = 0;          // next seq allowed to schedule (preserves order)
+  private scheduleCursor = 0;       // AudioContext time the next chunk starts at
+  private liveSources = new Set<AudioBufferSourceNode>();
 
   /** Speak an NPC's line in its assigned voice (emotes stripped). Fail-open. */
   speakSubject(subject: { id?: string; gender: Gender }, line: string): void {
@@ -78,14 +80,14 @@ export class TTSService {
     this.resetPlayback();
   }
 
-  /** Drop the playback queue + stop the current clip (a new utterance supersedes). */
+  /** Stop all scheduled clips + clear the queue (a new utterance supersedes). */
   /* istanbul ignore next — browser-only */
   private resetPlayback(): void {
-    if (this.current) { try { this.current.pause(); } catch { /* noop */ } this.current = null; }
-    this.chunkUrls.forEach((url) => URL.revokeObjectURL(url));
-    this.chunkUrls.clear();
-    this.nextSeq = 0;
-    this.playing = false;
+    this.liveSources.forEach((s) => { try { s.stop(); } catch { /* already stopped */ } });
+    this.liveSources.clear();
+    this.decoded.clear();
+    this.scheduleSeq = 0;
+    this.scheduleCursor = this.audioCtx ? this.audioCtx.currentTime : 0;
   }
 
   /**
@@ -125,50 +127,67 @@ export class TTSService {
     /* eslint-enable no-console */
   }
 
-  /* istanbul ignore next — browser-only: queue a worker result, play in seq order */
+  /* istanbul ignore next — browser-only: decode a worker chunk, schedule in seq order */
   private onWorkerMessage(data: WorkerOut): void {
     /* eslint-disable no-console */
     if ('type' in data) { console.warn('[TTS]', data.msg); return; }
     if ('error' in data) { console.warn('[TTS] synth failed:', data.error); return; }
     if (data.id !== this.token) return; // superseded by a newer utterance
-    if ('done' in data) return;         // stream finished; queue drains on its own
-    // Buffer this sentence chunk by its seq, then play in strict order.
-    this.chunkUrls.set(data.seq, URL.createObjectURL(new Blob([data.wav], { type: 'audio/wav' })));
-    this.playNextChunk();
+    if ('done' in data) return;         // stream finished; the schedule drains on its own
+    void this.decodeChunk(data.id, data.seq, data.wav);
+    /* eslint-enable no-console */
   }
 
-  /** Play the chunk whose seq == nextSeq, if present; chain to the next on end. */
-  /* istanbul ignore next — browser-only playback */
-  private playNextChunk(): void {
-    if (this.playing) return;
-    const url = this.chunkUrls.get(this.nextSeq);
-    if (!url) return; // the next-in-order chunk hasn't arrived yet
-    this.chunkUrls.delete(this.nextSeq);
-    const gain = this.voiceGain();
-    const advance = (): void => {
-      URL.revokeObjectURL(url);
-      this.playing = false;
-      this.nextSeq++;
-      this.playNextChunk();
-    };
-    if (gain <= 0) { // muted — drain the queue without audio so order stays intact
-      console.warn('[TTS] voice bus muted/zero — check Options › Sound (Voice volume + TTS on, master not muted)');
-      advance();
-      return;
-    }
+  /** Lazily create (and resume) the shared AudioContext. */
+  /* istanbul ignore next — browser-only Web Audio */
+  private ensureAudioCtx(): AudioContext | null {
+    if (this.audioCtx) return this.audioCtx;
+    const Ctor = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!Ctor) return null;
+    this.audioCtx = new Ctor();
+    void this.audioCtx.resume?.();
+    return this.audioCtx;
+  }
+
+  /** Decode one WAV chunk, then drain the schedule in strict seq order. */
+  /* istanbul ignore next — browser-only Web Audio */
+  private async decodeChunk(id: number, seq: number, wav: ArrayBuffer): Promise<void> {
+    /* eslint-disable no-console */
+    const ctx = this.ensureAudioCtx();
+    if (!ctx) return;
+    let buf: AudioBuffer | null = null;
     try {
-      const el = new Audio(url);
-      el.volume = gain;
-      this.current = el;
-      this.playing = true;
-      el.addEventListener('ended', advance, { once: true });
-      el.addEventListener('error', advance, { once: true });
-      void el.play().catch(advance);
+      buf = await ctx.decodeAudioData(wav);
     } catch (err) {
-      console.warn('[TTS] playback failed:', err);
-      advance();
+      console.warn('[TTS] decode failed seq', seq, err); // tombstone (null) so the queue doesn't stall
     }
+    if (id !== this.token) return; // superseded while decoding
+    this.decoded.set(seq, buf);
+    this.drainSchedule();
     /* eslint-enable no-console */
+  }
+
+  /** Schedule every contiguous decoded chunk from scheduleSeq onward, gapless. */
+  /* istanbul ignore next — browser-only Web Audio */
+  private drainSchedule(): void {
+    const ctx = this.audioCtx;
+    if (!ctx) return;
+    while (this.decoded.has(this.scheduleSeq)) {
+      const buf = this.decoded.get(this.scheduleSeq) ?? null;
+      this.decoded.delete(this.scheduleSeq);
+      this.scheduleSeq++;
+      if (!buf) continue; // failed-decode tombstone: skip but keep order
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      const gain = ctx.createGain();
+      gain.gain.value = this.voiceGain(); // 0 when muted — still scheduled, just silent
+      src.connect(gain).connect(ctx.destination);
+      const startAt = Math.max(ctx.currentTime, this.scheduleCursor);
+      src.start(startAt);
+      this.scheduleCursor = startAt + buf.duration;
+      this.liveSources.add(src);
+      src.onended = (): void => { this.liveSources.delete(src); };
+    }
   }
 
   /* istanbul ignore next — browser-only: read the live voice-bus gain */
