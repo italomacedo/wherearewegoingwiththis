@@ -11,9 +11,9 @@ export interface ConversationState {
   history: Exchange[];
 }
 
-export const GRADUATION_THRESHOLD_CHARS = 6000;
+export const GRADUATION_THRESHOLD_CHARS = 2500;
 export const MAX_PERSISTED_EXCHANGES = 20;
-export const PROMPT_HISTORY_WINDOW = 5;
+export const PROMPT_HISTORY_WINDOW = 3;
 
 /**
  * Tracks a single NPC's conversation: rolling history, size, and the

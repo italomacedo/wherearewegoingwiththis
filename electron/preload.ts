@@ -6,6 +6,14 @@ export interface ClaudeQueryParams {
   claudePath: string;
   sessionId?: string;
   useSession?: boolean;
+  /** Continue an existing session (--resume) instead of creating it (--session-id). */
+  resumeSession?: boolean;
+  /** Static NPC persona — passed as --system-prompt arg for prompt caching. */
+  systemPrompt?: string;
+  /** Model alias (e.g. 'haiku') for --model — cheap model for game NPC calls. */
+  model?: string;
+  /** Reasoning effort (e.g. 'low') for --effort — minimizes thinking tokens. */
+  effort?: string;
 }
 
 export interface ElectronAPI {
