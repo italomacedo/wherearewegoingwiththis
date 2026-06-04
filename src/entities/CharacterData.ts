@@ -323,6 +323,24 @@ export function resolveAvatarParts(
   return { head: pick('head'), top: pick('top'), bottom: pick('bottom') };
 }
 
+/**
+ * Return a COPY of `base` with worn-armor molds overlaid onto `avatarPieces` for the
+ * given regions (head/top/bottom → an outfit mold key). The saved appearance is never
+ * mutated — armor is a render-time overlay so unequipping reverts to the base look.
+ * Regions with no armor keep the base piece. Pure + testable (Phase 15).
+ */
+export function applyArmorOverlay(
+  base: CharacterAppearance,
+  armorParts: Partial<Record<AvatarPartRegion, string>>,
+): CharacterAppearance {
+  const pieces: Record<string, string | null> = { ...(base.avatarPieces ?? {}) };
+  (['head', 'top', 'bottom'] as AvatarPartRegion[]).forEach((region) => {
+    const mold = armorParts[region];
+    if (mold) pieces[region] = mold;
+  });
+  return { ...base, avatarPieces: pieces };
+}
+
 // ─── Accessors (callers never reach into raw fields) ────────────────────────────
 
 export function getSkinTone(a: CharacterAppearance): string {

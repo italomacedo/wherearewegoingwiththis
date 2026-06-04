@@ -169,6 +169,22 @@ export function armorMoldFor(tier: ArmorTier, gender: Gender): string {
   return ARMOR_MOLDS[tier][gender];
 }
 
+/**
+ * Resolve equipped armor item ids into a region → outfit-mold map for the avatar
+ * overlay (gender-correct). Non-armor ids are ignored. Pure (Phase 15).
+ */
+export function armorOverlayParts(
+  equippedArmorIds: readonly string[],
+  gender: Gender,
+): Partial<Record<ArmorRegion, string>> {
+  const parts: Partial<Record<ArmorRegion, string>> = {};
+  for (const id of equippedArmorIds) {
+    const def = ITEM_BY_ID.get(id);
+    if (def?.armorTier && def.armorRegion) parts[def.armorRegion] = armorMoldFor(def.armorTier, gender);
+  }
+  return parts;
+}
+
 export const WEAPON_REGISTRY: Readonly<Record<string, WeaponDef>> = Object.freeze({
   knife:   { id: 'knife',   attackKind: 'melee', skill: 'combate_corpo_a_corpo', damageBase: 12, variance: 6, range: 1 },
   pipe:    { id: 'pipe',    attackKind: 'melee', skill: 'combate_corpo_a_corpo', damageBase: 15, variance: 6, range: 1 },

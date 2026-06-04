@@ -3,7 +3,7 @@ import {
   itemDef, weaponDef, isWeapon, isMeleeWeapon, isFirearm, itemWeight, itemMaxStack, weaponProfile,
   itemEquipSlot, itemCapacityBonus, itemHungerRestore, itemModelPath, itemAttach,
   isArmor, itemArmorTier, itemArmorRegion, itemDamageReduction, armorPieceReduction, armorMoldFor,
-  ARMOR_SLOTS, ARMOR_OUTFIT_KEYS, ARMOR_FULL_SET_REDUCTION,
+  armorOverlayParts, ARMOR_SLOTS, ARMOR_OUTFIT_KEYS, ARMOR_FULL_SET_REDUCTION,
 } from '../../../../src/entities/items/ItemCatalog';
 import { FIST_PROFILE } from '../../../../src/systems/combat/CombatMath';
 
@@ -139,6 +139,15 @@ describe('ItemCatalog', () => {
 
     it('ARMOR_OUTFIT_KEYS lists exactly the molds removed from the creator', () => {
       expect([...ARMOR_OUTFIT_KEYS].sort()).toEqual(['spacesuit', 'swat', 'w_scifi', 'w_soldier']);
+    });
+
+    it('armorOverlayParts maps equipped armor ids → gender-correct region molds', () => {
+      const male = armorOverlayParts(['armor_tac_head', 'armor_spc_top'], 'male');
+      expect(male).toEqual({ head: 'swat', top: 'spacesuit' });
+      const female = armorOverlayParts(['armor_tac_head', 'armor_tac_legs'], 'female');
+      expect(female).toEqual({ head: 'w_soldier', bottom: 'w_soldier' });
+      expect(armorOverlayParts(['knife'], 'male')).toEqual({}); // non-armor ignored
+      expect(armorOverlayParts([], 'male')).toEqual({});
     });
   });
 });
