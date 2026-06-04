@@ -1,89 +1,99 @@
-/* istanbul ignore file -- browser-only Babylon scenery; the collider DATA + tile
- * math it consumes (WorldGrid/SeededRng) are unit-tested. Verified in Electron. */
+/* istanbul ignore file -- browser-only Babylon scenery; the tile DATA it consumes
+ * (ThemeRegistry.generateTile / WorldGrid colliders) is unit-tested. Verified in Electron. */
 
 /**
- * TileScenery — the BROWSER content of one procedural mosaic tile (Fase 17B).
+ * TileScenery — the BROWSER content of one procedural mosaic tile (Fase 17).
  *
- * Phase B keeps this deliberately trivial (a themed ground plane + a few emissive
- * placeholder structures + the tile's world-border invisible walls) purely to
- * validate seamless streaming + multi-tile physics. Phase C replaces the visuals
- * with real GLBs from `generateTile`. The single shared world floor lives in
- * GameWorldScene; tiles add only their visuals + border-wall colliders.
+ * Loads the tile's generated props (real GLBs, via the same LoadAssetContainerAsync
+ * + holder pattern as MercadoSombrasZone.loadRealAssets), builds a themed ground
+ * plane, and adds the tile's world-border invisible walls. Solid props + border
+ * walls get static box colliders. A missing/failed GLB is skipped (tolerant loader).
  *
- * All meshes/aggregates are tracked and disposed together when the tile unloads
- * (mirrors MercadoSombrasZone.onUnload's holder/collider/aggregate discipline).
+ * All meshes/holders/aggregates are tracked and disposed together when the tile
+ * unloads. The single shared world floor lives in GameWorldScene.
  */
 
 import {
-  Scene, MeshBuilder, StandardMaterial, Color3, AbstractMesh,
+  Scene, MeshBuilder, StandardMaterial, Color3, AbstractMesh, TransformNode,
   PhysicsAggregate, PhysicsShapeType, Vector3,
 } from '@babylonjs/core';
-import {
-  TILE_SIZE, tileCenter, tileLocalToWorld, borderWallColliders,
-} from '@systems/world/WorldGrid';
-import { tileRng, intRange, range } from '@systems/world/SeededRng';
-import type { RollFn } from '@systems/SkillCheck';
+import { TILE_SIZE, tileCenter, borderWallColliders, type TileCoord } from '@systems/world/WorldGrid';
+import { tileRng, range } from '@systems/world/SeededRng';
+import type { TileProp } from '@assets/world/ThemeRegistry';
 
 export class TileScenery {
   private meshes: AbstractMesh[] = [];
+  private holders: TransformNode[] = [];
   private aggregates: PhysicsAggregate[] = [];
+  private disposed = false;
 
   constructor(
     private readonly scene: Scene,
-    private readonly tx: number,
-    private readonly tz: number,
+    private readonly coord: TileCoord,
+    private readonly props: TileProp[],
     private readonly worldSeed: number,
   ) {}
 
-  build(): void {
-    const rng = tileRng(this.worldSeed, this.tx, this.tz);
-    this.buildGround(rng);
-    this.buildPlaceholders(rng);
+  async build(): Promise<void> {
+    this.buildGround();
     this.buildBorderWalls();
+    await this.loadProps();
   }
 
-  private buildGround(rng: RollFn): void {
-    const [cx, , cz] = tileCenter(this.tx, this.tz);
-    const ground = MeshBuilder.CreateGround(
-      `tile-ground-${this.tx}-${this.tz}`, { width: TILE_SIZE, height: TILE_SIZE }, this.scene,
-    );
-    ground.position.set(cx, 0.0, cz);
-    const mat = new StandardMaterial(`tile-ground-mat-${this.tx}-${this.tz}`, this.scene);
-    // A seeded dark tint so each procedural tile reads as distinct from its neighbors.
-    mat.diffuseColor = new Color3(0.10 + range(rng, 0, 0.12), 0.10 + range(rng, 0, 0.12), 0.14 + range(rng, 0, 0.14));
+  private buildGround(): void {
+    const { tx, tz } = this.coord;
+    const rng = tileRng(this.worldSeed, tx, tz);
+    const [cx, , cz] = tileCenter(tx, tz);
+    const ground = MeshBuilder.CreateGround(`tile-ground-${tx}-${tz}`, { width: TILE_SIZE, height: TILE_SIZE }, this.scene);
+    ground.position.set(cx, 0, cz);
+    const mat = new StandardMaterial(`tile-ground-mat-${tx}-${tz}`, this.scene);
+    mat.diffuseColor = new Color3(0.16 + range(rng, 0, 0.06), 0.16 + range(rng, 0, 0.06), 0.19 + range(rng, 0, 0.06));
     mat.specularColor = new Color3(0, 0, 0);
     ground.material = mat;
     this.meshes.push(ground);
   }
 
-  private buildPlaceholders(rng: RollFn): void {
-    // A handful of emissive "buildings" so crossing into the tile is obvious.
-    const count = intRange(rng, 2, 5);
-    for (let i = 0; i < count; i++) {
-      const h = range(rng, 4, 12);
-      const w = range(rng, 3, 7);
-      const lx = range(rng, -24, 24);
-      const lz = range(rng, -24, 24);
-      const [x, , z] = tileLocalToWorld(this.tx, this.tz, [lx, h / 2, lz]);
-      const box = MeshBuilder.CreateBox(`tile-bld-${this.tx}-${this.tz}-${i}`, { width: w, height: h, depth: w }, this.scene);
-      box.position.set(x, h / 2, z);
-      const mat = new StandardMaterial(`tile-bld-mat-${this.tx}-${this.tz}-${i}`, this.scene);
-      mat.diffuseColor = new Color3(0.05, 0.05, 0.08);
-      mat.emissiveColor = new Color3(range(rng, 0, 0.3), range(rng, 0, 0.4), range(rng, 0.2, 0.6));
-      box.material = mat;
-      this.meshes.push(box);
-      this.addCollider(box.position, new Vector3(w, h, w), `tile-col-bld-${this.tx}-${this.tz}-${i}`);
-    }
-  }
-
   private buildBorderWalls(): void {
-    for (const c of borderWallColliders(this.tx, this.tz)) {
+    for (const c of borderWallColliders(this.coord.tx, this.coord.tz)) {
       this.addCollider(
         new Vector3(c.position[0], c.position[1], c.position[2]),
         new Vector3(c.size[0], c.size[1], c.size[2]),
         c.key,
       );
     }
+  }
+
+  private async loadProps(): Promise<void> {
+    const { SceneLoader } = await import('@babylonjs/core');
+    await import('@babylonjs/loaders/glTF');
+    for (const p of this.props) {
+      if (this.disposed) return; // tile unloaded mid-stream
+      try {
+        const c = await SceneLoader.LoadAssetContainerAsync('/assets/', p.model, this.scene);
+        c.addAllToScene();
+        const holder = new TransformNode(p.key, this.scene);
+        holder.position.set(p.position[0], p.position[1], p.position[2]);
+        holder.rotation.y = p.rotationY ?? 0;
+        if (Array.isArray(p.scale)) holder.scaling.set(p.scale[0], p.scale[1], p.scale[2]);
+        else holder.scaling.setAll(p.scale ?? 1);
+        for (const m of c.meshes) if (!m.parent) m.parent = holder;
+        for (const t of c.transformNodes) if (!t.parent) t.parent = holder;
+        this.meshes.push(...c.meshes);
+        this.holders.push(holder);
+        if (p.solid) this.addSolidCollider(holder, p.key);
+      } catch {
+        // missing/failed GLB → skip (tolerant, like loadRealAssets)
+      }
+    }
+  }
+
+  private addSolidCollider(holder: TransformNode, key: string): void {
+    if (!this.scene.isPhysicsEnabled()) return;
+    holder.computeWorldMatrix(true);
+    const { min, max } = holder.getHierarchyBoundingVectors(true);
+    const size = max.subtract(min);
+    if (size.x < 0.05 || size.y < 0.05 || size.z < 0.05) return;
+    this.addCollider(min.add(max).scale(0.5), size, `tile-col-${key}`);
   }
 
   private addCollider(center: Vector3, size: Vector3, name: string): void {
@@ -97,8 +107,11 @@ export class TileScenery {
   }
 
   dispose(): void {
+    this.disposed = true;
     this.aggregates.forEach((a) => a.dispose());
     this.aggregates = [];
+    this.holders.forEach((h) => h.dispose());
+    this.holders = [];
     this.meshes.forEach((m) => m.dispose());
     this.meshes = [];
   }

@@ -77,6 +77,7 @@ import { COMBAT_OBSTACLES, COMBAT_BOUNDS, ZONE_HALF } from '@assets/WorldAssetCa
 import { WorldStreamer } from '@systems/world/WorldStreamer';
 import { TileScenery } from '@systems/world/TileScenery';
 import { tileOf, tileKey, worldFloorBox, type TileCoord } from '@systems/world/WorldGrid';
+import { generateTile } from '@assets/world/ThemeRegistry';
 
 export class GameWorldScene extends BaseScene {
   /** Setting used for the ambient "react to surroundings" narration (global chat). */
@@ -93,6 +94,8 @@ export class GameWorldScene extends BaseScene {
   private worldStreamer: WorldStreamer | null = null;
   /** Live procedural tile content keyed by "tx,tz" (tile (0,0) = the static zone). */
   private tileScenery = new Map<string, TileScenery>();
+  /** NPC ids spawned for each streamed tile (for selective despawn on unload). */
+  private tileNpcIds = new Map<string, string[]>();
   /** World seed for deterministic tile generation (from the save; Phase D persists it). */
   private worldSeed = 1;
   private clock = new GameClock(); // wall-clock mode by default (mirrors the PC clock)
@@ -470,25 +473,60 @@ export class GameWorldScene extends BaseScene {
     this.worldStreamer.setCurrent(tileOf(spawn.x, spawn.z));
   }
 
-  /** Build a procedural neighbor tile's content (skip (0,0) — that's the static zone). */
-  /* istanbul ignore next — browser-only scenery; pure tile data is unit-tested */
+  /** Build a procedural neighbor tile's content + NPCs (skip (0,0) — the static zone). */
+  /* istanbul ignore next — browser-only scenery/NPCs; the tile DATA is unit-tested */
   private loadTile(c: TileCoord): void {
     if (c.tx === 0 && c.tz === 0) return; // the static downtown zone owns this tile
     if (typeof document === 'undefined') return; // headless: bookkeeping only
     const key = tileKey(c.tx, c.tz);
     if (this.tileScenery.has(key)) return;
-    const scenery = new TileScenery(this.babylonScene, c.tx, c.tz, this.worldSeed);
-    scenery.build();
+    const gen = generateTile(c.tx, c.tz, this.worldSeed);
+    const scenery = new TileScenery(this.babylonScene, gen.coord, gen.props, this.worldSeed);
+    void scenery.build();
     this.tileScenery.set(key, scenery);
+    void this.spawnTileNpcs(key, gen.npcDefs);
   }
 
-  /** Tear down a procedural neighbor tile (the static (0,0) zone is never unloaded). */
-  /* istanbul ignore next — browser-only scenery disposal */
+  /** Spawn a streamed tile's procedural NPCs (logical agents + avatars + capsules). */
+  /* istanbul ignore next — browser-only NPC visuals; NPCManager.spawnTile is unit-tested */
+  private async spawnTileNpcs(key: string, defs: NPCDefinition[]): Promise<void> {
+    if (!this.npcManager || defs.length === 0) return;
+    this.npcManager.spawnTile(key, defs, this.npcMemory);
+    const ids: string[] = [];
+    for (const def of defs) {
+      if (!this.tileScenery.has(key)) break; // tile unloaded mid-spawn
+      await this.buildNPCVisual(def);
+      const holder = this.npcHolderById.get(def.id);
+      if (holder && this.babylonScene.isPhysicsEnabled()) this.buildNpcCapsule(def.id, holder);
+      ids.push(def.id);
+    }
+    this.tileNpcIds.set(key, ids);
+  }
+
+  /** Tear down a procedural neighbor tile + its NPCs (the static (0,0) zone never unloads). */
+  /* istanbul ignore next — browser-only scenery/NPC disposal */
   private unloadTile(c: TileCoord): void {
     if (c.tx === 0 && c.tz === 0) return;
     const key = tileKey(c.tx, c.tz);
     this.tileScenery.get(key)?.dispose();
     this.tileScenery.delete(key);
+    for (const id of this.tileNpcIds.get(key) ?? []) this.disposeNpcById(id);
+    this.tileNpcIds.delete(key);
+    // Flush the leaving NPCs' memory into the world memory so a revisit restores it.
+    const result = this.npcManager?.despawnTile(key);
+    if (result) Object.assign(this.npcMemory, result.memory);
+  }
+
+  /** Dispose one NPC's visual + collider + held rig and forget it (streamed unload). */
+  /* istanbul ignore next — browser-only mesh/physics disposal */
+  private disposeNpcById(id: string): void {
+    const cap = this.npcCapsuleById.get(id);
+    if (cap) { cap.agg.dispose(); cap.mesh.dispose(); this.npcCapsuleById.delete(id); }
+    this.npcHeldRigById.get(id)?.dispose();
+    this.npcHeldRigById.delete(id);
+    this.npcHolderById.get(id)?.dispose();
+    this.npcHolderById.delete(id);
+    this.npcGroupsById.delete(id);
   }
 
   /** Feed the player's world position to the streamer each frame (browser only). */
@@ -704,6 +742,7 @@ export class GameWorldScene extends BaseScene {
     this.worldStreamer = null;
     this.tileScenery.forEach((s) => s.dispose());
     this.tileScenery.clear();
+    this.tileNpcIds.clear();
     this.player?.dispose();
     this.vehicle?.dispose();
     this.zoneManager?.dispose();

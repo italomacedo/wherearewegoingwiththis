@@ -64,6 +64,8 @@ export interface AutonomyResult {
 export class NPCManager {
   private agents = new Map<string, NPCAgent>();
   private cooldowns = new Map<string, number>();
+  /** Which NPC ids belong to each streamed tile (Fase 17), keyed by "tx,tz". */
+  private tileAgents = new Map<string, Set<string>>();
   private service: ClaudeNPCService | null;
 
   constructor(service: ClaudeNPCService | null = null) {
@@ -286,18 +288,70 @@ export class NPCManager {
 
   // ─── Save / load memory ───────────────────────────────────────────────────
 
+  /** The full persisted memory entry for one agent. */
+  private memoryOf(agent: NPCAgent): NPCMemoryEntry {
+    return {
+      ...agent.conversation.toState(),
+      disposition: agent.getDisposition(),
+      relationships: agent.relationshipsRecord(),
+      events: agent.getKnownEvents(),
+      inventory: agent.getInventoryState(),
+    };
+  }
+
   serializeMemory(): NPCMemoryMap {
     const map: NPCMemoryMap = {};
-    this.agents.forEach((agent, id) => {
-      map[id] = {
-        ...agent.conversation.toState(),
-        disposition: agent.getDisposition(),
-        relationships: agent.relationshipsRecord(),
-        events: agent.getKnownEvents(),
-        inventory: agent.getInventoryState(),
-      };
-    });
+    this.agents.forEach((agent, id) => { map[id] = this.memoryOf(agent); });
     return map;
+  }
+
+  /**
+   * Spawn one NPC, restoring ALL persisted state by its id (conversation,
+   * disposition, NPC↔NPC ledger, witnessed events, inventory). Shared by the
+   * static (0,0) setup and per-tile streaming (Fase 17).
+   */
+  spawnWithMemory(def: NPCDefinition, memory: NPCMemoryMap | undefined): NPCAgent {
+    const agent = this.spawn(def, NPCManager.restoreConversation(memory, def.id));
+    agent.setDisposition(NPCManager.restoreDisposition(memory, def.id, def.initialDisposition ?? 'neutral'));
+    const ledger = NPCManager.restoreRelationships(memory, def.id);
+    if (ledger) agent.restoreRelationships(ledger);
+    agent.restoreEvents(NPCManager.restoreEvents(memory, def.id));
+    agent.restoreInventory(NPCManager.restoreInventory(memory, def.id));
+    return agent;
+  }
+
+  /** Spawn a streamed tile's NPCs, tracked by tile key for later despawn (Fase 17). */
+  spawnTile(tileKey: string, defs: NPCDefinition[], memory: NPCMemoryMap | undefined): NPCAgent[] {
+    const ids = this.tileAgents.get(tileKey) ?? new Set<string>();
+    const spawned: NPCAgent[] = [];
+    for (const def of defs) {
+      spawned.push(this.spawnWithMemory(def, memory));
+      ids.add(def.id);
+    }
+    this.tileAgents.set(tileKey, ids);
+    return spawned;
+  }
+
+  /** The NPC ids currently spawned for a streamed tile. */
+  tileNpcIds(tileKey: string): string[] {
+    return [...(this.tileAgents.get(tileKey) ?? [])];
+  }
+
+  /**
+   * Remove a streamed tile's NPCs and return their ids + a memory sub-map (so the
+   * scene can persist their state into the world delta and dispose their visuals).
+   */
+  despawnTile(tileKey: string): { ids: string[]; memory: NPCMemoryMap } {
+    const ids = this.tileNpcIds(tileKey);
+    const memory: NPCMemoryMap = {};
+    for (const id of ids) {
+      const agent = this.agents.get(id);
+      if (agent) memory[id] = this.memoryOf(agent);
+      this.agents.delete(id);
+      this.cooldowns.delete(id);
+    }
+    this.tileAgents.delete(tileKey);
+    return { ids, memory };
   }
 
   /** Returns a ConversationContext restored from saved memory, or a fresh one. */
@@ -342,5 +396,6 @@ export class NPCManager {
   dispose(): void {
     this.agents.clear();
     this.cooldowns.clear();
+    this.tileAgents.clear();
   }
 }

@@ -349,6 +349,60 @@ describe('NPCManager autonomy (Fase 5)', () => {
   });
 });
 
+describe('NPCManager tile streaming (Fase 17)', () => {
+  const defs: NPCDefinition[] = [
+    { ...createZara(), id: 'civ_t1_0_0' },
+    { ...createZara(), id: 'civ_t1_0_1', initialDisposition: 'neutral' },
+  ];
+
+  it('spawnTile spawns + tracks ids; despawnTile removes them + returns memory', () => {
+    const m = new NPCManager();
+    const agents = m.spawnTile('1,0', defs, undefined);
+    expect(agents).toHaveLength(2);
+    expect(m.tileNpcIds('1,0').sort()).toEqual(['civ_t1_0_0', 'civ_t1_0_1']);
+    expect(m.getAgent('civ_t1_0_0')).not.toBeNull();
+
+    const { ids, memory } = m.despawnTile('1,0');
+    expect(ids.sort()).toEqual(['civ_t1_0_0', 'civ_t1_0_1']);
+    expect(Object.keys(memory).sort()).toEqual(['civ_t1_0_0', 'civ_t1_0_1']);
+    expect(m.getAgent('civ_t1_0_0')).toBeNull();
+    expect(m.tileNpcIds('1,0')).toEqual([]);
+    m.dispose();
+  });
+
+  it('despawnTile preserves disposition so a reload restores it', () => {
+    const m = new NPCManager();
+    m.spawnTile('2,3', defs, undefined);
+    m.getAgent('civ_t1_0_0')!.setDisposition('friendly');
+    const { memory } = m.despawnTile('2,3');
+    expect(memory['civ_t1_0_0'].disposition).toBe('friendly');
+
+    const m2 = new NPCManager();
+    m2.spawnTile('2,3', defs, memory);
+    expect(m2.getAgent('civ_t1_0_0')!.getDisposition()).toBe('friendly');
+    m.dispose(); m2.dispose();
+  });
+
+  it('despawnTile of an unknown tile is a no-op', () => {
+    const m = new NPCManager();
+    expect(m.despawnTile('9,9')).toEqual({ ids: [], memory: {} });
+    m.dispose();
+  });
+
+  it('spawnWithMemory restores the full persisted entry', () => {
+    const m = new NPCManager();
+    const memory = {
+      civ_t1_0_0: {
+        mode: 'stateless' as const, sessionId: null, history: [],
+        disposition: 'hostile' as const,
+      },
+    };
+    const agent = m.spawnWithMemory(defs[0], memory);
+    expect(agent.getDisposition()).toBe('hostile');
+    m.dispose();
+  });
+});
+
 // ─── helpers ──────────────────────────────────────────────────────────────
 
 function makeService(reply: string): { service: ClaudeNPCService } {
