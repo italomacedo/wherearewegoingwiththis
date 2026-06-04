@@ -27,6 +27,12 @@ import { GameClock, DayPeriod } from '@systems/GameClock';
 import { CharacterAppearance, DEFAULT_APPEARANCE, applyArmorOverlay } from '@entities/CharacterData';
 import { Inventory, defaultInventoryState } from '@entities/Inventory';
 import { weaponProfile, itemDef, isMeleeWeapon, isFirearm, armorOverlayParts } from '@entities/items/ItemCatalog';
+import {
+  canTrade, canOfferMission, priceFor, sellableItems, creditBalance, payCredits, grantCredits,
+} from '@systems/economy/Economy';
+import {
+  Mission, RewardOffer, validateMissionOffer, completeMission,
+} from '@systems/economy/Missions';
 import { InventoryOverlay } from '@systems/InventoryOverlay';
 import { HeldItemRig, resolveAttachWith, boneFor, AttachOverrides, flashlightActive, holdsAimPose } from '@systems/HeldItems';
 import { AdjustOverlay } from '@systems/AdjustOverlay';
@@ -48,7 +54,7 @@ import { createZara } from '@entities/npcs/zara';
 import { createMback } from '@entities/npcs/mback';
 import { PlayerAction, NPCDefinition, NPCAgent, friendlyFireDefection } from '@entities/NPCAgent';
 import { CharacterAssembler, AssembledCharacter } from '@systems/CharacterAssembler';
-import { WorldSnapshot } from '@systems/npc/PromptBuilder';
+import { WorldSnapshot, PromptBuilder } from '@systems/npc/PromptBuilder';
 import { resolveAddressee, AddressCandidate, stripShout } from '@systems/npc/Addressing';
 import { hasEmote, isCheckTimeEmote, isSelfExamEmote, narrateTime, ActionClassification } from '@systems/npc/EmoteIntent';
 import {
@@ -200,6 +206,10 @@ export class GameWorldScene extends BaseScene {
   private playerName = 'Operative';
   private playerStats: CharacterStats = createDefaultStats();
   private playerInventory: Inventory = new Inventory();
+  // Economy (Phase 16): active/complete kill-contracts + the last pending in-chat offer.
+  private missions: Mission[] = [];
+  private pendingTrade: { npcId: string; itemId: string; price: number } | null = null;
+  private pendingMission: Mission | null = null;
   private gameTimeSeconds = 0;
   private saveId = '';
   private spawnOverride: Vector3 | null = null;
@@ -243,6 +253,7 @@ export class GameWorldScene extends BaseScene {
     this.gameTimeSeconds = session.gameTimeSeconds;
     this.playerHealthState = session.playerHealth ?? { ...DEFAULT_PLAYER_HEALTH };
     this.playerHunger = Hunger.fromState(session.playerHunger);
+    this.missions = session.missions ?? [];
     this.vehicleState = session.vehicle ?? {
       health: { ...DEFAULT_VEHICLE_STATE.health }, destroyed: false,
     };
@@ -277,7 +288,7 @@ export class GameWorldScene extends BaseScene {
     const playerHunger = this.playerHunger.toState();
     SaveService.save({
       ...save, character, world, gameTimeSeconds: this.gameTimeSeconds, npcMemory: memory, playerHealth, vehicle, inventory,
-      heldAttach: this.heldAttach, playerHunger,
+      heldAttach: this.heldAttach, playerHunger, missions: this.missions,
     });
 
     const session = ServiceLocator.tryGet<GameSession>('gameSession');
@@ -291,6 +302,7 @@ export class GameWorldScene extends BaseScene {
       session.inventory = inventory;
       session.heldAttach = this.heldAttach;
       session.playerHunger = playerHunger;
+      session.missions = this.missions;
     }
   }
 
@@ -1672,6 +1684,7 @@ export class GameWorldScene extends BaseScene {
         if (!c.alive) {
           agent.markDefeated();
           this.playCombatClip(c.id, 'death', true); // hold the downed pose
+          this.completeMissionsAgainst(c.id); // Phase 16: pay out any contract on this target
         } else if (outcome !== 'player_lost' && this.combatPlayerSide && c.side !== this.combatPlayerSide) {
           agent.setDisposition('wary');
         }
@@ -2008,11 +2021,108 @@ export class GameWorldScene extends BaseScene {
         this.dialog.setNpcText(reply);
         if (agent.revealNameIfMentioned(reply)) this.dialog.setNpcName(agent.definition.name);
         this.speakNpc(agent, reply); // voice the NPC's spoken words (TTS, fail-open)
+        void this.maybeHandleCommerce(agent, reply, message); // Phase 16 trade/mission
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       this.dialog.setNpcText(`( Claude error: ${msg.slice(0, 180)} )`);
     }
+  }
+
+  /** Display name for an item id (i18n), e.g. for a buy confirmation line. */
+  private itemName(id: string): string {
+    const def = itemDef(id);
+    return def ? t(def.nameKey) : id;
+  }
+
+  /**
+   * Phase 16 commerce: after a negotiable NPC's reply, classify the exchange for a
+   * trade/mission offer + the player's acceptance, track a pending offer, and
+   * execute on acceptance. Browser-only; the pricing/validation it calls is pure.
+   */
+  /* istanbul ignore next — browser-only chat-commerce wiring (pure core tested) */
+  private async maybeHandleCommerce(agent: NPCAgent, npcReply: string, playerMessage: string): Promise<void> {
+    if (!this.npcManager || !this.dialog) return;
+    const id = agent.definition.id;
+    const disp = agent.getDisposition();
+    if (!canTrade(disp)) { this.pendingTrade = null; this.pendingMission = null; return; }
+
+    const sellable = sellableItems(agent.getInventory());
+    const liveIds = this.npcManager.liveNpcIds();
+    const rivals = liveIds.filter((other) => other !== id && agent.isAntagonisticToward(other));
+    const hasPending = (this.pendingTrade?.npcId === id) || (this.pendingMission?.giverId === id);
+    if (sellable.length === 0 && rivals.length === 0 && !hasPending) return;
+
+    const parse = await this.npcManager.classifyCommerce(id, npcReply, playerMessage, sellable, rivals);
+
+    // Register a freshly-offered deal as pending (priced/validated deterministically).
+    if (parse.offer === 'trade' && parse.itemId) {
+      this.pendingTrade = { npcId: id, itemId: parse.itemId, price: priceFor(parse.itemId, disp) };
+    } else if (parse.offer === 'mission' && parse.targetId && canOfferMission(disp)) {
+      const reward: RewardOffer = parse.rewardItemId
+        ? { kind: 'item', itemId: parse.rewardItemId }
+        : { kind: 'credits', credits: parse.rewardCredits };
+      const m = validateMissionOffer(agent, id, parse.targetId, reward, liveIds);
+      if (m) this.pendingMission = m;
+    }
+
+    if (!parse.accept) return;
+    if (this.pendingTrade && this.pendingTrade.npcId === id) this.executePendingTrade(agent);
+    else if (this.pendingMission && this.pendingMission.giverId === id) this.acceptPendingMission();
+  }
+
+  /* istanbul ignore next — browser-only trade execution (Economy core tested) */
+  private executePendingTrade(agent: NPCAgent): void {
+    const trade = this.pendingTrade;
+    if (!trade || !this.dialog) return;
+    this.pendingTrade = null;
+    const npcInv = agent.getInventory();
+    if (!npcInv.has(trade.itemId)) return; // sold/looted already
+    if (creditBalance(this.playerInventory) < trade.price) {
+      this.dialog.addSystemLine(t('economy.noCredits'));
+      this.sfx('ui_error');
+      return;
+    }
+    npcInv.transferTo(this.playerInventory, trade.itemId, 1);
+    payCredits(this.playerInventory, trade.price);   // player pays …
+    grantCredits(npcInv, trade.price);               // … the NPC receives
+    this.dialog.addSystemLine(t('economy.bought', { item: this.itemName(trade.itemId), price: trade.price }));
+    this.sfx('ui_click');
+    this.persistSession();
+    void this.syncPlayerHeldItems();
+  }
+
+  /* istanbul ignore next — browser-only mission accept (Missions core tested) */
+  private acceptPendingMission(): void {
+    const mission = this.pendingMission;
+    if (!mission || !this.dialog) return;
+    this.pendingMission = null;
+    if (this.missions.some((m) => m.id === mission.id && m.status === 'active')) return; // already taken
+    this.missions.push(mission);
+    const target = this.npcManager?.getAgent(mission.targetId)?.getDisplayName() ?? mission.targetId;
+    this.dialog.addSystemLine(t('economy.missionAccepted', { target }));
+    this.sfx('ui_click');
+    this.persistSession();
+  }
+
+  /**
+   * On an NPC's defeat, complete any active contract targeting it: transfer the
+   * reward from the giver, improve the giver's disposition, and record the deed so
+   * the giver brings it up. Narrates the payoff.
+   */
+  /* istanbul ignore next — browser-only mission completion (Missions core tested) */
+  private completeMissionsAgainst(defeatedId: string): void {
+    if (!this.npcManager) return;
+    for (const mission of this.missions) {
+      if (mission.status !== 'active' || mission.targetId !== defeatedId) continue;
+      const giver = this.npcManager.getAgent(mission.giverId);
+      if (!giver) { mission.status = 'complete'; continue; }
+      const { mission: done } = completeMission(mission, this.playerInventory, giver);
+      mission.status = done.status;
+      giver.rememberEvent(`paid ${this.playerName} for taking out ${this.npcManager.getAgent(defeatedId)?.getDisplayName() ?? defeatedId}`);
+      this.dialog?.addNarrationLine(t('economy.missionComplete', { giver: giver.getDisplayName() }));
+    }
+    this.persistSession();
   }
 
   /**
@@ -2124,7 +2234,34 @@ export class GameWorldScene extends BaseScene {
       playerAction: this.derivePlayerAction(),
       recentEvents: agent.getRecentEvents(), // e.g. "X was killed" — so the NPC knows
       language: languageName(getLocale()),
+      extraContext: this.commerceContextFor(agent),
     };
+  }
+
+  /**
+   * Phase 16: the commerce "levers" for a negotiable NPC (what it could sell at the
+   * disposition price, which present rivals it could pay to have removed). Empty for
+   * a hostile NPC or one with nothing to offer. Browser-only (the pure formatter is tested).
+   */
+  /* istanbul ignore next — browser-only commerce context assembly */
+  private commerceContextFor(agent: NPCAgent): string | undefined {
+    if (!this.npcManager) return undefined;
+    const disp = agent.getDisposition();
+    if (!canTrade(disp)) return undefined;
+    const sellable = sellableItems(agent.getInventory()).map((id) => ({ name: this.itemName(id), price: priceFor(id, disp) }));
+    const id = agent.definition.id;
+    const rivals = this.npcManager.liveNpcIds()
+      .filter((other) => other !== id && agent.isAntagonisticToward(other))
+      .map((other) => this.npcManager!.getAgent(other)?.getDisplayName() ?? other);
+    const inv = agent.getInventory();
+    const payableItems = sellableItems(inv).map((i) => this.itemName(i));
+    const ctx = PromptBuilder.buildCommerceContext({
+      sellable,
+      rivals: canOfferMission(disp) ? rivals : [],
+      payableCredits: creditBalance(inv),
+      payableItems,
+    });
+    return ctx || undefined;
   }
 
   /** Player position + facing for the addressing resolver. */

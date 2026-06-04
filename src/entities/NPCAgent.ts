@@ -32,6 +32,12 @@ export function worsenedDisposition(d: NPCDisposition): NPCDisposition {
   return DISPOSITION_SCALE[Math.max(i - 1, 0)]!;
 }
 
+/** One step better toward friendly (clamped). */
+export function improvedDisposition(d: NPCDisposition): NPCDisposition {
+  const i = DISPOSITION_SCALE.indexOf(d);
+  return DISPOSITION_SCALE[Math.min(i + 1, DISPOSITION_SCALE.length - 1)]!;
+}
+
 /** How far a disposition sits from neutral (0..2) — the "pull strength" for side-taking. */
 export function dispositionMagnitude(d: NPCDisposition): number {
   return Math.abs(DISPOSITION_SCALE.indexOf(d) - DISPOSITION_SCALE.indexOf('neutral'));
@@ -143,6 +149,15 @@ export class NPCAgent {
    */
   worsenDisposition(): NPCDisposition {
     this.disposition = worsenedDisposition(this.disposition);
+    return this.disposition;
+  }
+
+  /**
+   * Improve the disposition one step toward friendly (hostile→wary→neutral→
+   * friendly, clamped). Returns the new value. Used by mission rewards (Phase 16).
+   */
+  improveDisposition(): NPCDisposition {
+    this.disposition = improvedDisposition(this.disposition);
     return this.disposition;
   }
 

@@ -155,7 +155,9 @@ describe('ClaudeNPCService', () => {
     const params = lastParams.value as { useSession?: boolean; resumeSession?: boolean; prompt: string; systemPrompt?: string };
     expect(params.useSession).toBe(true);
     expect(params.resumeSession).toBe(true); // continue (--resume), don't re-create the session
-    expect(params.systemPrompt).toBeUndefined(); // no persona on subsequent session turns
+    // Persona rides EVERY session turn — `--resume` doesn't re-apply the original
+    // `--system-prompt`, so omitting it makes the NPC revert to the default identity.
+    expect(params.systemPrompt).toContain('Zara');
     expect(params.prompt).toContain('and now?');
   });
 
@@ -258,6 +260,31 @@ describe('ClaudeNPCService', () => {
     const service = new ClaudeNPCService({ claudePath: 'claude', bridge });
     const r = await service.classifyAction('npc_zara', '*does a thing*');
     expect(r.deterministic).toBe(false);
+  });
+
+  it('classifyCommerce parses a trade offer + acceptance, scoped to a commerce id', async () => {
+    const { bridge, lastParams } = makeBridge(
+      'OFFER=trade\nITEM=knife\nTARGET=none\nREWARD_ITEM=none\nREWARD_CREDITS=0\nACCEPT=yes',
+    );
+    const service = new ClaudeNPCService({ claudePath: 'claude', bridge });
+    const r = await service.classifyCommerce('npc_mback', 'I can sell you a knife.', 'deal', ['knife'], ['zara']);
+    expect(r.offer).toBe('trade');
+    expect(r.itemId).toBe('knife');
+    expect(r.accept).toBe(true);
+    const params = lastParams.value as { npcId: string };
+    expect(params.npcId).toBe('npc_mback::commerce');
+  });
+
+  it('classifyCommerce fails open to a no-op offer when the CLI errors', async () => {
+    const bridge: ClaudeBridge = {
+      claudeQuery: jest.fn(async () => { throw new Error('cli down'); }),
+      claudeCancel: jest.fn(async () => {}),
+      onClaudeResponseChunk: jest.fn(() => () => {}),
+      onClaudeResponseDone: jest.fn(() => () => {}),
+    };
+    const service = new ClaudeNPCService({ claudePath: 'claude', bridge });
+    const r = await service.classifyCommerce('npc_mback', 'x', 'y', ['knife'], ['zara']);
+    expect(r.offer).toBe('none');
   });
 
   it('narrate returns the one-shot reply, scoped to an ambient id', async () => {

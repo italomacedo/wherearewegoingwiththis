@@ -48,6 +48,24 @@ describe('NPCManager', () => {
     await expect(manager.narrateAmbient('hi', '20:00', 'street')).resolves.toBe('');
     await expect(manager.narrateOutcome('*x*', true)).resolves.toBe('');
     await expect(manager.narrateCombat('Hero lands a hit on Zara.')).resolves.toBe('');
+    await expect(manager.classifyCommerce('npc_a', 'reply', 'msg', [], [])).resolves.toMatchObject({ offer: 'none' });
+  });
+
+  it('classifyCommerce delegates to the service', async () => {
+    const svc = {
+      classifyCommerce: jest.fn().mockResolvedValue({ offer: 'trade', itemId: 'knife', targetId: null, rewardItemId: null, rewardCredits: 0, accept: true }),
+    } as unknown as ClaudeNPCService;
+    const m = new NPCManager(svc);
+    await expect(m.classifyCommerce('npc_a', 'sell knife', 'deal', ['knife'], [])).resolves.toMatchObject({ offer: 'trade', accept: true });
+    m.dispose();
+  });
+
+  it('liveNpcIds excludes defeated agents', () => {
+    const a = manager.spawn(def);
+    manager.spawn({ ...def, id: 'npc_b' });
+    expect(manager.liveNpcIds().sort()).toEqual(['npc_b', def.id].sort());
+    a.markDefeated();
+    expect(manager.liveNpcIds()).toEqual(['npc_b']);
   });
 
   it('classifyAction / narrate* delegate to the Claude service', async () => {

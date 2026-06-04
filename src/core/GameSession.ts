@@ -7,6 +7,7 @@ import { HealthState } from '@entities/Health';
 import { HungerState } from '@entities/Hunger';
 import { InventoryState, defaultInventoryState } from '@entities/Inventory';
 import type { AttachOverrides } from '@systems/HeldItems';
+import type { Mission } from '@systems/economy/Missions';
 
 export interface WorldState {
   zone: string;
@@ -38,6 +39,7 @@ export class GameSession {
     public inventory: InventoryState = defaultInventoryState(),
     public playerHunger: HungerState = { ...DEFAULT_PLAYER_HUNGER },
     public heldAttach: AttachOverrides = {},
+    public missions: Mission[] = [],
   ) {}
 
   /** Builds a session from a persisted save. */
@@ -53,6 +55,7 @@ export class GameSession {
       save.inventory ?? defaultInventoryState(),
       save.playerHunger ?? { ...DEFAULT_PLAYER_HUNGER },
       save.heldAttach ?? {},
+      save.missions ?? [],
     );
   }
 }

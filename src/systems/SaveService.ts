@@ -6,6 +6,7 @@ import { createDefaultStats } from '@entities/CharacterStats';
 import { NPCDisposition } from '@entities/NPCAgent';
 import { InventoryState, defaultInventoryState } from '@entities/Inventory';
 import type { AttachOverrides } from '@systems/HeldItems';
+import type { Mission } from '@systems/economy/Missions';
 
 /**
  * Per-NPC persisted memory: conversation state, the dynamic disposition toward the
@@ -49,6 +50,8 @@ export interface SaveGame {
   inventory: InventoryState;
   /** Per-item held-prop transform overrides tuned in-game (Adjust tool). */
   heldAttach: AttachOverrides;
+  /** Active/complete kill-contracts the player has taken on (Phase 16). */
+  missions: Mission[];
   flags: Record<string, boolean | number | string>;
   npcMemory: NPCMemory;
 }
@@ -89,6 +92,7 @@ export class SaveService {
       vehicle: { health: { ...DEFAULT_VEHICLE_STATE.health }, destroyed: false },
       inventory: defaultInventoryState(),
       heldAttach: {},
+      missions: [],
       flags: {},
       npcMemory: {},
     };
@@ -116,6 +120,12 @@ export class SaveService {
     const save = SaveService.load(saveId);
     if (!save) return;
     SaveService.save({ ...save, heldAttach });
+  }
+
+  static updateMissions(saveId: string, missions: Mission[]): void {
+    const save = SaveService.load(saveId);
+    if (!save) return;
+    SaveService.save({ ...save, missions });
   }
 
   static save(saveGame: SaveGame): void {
@@ -225,6 +235,7 @@ export class SaveService {
     }
     if (!save.inventory) save.inventory = defaultInventoryState();
     if (!save.heldAttach) save.heldAttach = {};
+    if (!save.missions) save.missions = [];
     return save;
   }
 

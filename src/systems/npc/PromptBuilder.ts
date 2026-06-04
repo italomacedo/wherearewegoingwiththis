@@ -12,6 +12,8 @@ export interface WorldSnapshot {
   recentEvents: string[]; // up to 3 short event lines
   /** Human-readable reply language for the NPC (e.g. "English"). Defaults to English. */
   language?: string;
+  /** Extra per-turn context (e.g. Phase-16 commerce levers). Appended verbatim. */
+  extraContext?: string;
 }
 
 export interface PromptInputs {
@@ -63,6 +65,8 @@ export class PromptBuilder {
     lines.push(
       `The player is ${Math.round(world.distanceMeters)}m away. Player action: ${world.playerAction}.`
     );
+
+    if (world.extraContext) lines.push(world.extraContext);
 
     if (history.length > 0) {
       lines.push('');
@@ -206,6 +210,60 @@ export class PromptBuilder {
       'whatever fits). One sentence, in character, no quotation marks, no narration.',
     );
     return lines.join('\n');
+  }
+
+  /**
+   * Commerce "levers" injected into a negotiable NPC's turn (Phase 16). Framed as
+   * latent options, NOT a pushed offer — the NPC only brings them up if the player
+   * steers there (asks to buy / looks for work). Pure; the caller computes the
+   * gender-correct prices/names and which present rivals + rewards are available.
+   */
+  static buildCommerceContext(inputs: {
+    sellable: Array<{ name: string; price: number }>;
+    rivals: string[];          // names of present NPCs this one is wary/hostile toward
+    payableCredits: number;    // credits this NPC could put up as a reward
+    payableItems: string[];    // item names this NPC could give as a reward
+  }): string {
+    const lines: string[] = [];
+    if (inputs.sellable.length > 0) {
+      lines.push(`You could sell from your own gear: ${inputs.sellable.map((s) => `${s.name} (${s.price} cr)`).join(', ')}.`);
+    }
+    if (inputs.rivals.length > 0) {
+      const reward = [
+        inputs.payableCredits > 0 ? `up to ${inputs.payableCredits} credits` : '',
+        inputs.payableItems.length > 0 ? `or one of: ${inputs.payableItems.join(', ')}` : '',
+      ].filter(Boolean).join(' ');
+      lines.push(`Rivals here you'd like gone: ${inputs.rivals.join(', ')}. You could pay ${reward || 'a favour'} to have one dealt with.`);
+    }
+    if (lines.length === 0) return '';
+    lines.push('Only bring up selling or a contract if the conversation leads there (the player asks to buy or looks for work). Stay in character.');
+    return lines.join('\n');
+  }
+
+  /**
+   * Structured commerce classifier (Phase 16). Reads the NPC's latest line + the
+   * player's reply and extracts any deal in 6 fixed lines so it parses cheaply.
+   * The valid ids are listed so the model can only pick real items/targets.
+   */
+  static buildCommerceClassifierPrompt(
+    npcReply: string, playerMessage: string, sellableIds: string[], rivalIds: string[],
+  ): string {
+    return [
+      'Detect any trade/contract in this cyberpunk RPG exchange. Output EXACTLY these six lines, nothing else:',
+      'OFFER=trade or mission or none',
+      'ITEM=<sellable id or none>',
+      'TARGET=<rival id or none>',
+      'REWARD_ITEM=<item id or none>',
+      'REWARD_CREDITS=<integer, 0 if none>',
+      'ACCEPT=yes or no',
+      '',
+      'OFFER=trade when the NPC offers to sell ITEM. OFFER=mission when the NPC offers to pay for killing TARGET.',
+      'ACCEPT=yes only if the PLAYER agrees to buy/take it in their message.',
+      `Sellable ids: ${sellableIds.join(', ') || 'none'}`,
+      `Rival ids: ${rivalIds.join(', ') || 'none'}`,
+      `NPC: ${JSON.stringify(npcReply)}`,
+      `Player: ${JSON.stringify(playerMessage)}`,
+    ].join('\n');
   }
 
   /**

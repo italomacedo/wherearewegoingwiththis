@@ -4,6 +4,7 @@ import { ClaudeNPCService } from '@systems/ClaudeNPCService';
 import { WorldSnapshot, PromptBuilder } from '@systems/npc/PromptBuilder';
 import { ConversationContext, ConversationState } from '@systems/npc/ConversationContext';
 import { ActionClassification } from '@systems/npc/EmoteIntent';
+import { CommerceParse } from '@systems/economy/Commerce';
 import { NPCDisposition } from '@entities/NPCAgent';
 import { IntentCandidate, NPCIntent, parseIntent } from '@systems/npc/Intent';
 import { ClaudeCallQueue } from '@systems/ClaudeCallQueue';
@@ -154,6 +155,19 @@ export class NPCManager {
   async classifyAction(npcId: string, message: string): Promise<ActionClassification> {
     if (!this.service) return { deterministic: false, skillId: null, attribute: null, difficulty: 50, hostile: false };
     return this.service.classifyAction(npcId, message);
+  }
+
+  /** Commerce classifier delegate (Phase 16). No service → a no-op offer. */
+  async classifyCommerce(
+    npcId: string, npcReply: string, playerMessage: string, sellableIds: string[], rivalIds: string[],
+  ): Promise<CommerceParse> {
+    if (!this.service) return { offer: 'none', itemId: null, targetId: null, rewardItemId: null, rewardCredits: 0, accept: false };
+    return this.service.classifyCommerce(npcId, npcReply, playerMessage, sellableIds, rivalIds);
+  }
+
+  /** Ids of live (not-defeated) NPCs — candidate mission targets / rivals. */
+  liveNpcIds(): string[] {
+    return this.getAgents().filter((a) => !a.isDefeated()).map((a) => a.definition.id);
   }
 
   /** One-shot narration of a resolved deterministic action's outcome. */
