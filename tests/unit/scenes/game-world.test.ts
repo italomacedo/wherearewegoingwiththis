@@ -304,6 +304,25 @@ describe('GameWorldScene', () => {
     expect(scene.getPlayer()!.getPosition().z).toBeCloseTo(z);
   });
 
+  it('player death inside a (spectator-continuing) combat ends the run + tears down the fight', async () => {
+    const { CombatEncounter } = await import('../../../src/systems/combat/CombatEncounter');
+    const { CombatController } = await import('../../../src/systems/combat/CombatController');
+    const { createDefaultStats } = await import('../../../src/entities/CharacterStats');
+    await scene.onEnter();
+    // A multi-combatant fight where the player is already down: the encounter would
+    // continue among the NPCs, so endCombat never fires — checkGameOver must catch it.
+    const enc = new CombatEncounter([
+      { id: 'player', name: 'Hero', isPlayer: true, stats: createDefaultStats(), health: { current: 0, max: 100 } },
+      { id: 'zara', name: 'Zara', isPlayer: false, stats: createDefaultStats(), health: { current: 100, max: 100 } },
+      { id: 'mback', name: 'Mback', isPlayer: false, stats: createDefaultStats(), health: { current: 100, max: 100 } },
+    ], { rng: () => 0 });
+    scene.getCombat()!.start(new CombatController(enc, { player: 'Hero', zara: 'Zara', mback: 'Mback' }, 'player'));
+    expect(scene.getCombat()!.isOpen()).toBe(true);
+    scene.update();
+    expect(scene.getGameOverMenu()!.isOpen()).toBe(true);
+    expect(scene.getCombat()!.isOpen()).toBe(false); // combat torn down (music stops)
+  });
+
   it('ESC closes the dialog instead of pausing when a dialog is open', async () => {
     await scene.onEnter();
     const input = scene.getInputSystem()!;

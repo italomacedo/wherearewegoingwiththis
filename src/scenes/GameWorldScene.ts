@@ -1085,8 +1085,27 @@ export class GameWorldScene extends BaseScene {
 
   /** When the hero dies, freeze the run and show the Game Over menu (once). */
   private checkGameOver(): void {
-    if (this.gameOver || !this.player?.isDead()) return;
+    if (this.gameOver) return;
+    // The player's combat HP lives in the controller and only syncs back to the
+    // PlayerController in endCombat. In a MULTI-combatant fight the player's death
+    // doesn't end the encounter (it continues as a spectator brawl), so endCombat
+    // never runs — the run would never end and the combat music would loop on past
+    // the death. Detect the dead player combatant here too. (Fase 18 bugfix.)
+    const pc = this.combat?.isOpen()
+      ? this.combat.getController()?.getState().combatants.find((c) => c.isPlayer)
+      : undefined;
+    const diedInCombat = !!pc && pc.hp.current <= 0;
+    if (!this.player?.isDead() && !diedInCombat) return;
     this.gameOver = true;
+    if (diedInCombat) {
+      // Sync the lethal HP and tear down the live fight (stops the combat turn loop).
+      // close() does NOT fire onEnd → endCombat (which would switch to the 'world'
+      // bed); we go straight to the game-over bed below.
+      this.playerHealthState = { current: 0, max: this.playerHealthState.max };
+      this.player?.setHealthState(this.playerHealthState);
+      this.combat?.close();
+      this.combatEnc = null;
+    }
     (this.audio ??= ServiceLocator.tryGet<AudioManager>('audio'))?.playMusic('gameover');
     this.gameOverMenu?.openMenu();
   }
