@@ -30,6 +30,17 @@ export class MercadoSombrasZone extends WorldZone {
   /** Per-frame stray-dog animation observer (Fase 6); removed on unload. */
   private dogObserver: Observer<Scene> | null = null;
 
+  /**
+   * Mosaic mode (Fase 17): when true (default), the +X end of the street is OPEN
+   * — no black exit wall, no east/exit colliders — so the player walks east into
+   * the procedural neighbor tile (1,0). The west dead-end + N/S building rows still
+   * cap the other sides (west/south are world borders). Set false for a standalone
+   * closed street (legacy).
+   */
+  constructor(private readonly openEast = true) {
+    super();
+  }
+
   getSpawnPoint(): Vector3 {
     return new Vector3(0, 0, 0);
   }
@@ -47,7 +58,7 @@ export class MercadoSombrasZone extends WorldZone {
     this.buildLighting(scene);
     this.buildBuildings(scene);
     this.buildStalls(scene);
-    this.buildExitWall(scene);
+    if (!this.openEast) this.buildExitWall(scene); // mosaic: leave +X open to tile (1,0)
     this.buildRain(scene);
     // Real assets layered on in browser only
     /* istanbul ignore next — browser/Electron asset loading */
@@ -355,12 +366,16 @@ export class MercadoSombrasZone extends WorldZone {
   private buildColliders(scene: Scene): void {
     // Floor — gives the character controller ground to stand on.
     this.addBoxCollider(scene, 'col-floor', new Vector3(0, -0.5, 0), new Vector3(ZONE_HALF * 2, 1, ZONE_HALF * 2));
-    // Closed perimeter (side walls + ends).
+    // Perimeter (side walls + ends). In mosaic mode the east wall (col-e) is dropped
+    // so the street opens into tile (1,0); west/north/south still cap their sides.
     for (const c of CORRIDOR_COLLIDERS) {
+      if (this.openEast && c.key === 'col-e') continue;
       this.addBoxCollider(scene, c.key, new Vector3(c.position[0], c.position[1], c.position[2]), new Vector3(c.size[0], c.size[1], c.size[2]));
     }
-    // Black exit wall.
-    this.addBoxCollider(scene, 'col-exit', new Vector3(EXIT_WALL.position[0], EXIT_WALL.position[1], EXIT_WALL.position[2]), new Vector3(EXIT_WALL.size[0], EXIT_WALL.size[1], EXIT_WALL.size[2]));
+    // Black exit wall — only in standalone (closed) mode.
+    if (!this.openEast) {
+      this.addBoxCollider(scene, 'col-exit', new Vector3(EXIT_WALL.position[0], EXIT_WALL.position[1], EXIT_WALL.position[2]), new Vector3(EXIT_WALL.size[0], EXIT_WALL.size[1], EXIT_WALL.size[2]));
+    }
     // Solid loaded props (buildings, walls, shelf, bollards, AC, planter) → box
     // collider from each one's world bounding box.
     for (const h of this.holders) {

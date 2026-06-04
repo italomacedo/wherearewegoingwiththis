@@ -13,7 +13,7 @@
  * Edge naming: −X = west, +X = east, −Z = south, +Z = north.
  */
 
-import { ZONE_HALF } from '@assets/WorldAssetCatalog';
+import { ZONE_HALF, type ColliderBox } from '@assets/WorldAssetCatalog';
 
 /** Each tile is the same size as the current zone (ZONE_HALF*2 = 60). */
 export const TILE_SIZE = ZONE_HALF * 2;
@@ -114,4 +114,49 @@ export function isBorderEdge(tx: number, tz: number): BorderEdges {
     south: tz === GRID_MIN,
     north: tz === GRID_MAX,
   };
+}
+
+/** Invisible-wall geometry for world borders. */
+export const WALL_HEIGHT = 14;
+export const WALL_THICKNESS = 2;
+
+/**
+ * Static box colliders for the world-border edges of tile (tx,tz) — only the
+ * OUTER edges of border tiles get a wall; interior tiles return []. World-positioned.
+ */
+export function borderWallColliders(tx: number, tz: number): ColliderBox[] {
+  const [cx, , cz] = tileCenter(tx, tz);
+  const edges = isBorderEdge(tx, tz);
+  const h = WALL_HEIGHT;
+  const t = WALL_THICKNESS;
+  const out: ColliderBox[] = [];
+  if (edges.west) {
+    out.push({ key: `wall-${tx}-${tz}-w`, position: [cx - ZONE_HALF, h / 2, cz], size: [t, h, TILE_SIZE] });
+  }
+  if (edges.east) {
+    out.push({ key: `wall-${tx}-${tz}-e`, position: [cx + ZONE_HALF, h / 2, cz], size: [t, h, TILE_SIZE] });
+  }
+  if (edges.south) {
+    out.push({ key: `wall-${tx}-${tz}-s`, position: [cx, h / 2, cz - ZONE_HALF], size: [TILE_SIZE, h, t] });
+  }
+  if (edges.north) {
+    out.push({ key: `wall-${tx}-${tz}-n`, position: [cx, h / 2, cz + ZONE_HALF], size: [TILE_SIZE, h, t] });
+  }
+  return out;
+}
+
+/** Half-extent (X/Z) of the whole 24×24 world from its centre — for vehicle confinement. */
+export const WORLD_HALF_EXTENT = (GRID_SIZE * TILE_SIZE) / 2;
+
+/** Centre of the whole world (midpoint of tiles 0..23). */
+export function worldCenter(): [number, number, number] {
+  const c = (GRID_MAX * TILE_SIZE) / 2;
+  return [c, 0, c];
+}
+
+/** One big static floor box covering the whole world (no per-tile floor seams). */
+export function worldFloorBox(): ColliderBox {
+  const [cx, , cz] = worldCenter();
+  const span = GRID_SIZE * TILE_SIZE;
+  return { key: 'col-world-floor', position: [cx, -0.5, cz], size: [span, 1, span] };
 }

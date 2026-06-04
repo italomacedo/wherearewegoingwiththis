@@ -74,6 +74,9 @@ import {
 import { buildWalkGrid, gridPathfinder } from '@systems/combat/CombatMovement';
 import { recruitSides, RecruitParticipant, SIDE_INITIATOR, SIDE_TARGET } from '@systems/combat/CombatRecruiter';
 import { COMBAT_OBSTACLES, COMBAT_BOUNDS, ZONE_HALF } from '@assets/WorldAssetCatalog';
+import { WorldStreamer } from '@systems/world/WorldStreamer';
+import { TileScenery } from '@systems/world/TileScenery';
+import { tileOf, tileKey, worldFloorBox, type TileCoord } from '@systems/world/WorldGrid';
 
 export class GameWorldScene extends BaseScene {
   /** Setting used for the ambient "react to surroundings" narration (global chat). */
@@ -86,6 +89,12 @@ export class GameWorldScene extends BaseScene {
 
   private zoneManager: ZoneManager | null = null;
   private zone: WorldZone | null = null;
+  /** Seamless 3×3 tile streamer for the procedural mosaic (Fase 17). */
+  private worldStreamer: WorldStreamer | null = null;
+  /** Live procedural tile content keyed by "tx,tz" (tile (0,0) = the static zone). */
+  private tileScenery = new Map<string, TileScenery>();
+  /** World seed for deterministic tile generation (from the save; Phase D persists it). */
+  private worldSeed = 1;
   private clock = new GameClock(); // wall-clock mode by default (mirrors the PC clock)
   private lastPeriod: DayPeriod | null = null;
   private cameraSystem: CameraSystem | null = null;
@@ -449,6 +458,44 @@ export class GameWorldScene extends BaseScene {
       /* istanbul ignore next — physics colliders are browser/Electron only */
       this.buildEntityColliders();
     }
+
+    // Seamless world streaming (Fase 17): tile (0,0) is the static downtown zone
+    // above; the streamer loads/unloads the procedural neighbor tiles around the
+    // player. Seed the current tile from the spawn position.
+    const spawn = this.player.getPosition();
+    this.worldStreamer = new WorldStreamer({
+      onLoad: (c) => this.loadTile(c),
+      onUnload: (c) => this.unloadTile(c),
+    });
+    this.worldStreamer.setCurrent(tileOf(spawn.x, spawn.z));
+  }
+
+  /** Build a procedural neighbor tile's content (skip (0,0) — that's the static zone). */
+  /* istanbul ignore next — browser-only scenery; pure tile data is unit-tested */
+  private loadTile(c: TileCoord): void {
+    if (c.tx === 0 && c.tz === 0) return; // the static downtown zone owns this tile
+    if (typeof document === 'undefined') return; // headless: bookkeeping only
+    const key = tileKey(c.tx, c.tz);
+    if (this.tileScenery.has(key)) return;
+    const scenery = new TileScenery(this.babylonScene, c.tx, c.tz, this.worldSeed);
+    scenery.build();
+    this.tileScenery.set(key, scenery);
+  }
+
+  /** Tear down a procedural neighbor tile (the static (0,0) zone is never unloaded). */
+  /* istanbul ignore next — browser-only scenery disposal */
+  private unloadTile(c: TileCoord): void {
+    if (c.tx === 0 && c.tz === 0) return;
+    const key = tileKey(c.tx, c.tz);
+    this.tileScenery.get(key)?.dispose();
+    this.tileScenery.delete(key);
+  }
+
+  /** Feed the player's world position to the streamer each frame (browser only). */
+  /* istanbul ignore next — thin browser glue over the unit-tested WorldStreamer */
+  private streamWorld(): void {
+    const pos = this.player?.getPosition();
+    if (pos && this.worldStreamer) this.worldStreamer.update(pos.x, pos.z);
   }
 
   /* istanbul ignore next — physics colliders are browser/Electron only */
@@ -474,6 +521,17 @@ export class GameWorldScene extends BaseScene {
         this.entityAggregates.push(agg);
       }
     }
+    // One big static floor under the WHOLE 24×24 world (no per-tile floor seams) —
+    // so the hero never falls through walking onto a streamed neighbor tile. The
+    // (0,0) zone keeps its own floor too (harmless overlap).
+    const f = worldFloorBox();
+    const floor = MeshBuilder.CreateBox('col-world-floor', { width: f.size[0], height: f.size[1], depth: f.size[2] }, this.babylonScene);
+    floor.position.set(f.position[0], f.position[1], f.position[2]);
+    floor.isVisible = false;
+    const floorAgg = new PhysicsAggregate(floor, PhysicsShapeType.BOX, { mass: 0 }, this.babylonScene);
+    this.entityColliders.push(floor);
+    this.entityAggregates.push(floorAgg);
+
     this.installNaveFloorProbe();
     this.npcHolderById.forEach((holder, id) => this.buildNpcCapsule(id, holder));
   }
@@ -641,6 +699,11 @@ export class GameWorldScene extends BaseScene {
     /* istanbul ignore next — stop the procedural engine drone on world exit */
     this.audio?.stopEngineTone();
     this.detachInput?.();
+    // Tear down the streamed world (procedural neighbor tiles) before the zone.
+    this.worldStreamer?.dispose();
+    this.worldStreamer = null;
+    this.tileScenery.forEach((s) => s.dispose());
+    this.tileScenery.clear();
     this.player?.dispose();
     this.vehicle?.dispose();
     this.zoneManager?.dispose();
@@ -788,6 +851,8 @@ export class GameWorldScene extends BaseScene {
     }
     // Vehicle physics run every frame: piloted it flies; abandoned it falls.
     this.tickVehicle(dt);
+    // Seamless world streaming: load/unload the 3×3 tile ring as the player crosses edges.
+    this.streamWorld();
     this.cameraSystem?.update();
     this.updateNPCs(dt);
     this.updateTimeOfDay();

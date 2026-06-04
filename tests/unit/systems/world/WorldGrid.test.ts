@@ -2,6 +2,7 @@ import {
   TILE_SIZE, GRID_MIN, GRID_MAX, GRID_SIZE,
   tileKey, inBounds, tileOf, tileCenter, tileLocalToWorld,
   neighbors3x3, ringDiff, isBorderEdge,
+  borderWallColliders, worldFloorBox, worldCenter, WORLD_HALF_EXTENT,
 } from '@systems/world/WorldGrid';
 
 describe('WorldGrid (pure)', () => {
@@ -106,6 +107,47 @@ describe('WorldGrid (pure)', () => {
     });
     it('interior tile has no border edges', () => {
       expect(isBorderEdge(10, 10)).toEqual({ west: false, east: false, south: false, north: false });
+    });
+  });
+
+  describe('borderWallColliders', () => {
+    it('interior tile has no walls', () => {
+      expect(borderWallColliders(10, 10)).toEqual([]);
+    });
+    it('corner (0,0) gets a west + south wall at the world edge', () => {
+      const walls = borderWallColliders(0, 0);
+      expect(walls.map((w) => w.key).sort()).toEqual(['wall-0-0-s', 'wall-0-0-w']);
+      const west = walls.find((w) => w.key === 'wall-0-0-w')!;
+      expect(west.position[0]).toBe(-30); // x = centre(0) - ZONE_HALF
+      const south = walls.find((w) => w.key === 'wall-0-0-s')!;
+      expect(south.position[2]).toBe(-30);
+    });
+    it('corner (23,23) gets east + north walls at the far world edge', () => {
+      const walls = borderWallColliders(23, 23);
+      expect(walls.map((w) => w.key).sort()).toEqual(['wall-23-23-e', 'wall-23-23-n']);
+      const east = walls.find((w) => w.key === 'wall-23-23-e')!;
+      expect(east.position[0]).toBe(23 * 60 + 30);
+    });
+    it('edge tile (0,5) gets only the west wall', () => {
+      const walls = borderWallColliders(0, 5);
+      expect(walls).toHaveLength(1);
+      expect(walls[0].key).toBe('wall-0-5-w');
+      expect(walls[0].position[2]).toBe(5 * 60); // centred on the tile's z
+    });
+  });
+
+  describe('world extents', () => {
+    it('worldCenter is the midpoint of tiles 0..23', () => {
+      expect(worldCenter()).toEqual([690, 0, 690]);
+    });
+    it('WORLD_HALF_EXTENT covers half the 24×24 span', () => {
+      expect(WORLD_HALF_EXTENT).toBe((24 * 60) / 2);
+    });
+    it('worldFloorBox spans the whole world, centred, 1 thick below y=0', () => {
+      const f = worldFloorBox();
+      expect(f.key).toBe('col-world-floor');
+      expect(f.size).toEqual([1440, 1, 1440]);
+      expect(f.position).toEqual([690, -0.5, 690]);
     });
   });
 });
