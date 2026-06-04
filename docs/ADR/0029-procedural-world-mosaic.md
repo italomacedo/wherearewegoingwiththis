@@ -64,6 +64,24 @@ legacy saves) + `currentTile`; `GameSession` carries them; the seed makes the wo
 Assets: Quaternius **Ultimate Nature Pack** (CC0) — curated 37-model subset (`world/nature/`, ~2.1 MB)
 via `scripts/convert_assets.py`. market reuses downtown + vendor props.
 
+## Fase 17H — streaming without stutter (perf)
+Flying the nave hitched constantly: every tile re-parsed the same GLBs (no cache), every procedural NPC
+built a full modular avatar, and crossing an edge burst 3 tiles (fire-and-forget) of GLB + collider +
+avatar work on the main thread. (A WebWorker can't help — Babylon mesh/collider creation is main-thread.)
+Fix:
+- **`AssetCache`** (`src/systems/world/AssetCache.ts`, pure dedup + browser instancing): each GLB parsed
+  **once** (in-flight + cached), then **cloned** via `instantiateModelsToScene` (GPU-instanced static
+  props share geometry/material — they aren't per-instance tinted).
+- **Time-sliced loading**: `TileScenery.build()` does only the cheap synchronous frame and queues props;
+  `step(cache)` instantiates ONE prop; `GameWorldScene.pumpTileLoads` runs ≤`TILE_LOAD_BUDGET` (2) prop
+  instantiations/frame behind a single-flight guard → no burst.
+- **Bigger preload ring, NPCs nearer**: scenery streams a **5×5** ring (`WorldStreamer` radius 2 +
+  `WorldGrid.neighbors(radius)`) so tiles load ahead of the fast nave; **NPCs only in the inner 3×3**
+  (`updateNpcRing`/`enqueueTileNpcs`/`despawnTileNpcs`), with avatar builds queued ≤1/frame
+  (`pumpNpcSpawns`). The heaviest work never runs for far tiles.
+Deferred: routing NPC outfit GLBs through `AssetCache` + instancing skinned avatars (skeleton-rebind on a
+clone — Lesson 33 territory); downtown `loadRealAssets` via the cache (loads once, not a streaming cost).
+
 ## Consequences
 - Dealers (`arm_dealer`/`armor_dealer`) carry sellable loadouts → the existing `Economy`/`Commerce`/
   `Missions` chat flow works on procedural NPCs with no change.

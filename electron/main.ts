@@ -207,6 +207,12 @@ function createWindow() {
     console.error('[CRASH] render-process-gone:', JSON.stringify(details));
   });
   win.webContents.on('unresponsive', () => console.error('[CRASH] renderer unresponsive (hang)'));
+  // Forward the RENDERER console to this terminal so the last error before a hard
+  // crash (e.g. a Havok/WASM abort) survives the window closing — the in-window
+  // DevTools dies with the renderer, but the main-process terminal persists.
+  win.webContents.on('console-message', (_e, level, message, line, sourceId) => {
+    if (level >= 2) console.error(`[renderer] ${message} (${sourceId}:${line})`); // 2=warning,3=error
+  });
   /* eslint-enable no-console */
 
   if (VITE_DEV_SERVER_URL) {
@@ -284,6 +290,10 @@ ipcMain.handle(
       // autonomous NPC call, no renderer stack). Handle it + guard the write;
       // the child's own 'error'/'close' below still rejects the promise.
       proc.stdin?.on('error', () => { /* swallowed — handled via proc 'error'/'close' */ });
+      // Same for the read streams: an 'error' on stdout/stderr (e.g. the child dies
+      // mid-pipe) is otherwise an unhandled stream event. Swallow — 'close' resolves.
+      proc.stdout?.on('error', () => { /* swallowed */ });
+      proc.stderr?.on('error', () => { /* swallowed */ });
       try {
         proc.stdin?.write(prompt);
         proc.stdin?.end();

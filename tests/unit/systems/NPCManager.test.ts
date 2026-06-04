@@ -297,6 +297,18 @@ describe('NPCManager autonomy (Fase 5)', () => {
     m.dispose();
   });
 
+  it('a hibernating (off-quadrant) NPC is skipped entirely', async () => {
+    const { service } = makeService('INTENT=approach\nTARGET=npc_b');
+    const m = new NPCManager(service);
+    const agent = m.spawn(def);
+    agent.setAwake(false); // not in the player's current quadrant
+    const q = new ClaudeCallQueue<AutonomyJob>({ minGapMs: 0, maxPerMinute: 8 }, () => 0);
+    const r = await m.tickAutonomy(q, 0, ctx());
+    expect(r.enqueued).toBe(0);
+    expect(r.deliberated).toBeNull();
+    m.dispose();
+  });
+
   it('flags an attack for a hostile NPC that sees the player and skips its deliberation', async () => {
     const { service } = makeService('INTENT=stay');
     const m = new NPCManager(service);

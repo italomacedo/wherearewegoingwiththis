@@ -226,6 +226,17 @@ export class NPCAgent {
   markDefeated(): void { this.defeated = true; }
   isDefeated(): boolean { return this.defeated; }
 
+  /**
+   * Awake = runs BACKGROUND autonomy (deliberation/gossip/auto-combat). Only NPCs in
+   * the player's CURRENT quadrant stay awake; the rest hibernate (Fase 17H) so the
+   * heavyweight `claude` CLI spawns are capped to one tile's NPCs (the unbounded
+   * many-tile rotation crashed the Electron main process). Defaults true (headless/
+   * tests stay autonomous); the scene hibernates off-tile NPCs each tile change.
+   */
+  private awake = true;
+  setAwake(awake: boolean): void { this.awake = awake; }
+  isAwake(): boolean { return this.awake; }
+
   // ─── Witnessed events (e.g. "X was killed") — fed into the NPC's prompt ──────
 
   private static readonly MAX_EVENTS = 8;
