@@ -207,6 +207,12 @@ function createWindow() {
     console.error('[CRASH] render-process-gone:', JSON.stringify(details));
   });
   win.webContents.on('unresponsive', () => console.error('[CRASH] renderer unresponsive (hang)'));
+  // Forward the RENDERER console to this terminal so the last error before a hard
+  // crash (e.g. a Havok/WASM abort) survives the window closing — the in-window
+  // DevTools dies with the renderer, but the main-process terminal persists.
+  win.webContents.on('console-message', (_e, level, message, line, sourceId) => {
+    if (level >= 2) console.error(`[renderer] ${message} (${sourceId}:${line})`); // 2=warning,3=error
+  });
   /* eslint-enable no-console */
 
   if (VITE_DEV_SERVER_URL) {
