@@ -155,7 +155,9 @@ describe('ClaudeNPCService', () => {
     const params = lastParams.value as { useSession?: boolean; resumeSession?: boolean; prompt: string; systemPrompt?: string };
     expect(params.useSession).toBe(true);
     expect(params.resumeSession).toBe(true); // continue (--resume), don't re-create the session
-    expect(params.systemPrompt).toBeUndefined(); // no persona on subsequent session turns
+    // Persona rides EVERY session turn — `--resume` doesn't re-apply the original
+    // `--system-prompt`, so omitting it makes the NPC revert to the default identity.
+    expect(params.systemPrompt).toContain('Zara');
     expect(params.prompt).toContain('and now?');
   });
 

@@ -293,8 +293,11 @@ export class ClaudeNPCService {
       // Create the session on the graduation call (--session-id), resume it after
       // (--resume) — reusing --session-id errors "already in use".
       resumeSession: !justGraduated,
-      // Pass persona on first session call (graduation primer); session carries it after.
-      systemPrompt: justGraduated ? systemPrompt : undefined,
+      // Persona MUST ride every turn: `--resume` does NOT re-apply the session's
+      // original `--system-prompt`, so without it the model reverts to its default
+      // Claude Code identity (NPC breaks character). The text is identical each turn,
+      // so the API prompt-caches it (5-min TTL) — correctness with ~no extra cost.
+      systemPrompt,
       model: NPC_MODEL,
       effort: NPC_EFFORT,
     };
