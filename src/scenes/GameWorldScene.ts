@@ -69,9 +69,6 @@ import { buildWalkGrid, gridPathfinder } from '@systems/combat/CombatMovement';
 import { recruitSides, RecruitParticipant, SIDE_INITIATOR, SIDE_TARGET } from '@systems/combat/CombatRecruiter';
 import { COMBAT_OBSTACLES, COMBAT_BOUNDS, ZONE_HALF } from '@assets/WorldAssetCatalog';
 
-/** ⚠️ TEMP Phase-15 playtest flag — seeds the 6 armor pieces. REMOVE before merge. */
-const DEBUG_ARMOR_LOADOUT = true;
-
 export class GameWorldScene extends BaseScene {
   /** Setting used for the ambient "react to surroundings" narration (global chat). */
   private static readonly SURROUNDINGS =
@@ -241,15 +238,6 @@ export class GameWorldScene extends BaseScene {
     this.playerName = session.character.name;
     this.playerStats = session.character.stats ?? createDefaultStats();
     this.playerInventory = Inventory.fromState(session.inventory ?? defaultInventoryState());
-    // ⚠️ TEMP (Phase 15 playtest) — seed the 6 armor pieces so equip/region-swap +
-    // damage reduction can be tested without a vendor/loot source. REMOVE before
-    // merge (the real start is an empty inventory; armor comes from loot/Fase 16).
-    /* istanbul ignore next — dev-only seed, browser playtest aid */
-    if (DEBUG_ARMOR_LOADOUT) {
-      for (const id of ['armor_tac_head', 'armor_tac_top', 'armor_tac_legs', 'armor_spc_head', 'armor_spc_top', 'armor_spc_legs']) {
-        this.playerInventory.add(id, 1);
-      }
-    }
     this.heldAttach = session.heldAttach ?? {};
     this.npcMemory = session.npcMemory ?? {};
     this.gameTimeSeconds = session.gameTimeSeconds;
