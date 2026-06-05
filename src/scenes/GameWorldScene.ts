@@ -564,7 +564,7 @@ export class GameWorldScene extends BaseScene {
       onTalk: () => { this.sfx('ui_click'); this.openTalkFromRibbon(); },
       onInventory: () => { this.sfx('ui_click'); this.inventoryOverlay?.openManage(this.playerInventory); },
       onCharacterSheet: () => { this.sfx('ui_open'); this.characterSheetOverlay?.show(this.playerStats); },
-      onPda: () => { this.sfx('ui_open'); this.pdaOverlay?.show(this.pda); },
+      onPda: () => { this.sfx('ui_open'); this.openPda(); },
     });
 
     // Turn-based combat overlay (triggered by a hostile NPC's attack intent).
@@ -2886,18 +2886,40 @@ export class GameWorldScene extends BaseScene {
     const a = this.npcManager?.getAgent(subjectId);
     if (!a) return;
     a.markNameKnown(); // a successful scan cracks their identity
-    const items = a.getInventoryState().items.filter((s) => s.id !== 'credstick').map((s) => t(itemDef(s.id)?.nameKey ?? s.id));
+    this.pda = upsertPdaEntry(this.pda, { subjectId, subjectName: a.definition.name, lines: this.dossierLinesFor(a) });
+    const line = t('skill.scanned', { name: a.definition.name, role: a.definition.role });
+    this.dialog?.addNarrationLine(line);
+    this.speakNarration(line);
+  }
+
+  /** Compose the dossier lines for a live NPC (role, disposition, credits, gear). */
+  /* istanbul ignore next — browser-only (reads runtime agent state) */
+  private dossierLinesFor(a: NPCAgent): string[] {
+    const items = a.getInventoryState().items
+      .filter((s) => s.id !== 'credstick')
+      .map((s) => t(itemDef(s.id)?.nameKey ?? s.id));
     const credits = creditBalance(a.getInventory());
-    const lines = [
+    return [
       t('pda.role', { role: a.definition.role }),
       t('pda.disposition', { value: a.getDisposition() }),
       t('pda.credits', { n: credits }),
       items.length ? t('pda.carrying', { items: items.join(', ') }) : t('pda.carryingNothing'),
     ];
-    this.pda = upsertPdaEntry(this.pda, { subjectId, subjectName: a.definition.name, lines });
-    const line = t('skill.scanned', { name: a.definition.name, role: a.definition.role });
-    this.dialog?.addNarrationLine(line);
-    this.speakNarration(line);
+  }
+
+  /**
+   * Open the PDA with LIVE data (Fase 20: owner-decided). The scan UNLOCKS a
+   * dossier entry; the contents (disposition/credits/items) are re-read fresh from
+   * the live agent every time the PDA opens — your cyberdeck monitors. Entries
+   * whose subject isn't loaded keep their last snapshot lines (best-effort).
+   */
+  /* istanbul ignore next — browser-only (live-refresh + show) */
+  private openPda(): void {
+    this.pda = this.pda.map((e) => {
+      const a = this.npcManager?.getAgent(e.subjectId);
+      return a ? { ...e, subjectName: a.definition.name, lines: this.dossierLinesFor(a) } : e;
+    });
+    this.pdaOverlay?.show(this.pda);
   }
 
   /**
@@ -3174,7 +3196,7 @@ export class GameWorldScene extends BaseScene {
     if (this.dialog?.isOpen() || this.pauseMenu?.isOpen() || this.gameOverMenu?.isOpen()
       || this.inventoryOverlay?.isOpen() || this.characterSheetOverlay?.isOpen()) return;
     if (this.inputSystem.wasJustPressed('pda.open')) {
-      overlay.show(this.pda);
+      this.openPda();
       this.sfx('ui_open');
     }
   }
