@@ -359,6 +359,11 @@ export class NPCAgent {
     this.nameKnown = true;
   }
 
+  /** Replace the name-known flag from a persisted save. */
+  restoreNameKnown(known: boolean | undefined): void {
+    this.nameKnown = !!known;
+  }
+
   /**
    * Reveal the name if the NPC's own name appears in the given text (e.g. it
    * just introduced itself). Returns true only on the first reveal — anti-
