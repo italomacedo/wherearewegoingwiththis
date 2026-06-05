@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, shell, crashReporter } from 'electron';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import fs from 'node:fs';
@@ -171,12 +171,28 @@ process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL
 let win: BrowserWindow | null;
 const claudeProcesses = new Map<string, ChildProcess>();
 
+// Write native minidumps locally for ANY hard crash (renderer/GPU/utility/main) —
+// a Havok/V8/GPU abort kills the process without a JS stack, so the only trace is a
+// dump under <userData>/Crashpad/. Never upload. (Crash diagnostics, Fase 18.)
+crashReporter.start({ uploadToServer: false, compress: true });
+
 // Safety net: a single-player desktop game's MAIN process should never die from a
 // stray async error (e.g. a broken child-process pipe). Log and keep running.
 /* eslint-disable no-console */
 process.on('uncaughtException', (err) => console.error('[main] uncaughtException (kept alive):', err));
 process.on('unhandledRejection', (reason) => console.error('[main] unhandledRejection:', reason));
+// Distinguish a clean shutdown from a vanish: a native abort exits with a non-zero
+// code and skips will-quit; a normal quit logs both.
+process.on('exit', (code) => console.error(`[main] process exit code=${code}`));
+app.on('will-quit', () => console.error('[main] app will-quit (clean shutdown)'));
 /* eslint-enable no-console */
+
+// A renderer JS error/rejection can be lost if the console flush races the crash —
+// forward it over IPC so it always reaches this terminal log before the window dies.
+ipcMain.on('renderer-fatal', (_e, msg: string) => {
+  // eslint-disable-next-line no-console
+  console.error('[renderer-fatal]', msg);
+});
 
 function createWindow() {
   win = new BrowserWindow({
