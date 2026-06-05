@@ -2646,7 +2646,11 @@ export class GameWorldScene extends BaseScene {
     };
     const res = resolveSkillAction(input);
 
+    // Dev trace: what the classifier decided + how the check resolved (Fase 20).
+    this.logSkill(`classified effect=${cls.effect} skill=${cls.skillId ?? '—'} attr=${attribute} diff=${cls.difficulty} dir=${cls.dir ?? '—'} target=${target?.id ?? '—'}${target?.otherId ? `→${target.otherId}` : ''} value=${skillValue} deck=${input.hasCyberdeck}`);
+
     if (!res.allowed) {
+      this.logSkill(`✗ BLOCKED: ${res.blockedReason}`);
       const line = this.skillBlockedLine(res.blockedReason);
       this.dialog.addNarrationLine(line);
       this.speakNarration(line);
@@ -2656,9 +2660,13 @@ export class GameWorldScene extends BaseScene {
     // attack opens combat (the engine returns begin_combat); resolve it and bail —
     // combat owns the screen, no narration/learn here (the fight handles that).
     if (cls.effect === 'attack') {
+      this.logSkill(`attack → combat (ambush=${res.surprise})`);
       for (const m of res.mutations) this.applySkillMutation(m);
       return true;
     }
+
+    const mode = !res.rolled ? 'no-check' : res.surprise ? 'SURPRISE' : (target ? 'RESISTED' : 'unresisted');
+    this.logSkill(`${mode} · roll=${res.roll.toFixed(0)} vs P=${(res.probability * 100).toFixed(0)}% → ${res.success ? 'HIT' : 'MISS'}${res.critical ? ' (CRIT)' : ''}`);
 
     // Learn-by-doing on a successful, skilled check (owner's rule).
     if (res.success && cls.skillId) {
@@ -2670,10 +2678,12 @@ export class GameWorldScene extends BaseScene {
     // Crafting picks its output weapon from the emote text (Fase 20H).
     if (cls.effect === 'craft') this.skillCraftTarget = craftTargetFromText(message);
 
+    if (res.mutations.length === 0) this.logSkill('mechanical: (none)');
     for (const m of res.mutations) this.applySkillMutation(m);
 
     const narration = await this.npcManager.narrateOutcome(message, res.success, languageName(getLocale()));
     const outcomeLine = narration || (res.success ? 'You pull it off.' : "It doesn't go your way.");
+    this.logSkill(`narration: "${outcomeLine}"`);
     this.dialog.addNarrationLine(outcomeLine);
     this.speakNarration(outcomeLine);
 
@@ -2721,6 +2731,14 @@ export class GameWorldScene extends BaseScene {
     return null;
   }
 
+  /** Dev console trace for the skill-action pipeline (browser only; silent in tests). */
+  /* istanbul ignore next — dev console logging, browser/Electron only */
+  private logSkill(msg: string): void {
+    if (typeof document === 'undefined') return;
+    // eslint-disable-next-line no-console
+    console.warn(`[Skill] ${msg}`);
+  }
+
   /** Which tamper probe a surprise effect leaves on the target (Fase 20G), if any. */
   /* istanbul ignore next — browser-only skill-effect wiring */
   private skillTamperKind(effect: ActionClassification['effect']): 'theft' | 'hack' | 'social' | null {
@@ -2747,6 +2765,7 @@ export class GameWorldScene extends BaseScene {
   private applySkillMutation(m: SkillMutation): void {
     const mgr = this.npcManager;
     if (!mgr) return;
+    this.logSkill(`mechanical: ${JSON.stringify(m)}`);
     switch (m.kind) {
       case 'begin_combat': {
         const mainHand = this.playerInventory.combatWeaponId;
