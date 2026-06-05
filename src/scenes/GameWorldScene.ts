@@ -2822,9 +2822,16 @@ export class GameWorldScene extends BaseScene {
       case 'repair':
         // No durability system yet — repair just succeeds narratively (placeholder).
         break;
-      case 'haggle':
+      case 'haggle': {
+        // A won haggle warms the NPC one step → the existing economy turns that into
+        // a better discount (friendly −30% / neutral −15%). Reuses disposition.
+        mgr.getAgent(m.targetId)?.improveDisposition();
+        this.dialog?.addSystemLine(t('skill.haggled'));
+        break;
+      }
       case 'appraise':
-        break; // wired in 20I
+        this.recordAppraisal(); // market read of what the player carries → PDA
+        break;
     }
   }
 
@@ -2848,6 +2855,25 @@ export class GameWorldScene extends BaseScene {
     ];
     this.pda = upsertPdaEntry(this.pda, { subjectId, subjectName: a.definition.name, lines });
     const line = t('skill.scanned', { name: a.definition.name, role: a.definition.role });
+    this.dialog?.addNarrationLine(line);
+    this.speakNarration(line);
+  }
+
+  /**
+   * Commerce 'appraise': read the real value of everything the player carries into a
+   * PDA "market read" dossier (Fase 20I). A successful Comércio check unlocks it.
+   */
+  /* istanbul ignore next — browser-only (reads runtime inventory; PDA store is tested) */
+  private recordAppraisal(): void {
+    const lines = this.playerInventory.toState().items
+      .filter((s) => s.id !== 'credstick')
+      .map((s) => `${t(itemDef(s.id)?.nameKey ?? s.id)}: ${itemValue(s.id)} cr × ${s.qty}`);
+    this.pda = upsertPdaEntry(this.pda, {
+      subjectId: '__market__',
+      subjectName: t('skill.marketRead'),
+      lines: lines.length ? lines : [t('pda.carryingNothing')],
+    });
+    const line = t('skill.appraised');
     this.dialog?.addNarrationLine(line);
     this.speakNarration(line);
   }

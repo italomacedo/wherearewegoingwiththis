@@ -182,6 +182,9 @@ export const STRINGS: Record<string, Entry> = {
   'skill.crafted': e('You fashion a {item} from {n} scrap.', 'Você forja {item} com {n} de sucata.'),
   'skill.noScrap': e('Not enough scrap for that.', 'Sucata insuficiente para isso.'),
   'skill.sabotageBlows': e("{name}'s rigged gear blows in their hands!", 'O equipamento adulterado de {name} explode nas mãos dele!'),
+  'skill.haggled': e('You talk them into a better price.', 'Você convence ele a um preço melhor.'),
+  'skill.appraised': e('You size up the worth of your gear.', 'Você avalia o valor do seu equipamento.'),
+  'skill.marketRead': e('Market read', 'Avaliação de mercado'),
 
   'economy.bought': e('Bought {item} for {price} credits.', 'Comprou {item} por {price} créditos.'),
   'economy.noCredits': e("You can't afford that.", 'Você não tem créditos suficientes.'),
