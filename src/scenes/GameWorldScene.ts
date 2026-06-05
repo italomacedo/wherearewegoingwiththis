@@ -1236,14 +1236,11 @@ export class GameWorldScene extends BaseScene {
     const definitions = [createZara(), createMback()];
     this.zoneNpcIds = definitions.map((d) => d.id);
     for (const def of definitions) {
-      const conversation = NPCManager.restoreConversation(this.npcMemory, def.id);
-      const agent = this.npcManager.spawn(def, conversation);
-      agent.setDisposition(NPCManager.restoreDisposition(this.npcMemory, def.id, def.initialDisposition ?? 'neutral'));
-      // Restore the NPC→NPC ledger only when persisted; otherwise keep the seeded one.
-      const savedLedger = NPCManager.restoreRelationships(this.npcMemory, def.id);
-      if (savedLedger) agent.restoreRelationships(savedLedger);
-      agent.restoreEvents(NPCManager.restoreEvents(this.npcMemory, def.id));
-      agent.restoreInventory(NPCManager.restoreInventory(this.npcMemory, def.id));
+      // Centralized restore (Fase 20 fix): spawnWithMemory restores conversation,
+      // disposition, ledger, events, inventory, pervasive HP, tamper/sabotage AND
+      // the `defeated` flag — the old manual path here forgot `defeated`, so a
+      // killed authored NPC (Zara/Mback) came back alive on reload.
+      this.npcManager.spawnWithMemory(def, this.npcMemory);
       const anchor = await this.buildNPCVisual(def);
       this.npcAnchors.push(anchor);
     }
