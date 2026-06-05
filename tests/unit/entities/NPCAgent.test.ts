@@ -224,6 +224,14 @@ describe('NPCAgent', () => {
       expect(a.isAntagonisticToward('x')).toBe(true);
     });
 
+    it('improveRelationship steps toward friendly (clamped)', () => {
+      const a = new NPCAgent({ ...def });
+      expect(a.improveRelationship('x')).toBe('friendly'); // neutral → friendly
+      expect(a.improveRelationship('x')).toBe('friendly'); // clamped
+      a.setRelationship('y', 'hostile');
+      expect(a.improveRelationship('y')).toBe('wary');
+    });
+
     it('serialises and restores the ledger as a record', () => {
       const a = new NPCAgent({ ...def, npcRelationships: { npc_mback: 'hostile' } });
       expect(a.relationshipsRecord()).toEqual({ npc_mback: 'hostile' });
@@ -232,6 +240,34 @@ describe('NPCAgent', () => {
       expect(a.getRelationship('npc_mback')).toBe('neutral'); // cleared on restore
       a.restoreRelationships(undefined);
       expect(a.relationshipsRecord()).toEqual({});
+    });
+  });
+
+  describe('tamper trace + sabotage (Fase 20)', () => {
+    it('seeds, reads, restores and clears a tamper trace', () => {
+      const a = new NPCAgent({ ...def });
+      expect(a.getTamper()).toBeNull();
+      a.seedTamper({ kind: 'theft', playerSkillValue: 55 });
+      expect(a.getTamper()).toEqual({ kind: 'theft', playerSkillValue: 55 });
+      a.clearTamper();
+      expect(a.getTamper()).toBeNull();
+      a.restoreTamper({ kind: 'hack', playerSkillValue: 70 });
+      expect(a.getTamper()).toEqual({ kind: 'hack', playerSkillValue: 70 });
+      a.restoreTamper(undefined);
+      expect(a.getTamper()).toBeNull();
+    });
+
+    it('marks, reads, restores and clears sabotage', () => {
+      const a = new NPCAgent({ ...def });
+      expect(a.isSabotaged()).toBe(false);
+      a.markSabotaged();
+      expect(a.isSabotaged()).toBe(true);
+      a.clearSabotage();
+      expect(a.isSabotaged()).toBe(false);
+      a.restoreSabotaged(true);
+      expect(a.isSabotaged()).toBe(true);
+      a.restoreSabotaged(undefined);
+      expect(a.isSabotaged()).toBe(false);
     });
   });
 

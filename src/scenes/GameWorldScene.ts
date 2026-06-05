@@ -26,7 +26,10 @@ import { WorldZone } from '@entities/WorldZone';
 import { GameClock, DayPeriod } from '@systems/GameClock';
 import { CharacterAppearance, DEFAULT_APPEARANCE, applyArmorOverlay } from '@entities/CharacterData';
 import { Inventory, defaultInventoryState } from '@entities/Inventory';
-import { weaponProfile, itemDef, isMeleeWeapon, isFirearm, armorOverlayParts } from '@entities/items/ItemCatalog';
+import { weaponProfile, itemDef, isMeleeWeapon, isFirearm, armorOverlayParts, itemValue } from '@entities/items/ItemCatalog';
+import {
+  resolveSkillAction, SkillActionInput, SkillTargetInfo, SkillMutation, BlockReason,
+} from '@systems/skills/SkillActions';
 import {
   canTrade, canOfferMission, priceFor, sellableItems, creditBalance, payCredits, grantCredits,
 } from '@systems/economy/Economy';
@@ -2540,6 +2543,13 @@ export class GameWorldScene extends BaseScene {
     this.dialog.setThinking(true);
     const cls = await this.npcManager.classifyAction(agent?.definition.id ?? 'world', message);
 
+    // Fase 20: a classified mechanical EFFECT (hack/steal/persuade/heal/sabotage/…)
+    // routes to the skill-action engine, which gates by tool + skill and applies
+    // the concrete world mutation. `none` falls through to the legacy paths below.
+    if (cls.deterministic && cls.effect !== 'none') {
+      return await this.applySkillEffect(message, agent, cls);
+    }
+
     // A hostile action aimed at a present NPC worsens its disposition (F5 path);
     // once it turns hostile, the turn-based duel begins (consumes the attack stub).
     if (agent && cls.hostile) {
@@ -2574,6 +2584,216 @@ export class GameWorldScene extends BaseScene {
       await this.streamNpcReply(agent, this.buildWorldSnapshot(agent, agent.distanceTo(this.player!.getPosition())), message);
     }
     return true;
+  }
+
+  /**
+   * Resolve a classified skill EFFECT (Fase 20): build the engine input from the
+   * player's stats/inventory + the target NPC, run `resolveSkillAction`, apply the
+   * returned mutations, narrate the outcome (TTS), learn-by-doing on success, and
+   * let the target react. Always returns true (the action is fully handled here).
+   */
+  /* istanbul ignore next — browser-only scene wiring (SkillActions core is tested) */
+  private async applySkillEffect(message: string, agent: NPCAgent | null, cls: ActionClassification): Promise<boolean> {
+    if (!this.dialog || !this.npcManager || !this.player) return false;
+    const attribute = cls.attribute ?? GameWorldScene.DEFAULT_CHECK_ATTRIBUTE;
+    const skillValue = checkValue(this.playerStats, cls.skillId, attribute);
+    const target = agent ? this.skillTargetInfo(agent, cls.target2) : null;
+    const input: SkillActionInput = {
+      effect: cls.effect, skillId: cls.skillId, skillValue, difficulty: cls.difficulty, dir: cls.dir,
+      hasCyberdeck: this.playerInventory.has('cyberdeck'),
+      hasScrap: this.playerInventory.has('scrap'),
+      target,
+    };
+    const res = resolveSkillAction(input);
+
+    if (!res.allowed) {
+      const line = this.skillBlockedLine(res.blockedReason);
+      this.dialog.addNarrationLine(line);
+      this.speakNarration(line);
+      return true;
+    }
+
+    // attack opens combat (the engine returns begin_combat); resolve it and bail —
+    // combat owns the screen, no narration/learn here (the fight handles that).
+    if (cls.effect === 'attack') {
+      for (const m of res.mutations) this.applySkillMutation(m);
+      return true;
+    }
+
+    // Learn-by-doing on a successful, skilled check (owner's rule).
+    if (res.success && cls.skillId) {
+      const before = this.playerStats;
+      this.playerStats = applySkillUse(this.playerStats, cls.skillId, SettingsService.get('skillGainMultiplier'));
+      this.applyPerkPointGrants(before, this.playerStats);
+    }
+
+    for (const m of res.mutations) this.applySkillMutation(m);
+
+    const narration = await this.npcManager.narrateOutcome(message, res.success, languageName(getLocale()));
+    const outcomeLine = narration || (res.success ? 'You pull it off.' : "It doesn't go your way.");
+    this.dialog.addNarrationLine(outcomeLine);
+    this.speakNarration(outcomeLine);
+
+    // A successful SURPRISE leaves a trace the target may notice on its next
+    // deliberation (Fase 20G): seed a pending-tamper probe (Percepção/IT).
+    if (res.success && res.surprise && agent && this.skillTamperKind(cls.effect)) {
+      agent.seedTamper({ kind: this.skillTamperKind(cls.effect)!, playerSkillValue: skillValue });
+    }
+
+    // The target reacts (unless it was just robbed blind — a surprise stays silent).
+    if (agent && !res.surprise) {
+      await this.streamNpcReply(agent, this.buildWorldSnapshot(agent, agent.distanceTo(this.player.getPosition())), message);
+    }
+    this.persistSession();
+    return true;
+  }
+
+  /** The defensive profile + reachability of an NPC target for the skill engine. */
+  /* istanbul ignore next — browser-only (reads runtime agents) */
+  private skillTargetInfo(agent: NPCAgent, target2: string | null): SkillTargetInfo {
+    const eStats = this.enemyStatsFor(agent);
+    const other = target2 ? this.findAgentByName(target2) : null;
+    const st = agent.getState();
+    return {
+      id: agent.definition.id,
+      otherId: other?.definition.id ?? null,
+      distance: agent.distanceTo(this.player!.getPosition()),
+      aware: st === 'aware' || st === 'responding' || st === 'hostile',
+      alive: !agent.isDefeated(),
+      perception: eStats.skills['percepcao'] ?? 10,
+      infotech: eStats.skills['tecnologia_informacao'] ?? 10,
+      charisma: eStats.attributes.carisma,
+      hasDeck: agent.getInventory().has('cyberdeck'),
+    };
+  }
+
+  /** Find a live NPC by (display or real) name, case-insensitive. */
+  /* istanbul ignore next — browser-only */
+  private findAgentByName(name: string): NPCAgent | null {
+    const n = name.trim().toLowerCase();
+    for (const a of this.npcManager?.getAgents() ?? []) {
+      if (a.isDefeated()) continue;
+      if (a.definition.name.toLowerCase() === n || a.getDisplayName().toLowerCase() === n) return a;
+    }
+    return null;
+  }
+
+  /** Which tamper probe a surprise effect leaves on the target (Fase 20G), if any. */
+  /* istanbul ignore next — browser-only skill-effect wiring */
+  private skillTamperKind(effect: ActionClassification['effect']): 'theft' | 'hack' | 'social' | null {
+    if (effect === 'steal') return 'theft';
+    if (effect === 'info' || effect === 'sabotage') return 'hack';
+    if (effect === 'relationship') return 'social';
+    return null;
+  }
+
+  /** Diegetic line when a skill action is blocked (missing tool / range / target). */
+  /* istanbul ignore next — browser-only skill-effect wiring */
+  private skillBlockedLine(reason: BlockReason | undefined): string {
+    switch (reason) {
+      case 'no_tool': return t('skill.needTool');
+      case 'out_of_range': return t('skill.outOfRange');
+      case 'no_target': return t('skill.noTarget');
+      case 'dead_target': return t('skill.deadTarget');
+      default: return t('skill.cannot');
+    }
+  }
+
+  /** Apply one resolved skill mutation to the world (browser-only). */
+  /* istanbul ignore next — browser-only world mutation (engine plan is tested) */
+  private applySkillMutation(m: SkillMutation): void {
+    const mgr = this.npcManager;
+    if (!mgr) return;
+    switch (m.kind) {
+      case 'begin_combat': {
+        const mainHand = this.playerInventory.combatWeaponId;
+        const openingAttack = mainHand && isFirearm(mainHand) ? 'ranged' : 'melee';
+        this.beginCombat('player', m.targetId, { ambush: m.ambush, openingAttack });
+        break;
+      }
+      case 'steal_credits': {
+        const a = mgr.getAgent(m.targetId); if (!a) break;
+        const bal = creditBalance(a.getInventory());
+        if (bal > 0) {
+          a.getInventory().transferTo(this.playerInventory, 'credstick', bal);
+          this.dialog?.addSystemLine(t('skill.wired', { n: bal }));
+        }
+        break;
+      }
+      case 'steal_item': {
+        const a = mgr.getAgent(m.targetId); if (!a) break;
+        const loot = this.mostValuableLoot(a);
+        if (loot) {
+          a.getInventory().transferTo(this.playerInventory, loot, 1);
+          this.dialog?.addSystemLine(t('skill.lifted', { item: t(itemDef(loot)?.nameKey ?? loot) }));
+        }
+        break;
+      }
+      case 'shift_disposition': {
+        const a = mgr.getAgent(m.targetId); if (!a) break;
+        for (let i = 0; i < m.steps; i++) m.dir === 'up' ? a.improveDisposition() : a.worsenDisposition();
+        break;
+      }
+      case 'alter_relationship': {
+        const a = mgr.getAgent(m.targetId); if (!a) break;
+        for (let i = 0; i < m.steps; i++) m.dir === 'up' ? a.improveRelationship(m.otherId) : a.worsenRelationship(m.otherId);
+        a.rememberEvent(`Someone turned you ${m.dir === 'up' ? 'toward' : 'against'} ${mgr.getAgent(m.otherId)?.definition.name ?? 'someone'}.`);
+        break;
+      }
+      case 'coerce': {
+        const a = mgr.getAgent(m.targetId); if (!a) break;
+        for (let i = 0; i < m.steps; i++) a.worsenDisposition(); // fear
+        const bal = creditBalance(a.getInventory());
+        if (bal > 0) { a.getInventory().transferTo(this.playerInventory, 'credstick', bal); this.dialog?.addSystemLine(t('skill.wired', { n: bal })); }
+        else { const loot = this.mostValuableLoot(a); if (loot) { a.getInventory().transferTo(this.playerInventory, loot, 1); this.dialog?.addSystemLine(t('skill.lifted', { item: t(itemDef(loot)?.nameKey ?? loot) })); } }
+        break;
+      }
+      case 'heal': {
+        const amount = 20 + Math.round((this.playerStats.skills['medicina'] ?? 10) / 5);
+        if (m.targetId === null) { this.player?.getHealth().heal(amount); this.playerHealthState = this.player?.getHealth().toState() ?? this.playerHealthState; }
+        else { mgr.getAgent(m.targetId)?.getHealth().heal(amount); }
+        break;
+      }
+      case 'mark_sabotage': {
+        mgr.getAgent(m.targetId)?.markSabotaged(); // combat hook lands in Fase 20H
+        break;
+      }
+      case 'add_pda':
+        this.recordPda(m.subjectId); // Fase 20F formalizes the PDA store + overlay
+        break;
+      case 'repair':
+      case 'craft':
+      case 'haggle':
+      case 'appraise':
+        break; // wired in 20H/20I
+    }
+  }
+
+  /**
+   * Record intel on an NPC into the player's PDA (Fase 20 'info'/scan result).
+   * Builds a short dossier from what the hack reveals and narrates it. Fase 20F
+   * formalizes the persisted PDA store + the ribbon overlay; here it narrates.
+   */
+  /* istanbul ignore next — browser-only */
+  private recordPda(subjectId: string): void {
+    const a = this.npcManager?.getAgent(subjectId);
+    if (!a) return;
+    a.markNameKnown(); // a successful scan cracks their identity (anti-metagaming break)
+    const line = t('skill.scanned', { name: a.definition.name, role: a.definition.role });
+    this.dialog?.addNarrationLine(line);
+    this.speakNarration(line);
+  }
+
+  /** The most valuable non-currency item id an NPC carries (for pickpocket/coerce). */
+  /* istanbul ignore next — browser-only */
+  private mostValuableLoot(a: NPCAgent): string | null {
+    let best: string | null = null; let bestV = -1;
+    for (const s of a.getInventoryState().items) {
+      if (s.id === 'credstick') continue;
+      const v = itemValue(s.id);
+      if (v > bestV) { bestV = v; best = s.id; }
+    }
+    return best;
   }
 
   /**

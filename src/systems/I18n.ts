@@ -158,6 +158,16 @@ export const STRINGS: Record<string, Entry> = {
   'item.armor_spc_top': e('Spaceframe Cuirass', 'Couraça Espacial'),
   'item.armor_spc_legs': e('Spaceframe Greaves', 'Perneiras Espaciais'),
   // Economy (Phase 16) — chat-driven trade + kill-contracts.
+  // Skill actions (Fase 20)
+  'skill.needTool': e("You lack the gear for that.", 'Você não tem o equipamento para isso.'),
+  'skill.outOfRange': e('They are too far to reach.', 'Está longe demais para alcançar.'),
+  'skill.noTarget': e('There is no one here to do that to.', 'Não há ninguém aqui para fazer isso.'),
+  'skill.deadTarget': e('There is nothing more to be done to them.', 'Não há mais nada a fazer com ele.'),
+  'skill.cannot': e("You can't pull that off here.", 'Você não consegue fazer isso aqui.'),
+  'skill.wired': e('You siphon {n} credits onto your chip.', 'Você desvia {n} créditos para o seu chip.'),
+  'skill.lifted': e('You lift a {item}.', 'Você surrupia {item}.'),
+  'skill.scanned': e('Your deck cracks their file: {name}, {role}.', 'Seu deck abre o arquivo: {name}, {role}.'),
+
   'economy.bought': e('Bought {item} for {price} credits.', 'Comprou {item} por {price} créditos.'),
   'economy.noCredits': e("You can't afford that.", 'Você não tem créditos suficientes.'),
   'economy.missionAccepted': e('Contract accepted: take out {target}.', 'Contrato aceito: elimine {target}.'),

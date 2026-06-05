@@ -29,6 +29,14 @@ export type PlayerAction = 'idle' | 'walking' | 'running' | 'weapon_drawn';
  */
 export type NPCDisposition = 'hostile' | 'wary' | 'neutral' | 'friendly';
 
+/** A covert action the NPC hasn't noticed yet (Fase 20). Resolved on its next
+ * deliberation via a Percepção (theft) or Information Technology (hack) check. */
+export interface TamperTrace {
+  kind: 'theft' | 'hack' | 'social';
+  /** The player's relevant skill value at the time — the bar the NPC must beat to notice. */
+  playerSkillValue: number;
+}
+
 /** Disposition scale ordered worst→best (index 0 = most hostile). */
 export const DISPOSITION_SCALE: readonly NPCDisposition[] = ['hostile', 'wary', 'neutral', 'friendly'];
 
@@ -222,6 +230,13 @@ export class NPCAgent {
     return next;
   }
 
+  /** Improve the relationship toward another NPC one step (clamped). Returns the new value. */
+  improveRelationship(npcId: string): NPCDisposition {
+    const next = improvedDisposition(this.getRelationship(npcId));
+    this.relationships.set(npcId, next);
+    return next;
+  }
+
   /** The full ledger as a plain record (for persistence). Omitted when empty. */
   relationshipsRecord(): Record<string, NPCDisposition> {
     return Object.fromEntries(this.relationships);
@@ -302,6 +317,23 @@ export class NPCAgent {
   restoreInventory(state: InventoryState | undefined): void {
     this.inventory = state ? Inventory.fromState(state) : NPCAgent.buildLoadout(this.definition.loadout);
   }
+
+  // ─── Tamper trace (Fase 20: a successful SURPRISE the NPC may notice later) ──
+
+  private pendingTamper: TamperTrace | null = null;
+  /** Record that the player covertly tampered with this NPC (stolen/hacked/turned). */
+  seedTamper(trace: TamperTrace): void { this.pendingTamper = trace; }
+  getTamper(): TamperTrace | null { return this.pendingTamper; }
+  clearTamper(): void { this.pendingTamper = null; }
+  restoreTamper(trace: TamperTrace | undefined): void { this.pendingTamper = trace ?? null; }
+
+  // ─── Sabotage (Fase 20: rigged gear explodes on the NPC's first combat use) ──
+
+  private sabotaged = false;
+  markSabotaged(): void { this.sabotaged = true; }
+  isSabotaged(): boolean { return this.sabotaged; }
+  clearSabotage(): void { this.sabotaged = false; }
+  restoreSabotaged(v: boolean | undefined): void { this.sabotaged = !!v; }
 
   // ─── Current deliberated intent (set by the autonomy layer) ─────────────────
 
