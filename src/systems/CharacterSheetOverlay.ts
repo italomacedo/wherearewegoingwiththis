@@ -204,25 +204,24 @@ export class CharacterSheetOverlay {
     closeBtn.onPointerUpObservable.add(() => this.hide());
     header.addControl(closeBtn);
 
-    // ── Content area ──
-    const content = new Rectangle('cs-content');
-    content.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-    content.top = '48px';
-    content.height = 'calc(100% - 48px)';
-    content.width = '100%';
-    content.thickness = 0;
-    bg.addControl(content);
-
+    // ── Content area — columns placed directly on bg, below the 48px header.
+    // (Babylon GUI dimensions accept only px/%, NOT calc() — a calc() height
+    // silently fails to parse and the control collapses, so we use a top offset
+    // + percentage height instead. Lesson: no calc() in Babylon GUI.)
     // Left column — attributes + skills
     const leftScroll = new ScrollViewer('cs-left-scroll');
     leftScroll.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+    leftScroll.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+    leftScroll.top = '52px';
+    leftScroll.left = '8px';
     leftScroll.width = '42%';
-    leftScroll.height = '100%';
+    leftScroll.height = '90%';
     leftScroll.thickness = 0;
     leftScroll.barColor = '#00FFCC44';
-    content.addControl(leftScroll);
+    bg.addControl(leftScroll);
 
     const leftPanel = new StackPanel('cs-left');
+    leftPanel.width = '100%';
     leftPanel.spacing = 2;
     leftPanel.paddingLeft = '16px';
     leftPanel.paddingRight = '8px';
@@ -268,12 +267,15 @@ export class CharacterSheetOverlay {
     // Right column — perk tree with attribute tabs
     const rightPanel = new Rectangle('cs-right');
     rightPanel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
-    rightPanel.width = '57%';
-    rightPanel.height = '100%';
+    rightPanel.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+    rightPanel.top = '52px';
+    rightPanel.left = '-8px';
+    rightPanel.width = '55%';
+    rightPanel.height = '90%';
     rightPanel.thickness = 1;
     rightPanel.color = '#112233';
     rightPanel.background = 'rgba(0,10,20,0.7)';
-    content.addControl(rightPanel);
+    bg.addControl(rightPanel);
 
     // Tab row
     const tabRow = new StackPanel('cs-tabs');
@@ -288,14 +290,15 @@ export class CharacterSheetOverlay {
     // Perk tree area (below tabs)
     const treeScroll = new ScrollViewer('cs-tree-scroll');
     treeScroll.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-    treeScroll.top = '40px';
-    treeScroll.height = 'calc(100% - 40px)';
+    treeScroll.top = '44px';
+    treeScroll.height = '88%';
     treeScroll.width = '100%';
     treeScroll.thickness = 0;
     treeScroll.barColor = '#00FFCC44';
     rightPanel.addControl(treeScroll);
 
     const treePanel = new StackPanel('cs-tree');
+    treePanel.width = '100%';
     treePanel.spacing = 4;
     treePanel.paddingLeft = '10px';
     treePanel.paddingRight = '10px';
@@ -338,7 +341,7 @@ export class CharacterSheetOverlay {
         // Two perks side by side
         const perkRow = new StackPanel(`cs-prow-${tierGroup.tier}`);
         perkRow.isVertical = false;
-        perkRow.height = '54px';
+        perkRow.height = '76px';
         perkRow.spacing = 6;
         treePanel.addControl(perkRow);
 
@@ -402,11 +405,12 @@ export class CharacterSheetOverlay {
     if (desc) {
       const descLbl = new TextBlock(`cs-desc-${label}`);
       descLbl.text = desc;
-      descLbl.color = '#556677';
-      descLbl.fontSize = 9;
+      descLbl.color = '#778899';
+      descLbl.fontSize = 10;
       descLbl.fontFamily = 'monospace';
-      descLbl.height = '14px';
       descLbl.textWrapping = true;
+      descLbl.resizeToFit = true; // grow to fit the wrapped 1–2 sentence description
+      descLbl.paddingBottom = '4px';
       descLbl.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
       panel.addControl(descLbl);
     }
@@ -415,7 +419,7 @@ export class CharacterSheetOverlay {
   /* istanbul ignore next — browser GUI */
   private buildPerkCard(p: PerkRow, _attr: AttributeId, stats: CharacterStats): Rectangle {
     const card = new Rectangle(`cs-pcard-${p.id}`);
-    card.width = '190px'; card.height = '52px';
+    card.width = '210px'; card.height = '72px';
     card.cornerRadius = 4;
 
     const stateColors: Record<PerkState, { bg: string; border: string; labelColor: string }> = {
@@ -430,6 +434,7 @@ export class CharacterSheetOverlay {
     card.thickness = p.state === 'chosen' ? 2 : 1;
 
     const inner = new StackPanel(`cs-pinner-${p.id}`);
+    inner.width = '100%';
     inner.paddingLeft = '6px';
     inner.paddingTop = '4px';
     inner.spacing = 2;
@@ -446,12 +451,14 @@ export class CharacterSheetOverlay {
     inner.addControl(nameLbl);
 
     const descLbl = new TextBlock();
-    descLbl.text = p.state === 'locked' ? '?' : p.description;
-    descLbl.color = '#445566';
+    descLbl.text = p.state === 'locked' ? '???' : p.description;
+    descLbl.color = '#667788';
     descLbl.fontSize = 9;
     descLbl.fontFamily = 'monospace';
-    descLbl.height = '14px';
+    descLbl.height = '44px';
+    descLbl.width = '195px';
     descLbl.textWrapping = true;
+    descLbl.textVerticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
     descLbl.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
     inner.addControl(descLbl);
 
