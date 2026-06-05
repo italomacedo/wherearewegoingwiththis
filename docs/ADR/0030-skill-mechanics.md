@@ -1,8 +1,23 @@
 # ADR-0030 — Skill Mechanics via Deterministic Chat Actions (all 13 skills)
 
-**Status:** Accepted (Fase 20 A–J, branch `feat/skill-mechanics`; awaiting Electron playtest).
+**Status:** Accepted — Fase 20 A–J **MERGED to `main`**, owner-validated in Electron (all 16 checklist blocks passed). 1506 tests, ~96.85/90.09 gated.
 **Date:** 2026-06
 **Builds on:** ADR-0016 (stats/power-ratio checks), ADR-0018 (autonomy/deliberation), the emote→check pipeline.
+
+## Post-playtest revisions (locked by owner)
+1. **Attribute model:** 1×40% primary + 1×30% secondary + 2×20% (was 1×30% + 3×20%). Creator buttons cycle `20 → 30 ◆ → 40 ★ → 20` per click — 1st click introduces as secondary, 2nd promotes to primary; promotion preserves the pair (the demoted ex-primary takes the secondary slot). `setPrimaryAndSecondaryAttributes` is the new pure helper; `setPrimaryAttribute` kept as legacy 1-tier shortcut.
+2. **Perk picker** iterates `unlockedTierCount(attr%)` per attribute (no longer hard-coded tier-1) and **re-renders on every attribute cycle** — the 40% primary moves the tier-2 slot around, so the picker must follow. Without this, `canBegin` was unsatisfiable (Lesson 52).
+3. **Physical-contact reach:** `SKILL_CONTACT_RADIUS = 2 m` for `steal` (Furtividade), `sabotage`, and `heal` on another NPC; `SKILL_ACTION_RADIUS = 30 m` for everything else. New pure `reachFor(effect, skillId)` decides per call.
+4. **Caught red-handed on failed pressure:** `effect ∈ {steal, coerce}` OR (`effect=disposition && skillId=intimidacao`) and `!res.success` → `onHostilePlayerAction` (worsens disposition one step, forces hostile state). Persuasion failures (`disposition+persuasao`) do NOT punish.
+5. **PDA is live, not a snapshot:** the `info` scan unlocks the entry; dossier lines (role/disposition/credits/inventory) are re-read from the live agent on every `openPda`. Defeated NPCs get a red rotated "DECEASED" stamp on the card.
+6. **Remote attack via IT hack:** `SkillMutation.begin_combat` carries `remote: boolean`; the scene passes `noLunge: true` to `beginCombat` so the player isn't teleported into the target's face when triggering combat via an IT-effect attack (vs the Phase-11 melee surprise lunge).
+7. **NPC mutable state ALL goes through `NPCMemoryEntry`:** added `position`/`nameKnown`/`tamper`/`sabotaged`/`health`. Authored cast (Zara/Mback) now routes through `spawnWithMemory` (not the old manual restore loop) — single source of truth (Lesson 51).
+8. **Dead NPCs are out of scope** for chat addressing (`buildAddressCandidates`) and for NPC↔NPC deliberation (`nearbyCandidatesFor`) — they're only reachable via `[E] Search the body`.
+9. **`oneShot` system prompt:** every Claude one-shot (narrate/classify/intent/gossip) now sets a small `ONE_SHOT_SYSTEM` ("game-engine narrator/classifier… never break character, never mention you are Claude…") to prevent the default Claude-Code identity from leaking mid-narration (extension of Lesson 40 → Lesson 50).
+10. **Creator gating:** `canBegin()` requires primary + secondary + valid skill allocation (2+3) + a perk in every unlocked perk slot (4 tier-1 + the tier-2 of the 40% primary, whichever attribute that is). BEGIN button is disabled and dimmed until satisfied.
+
+## UI unification (Fase 20 closeout)
+All modal screens and overlays now share one visual identity via `src/systems/UiStyle.ts` (tokens for paletes/raios/fonts/header height): **scrim** (dim full-screen) + **centred frame** (neon-bordered, rounded) + **header strip** (accent line at the base, title left, primary action right) + **ScrollViewer** when needed (no `calc()` — Lesson 48). Applied: MainMenu (buttons only, cityscape preserved), LoadGame, Options (with tabs + scroll), CharacterCreator (begin/back), PauseMenu, GameOverMenu (red palette for mood), InventoryOverlay (header + Close), AdjustOverlay (bottom bar). Branding (Splash/Studio/Publisher) and HUD/Ribbon/Dialog kept their existing identities (they don't fit the modal pattern).
 
 ## Context
 Every RPG skill existed as a number, but only combat (melee/ranged/AP), Pilotagem (nave speed) and
