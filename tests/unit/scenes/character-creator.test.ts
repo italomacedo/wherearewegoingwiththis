@@ -234,22 +234,27 @@ describe('CharacterCreatorScene (Quaternius outfits)', () => {
     expect(scene.getStats().attributes.destreza).toBe(40);
   });
 
-  it('cycleAttribute cycles 20 → 40 → 30 → 20 (Fase 20)', () => {
+  it('cycleAttribute cycles 20 → 30 → 40 → 20 (Fase 20 — owner-revised UX)', () => {
     scene.setPrimaryAndSecondary('forca', 'destreza'); // baseline
-    // Clicking 'inteligencia' (was 20): becomes the new primary (40); old primary 'forca' demotes to secondary (30); old secondary 'destreza' drops to 20.
+    // Click 'inteligencia' (was 20): becomes the (new) secondary at 30%; the OLD
+    // secondary 'destreza' drops to 20%. Primary 'forca' (40%) is untouched.
+    expect(scene.cycleAttribute('inteligencia')).toBe('secondary');
+    expect(scene.getStats().attributes.inteligencia).toBe(30);
+    expect(scene.getStats().attributes.destreza).toBe(20);
+    expect(scene.getStats().attributes.forca).toBe(40); // untouched primary
+    // Click 'inteligencia' again (was 30) → promotes to primary (40%). The old
+    // primary 'forca' demotes to the secondary slot (30%).
     expect(scene.cycleAttribute('inteligencia')).toBe('primary');
     expect(scene.getStats().attributes.inteligencia).toBe(40);
     expect(scene.getStats().attributes.forca).toBe(30);
     expect(scene.getStats().attributes.destreza).toBe(20);
-    // Clicking 'inteligencia' again (was 40 primary) → 30 secondary; primary is now empty.
-    expect(scene.cycleAttribute('inteligencia')).toBe('secondary');
-    expect(scene.getStats().attributes.inteligencia).toBe(30);
-    expect(scene.getPrimaryAttribute()).toBeNull();
-    expect(scene.canBegin()).toBe(false); // gated: no 40%
-    // Clicking 'inteligencia' once more (was 30) → back to 20; secondary slot empties.
+    // Click 'inteligencia' once more (was 40) → back to 20; primary slot empties.
+    // Secondary ('forca' at 30%) stays.
     expect(scene.cycleAttribute('inteligencia')).toBe('base');
     expect(scene.getStats().attributes.inteligencia).toBe(20);
-    expect(scene.getSecondaryAttribute()).toBeNull();
+    expect(scene.getPrimaryAttribute()).toBeNull();
+    expect(scene.getSecondaryAttribute()).toBe('forca');
+    expect(scene.canBegin()).toBe(false); // gated: no 40%
   });
 
   it('setStartingSkills validates and applies 2x40 + 3x20', () => {

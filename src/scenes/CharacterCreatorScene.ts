@@ -307,45 +307,46 @@ export class CharacterCreatorScene extends BaseScene {
   }
 
   /**
-   * Cycle one attribute through 20 → 40 → 30 → 20 on click (owner's UX decision).
-   *   - 20% → 40%: becomes the primary; the previous primary drops to 20% (or to the
-   *     secondary's slot if it WAS the secondary, freeing the secondary spot).
-   *   - 40% → 30%: becomes the secondary; the previous secondary drops to 20%.
-   *   - 30% → 20%: just reverts to base (the secondary slot empties).
+   * Cycle one attribute through 20 → 30 → 40 → 20 on click (owner's UX, revised
+   * for intuitiveness: you "climb" from weak to strong, not jump-then-demote).
+   *   - 20% → 30%: becomes the secondary; any other secondary drops to 20% so there
+   *     is always at most one 30%. The primary slot is untouched.
+   *   - 30% → 40%: promotes to primary; any other primary demotes to secondary, and
+   *     the previous secondary (which was THIS attribute) is replaced by that demoted
+   *     primary. Net result: this attribute is 40%, the ex-primary is 30%.
+   *   - 40% → 20%: just clears the primary slot (secondary kept).
    * Returns the new role of `attr` after the cycle.
    */
   cycleAttribute(attr: AttributeId): 'base' | 'primary' | 'secondary' {
     const isPrimary = this.primaryAttribute === attr;
     const isSecondary = this.secondaryAttribute === attr;
     if (isPrimary) {
-      // 40% → 30%: it becomes the secondary; the previous secondary (if any) drops to 20%.
-      // The primary slot now needs a new occupant — left empty here; UI shows null and
-      // demands the player pick a new 40% to satisfy canBegin().
-      this.secondaryAttribute = attr;
+      // 40% → 20%: primary slot empties; canBegin() will gate until a new 40% is set.
       this.primaryAttribute = (null as unknown) as AttributeId;
       this.stats = applyPrimaryAndSecondaryAttributes(this.stats, this.primaryAttribute, this.secondaryAttribute);
       this.refreshBeginButton();
       this.refreshPerksUI();
-      return 'secondary';
-    }
-    if (isSecondary) {
-      // 30% → 20%: just clear the secondary slot.
-      this.secondaryAttribute = (null as unknown) as AttributeId;
-      this.stats = applyPrimaryAndSecondaryAttributes(this.stats, this.primaryAttribute, null);
-      this.refreshBeginButton();
-      this.refreshPerksUI();
       return 'base';
     }
-    // 20% → 40%: becomes the primary. If there was already a primary, demote it to
-    // the secondary (and the OLD secondary, if any, drops to 20%). This keeps the
-    // single-click flow intuitive: clicking any attribute always "promotes" it.
-    const oldPrimary = this.primaryAttribute;
-    this.primaryAttribute = attr;
-    this.secondaryAttribute = (oldPrimary as AttributeId | null) ?? this.secondaryAttribute;
-    this.stats = applyPrimaryAndSecondaryAttributes(this.stats, attr, this.secondaryAttribute);
+    if (isSecondary) {
+      // 30% → 40%: promote to primary. The previous primary (if any) takes over the
+      // secondary slot we just vacated. Keeps both slots full when possible.
+      const oldPrimary = (this.primaryAttribute as AttributeId | null) ?? null;
+      this.primaryAttribute = attr;
+      this.secondaryAttribute = (oldPrimary ?? null) as AttributeId;
+      this.stats = applyPrimaryAndSecondaryAttributes(this.stats, attr, this.secondaryAttribute);
+      this.refreshBeginButton();
+      this.refreshPerksUI();
+      return 'primary';
+    }
+    // 20% → 30%: becomes the (sole) secondary; any other secondary drops to 20%.
+    // Primary untouched. If there was no primary, the player still needs to click
+    // a second attribute (or this one again) to set one — canBegin() enforces it.
+    this.secondaryAttribute = attr;
+    this.stats = applyPrimaryAndSecondaryAttributes(this.stats, this.primaryAttribute, attr);
     this.refreshBeginButton();
     this.refreshPerksUI();
-    return 'primary';
+    return 'secondary';
   }
 
   /** Legacy: cycle through the 4 attributes setting each as primary. Used by tests. */
