@@ -162,7 +162,7 @@ export class CharacterCreatorScene extends BaseScene {
     if (typeof document === 'undefined') return;
     const wrap = document.createElement('div');
     wrap.style.cssText = [
-      'position:fixed', 'right:24px', 'bottom:92px', 'width:220px', 'z-index:50',
+      'position:fixed', 'left:50%', 'transform:translateX(-50%)', 'bottom:82px', 'width:220px', 'z-index:50',
     ].join(';');
 
     const input = document.createElement('input');
@@ -550,9 +550,8 @@ export class CharacterCreatorScene extends BaseScene {
     beginBtn.fontStyle = 'bold';
     beginBtn.thickness = 1;
     beginBtn.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-    beginBtn.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
-    beginBtn.paddingBottom = '30px';
-    beginBtn.paddingRight = '24px';
+    beginBtn.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+    beginBtn.paddingBottom = '24px';
     beginBtn.onPointerUpObservable.add(() => void this.onBegin(this.domName?.value || 'Operative'));
     gui.addControl(beginBtn);
 
@@ -580,9 +579,9 @@ export class CharacterCreatorScene extends BaseScene {
     descPanel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
     descPanel.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
     descPanel.left = '-20px';
-    descPanel.top = '-80px';
+    descPanel.top = '-82px';
     descPanel.width = '300px';
-    descPanel.height = '90px';
+    descPanel.height = '76px';
     descPanel.background = 'rgba(0,15,25,0.92)';
     descPanel.paddingLeft = '8px';
     descPanel.paddingRight = '8px';
@@ -606,7 +605,7 @@ export class CharacterCreatorScene extends BaseScene {
     descBody.fontSize = 11;
     descBody.fontFamily = 'monospace';
     descBody.textWrapping = true;
-    descBody.height = '60px';
+    descBody.height = '46px';
     descBody.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
     descBody.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
     descPanel.addControl(descBody);
