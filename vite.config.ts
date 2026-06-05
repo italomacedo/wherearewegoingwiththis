@@ -59,6 +59,11 @@ export default defineConfig({
     // re-resolve them to the Node build on first dynamic import.
     include: ['kokoro-js', '@huggingface/transformers'],
   },
+  // Diagnostic toggle: `DISABLE_PHYSICS=1 npm run electron:dev` skips Havok (kinematic
+  // fallback) to bisect the hard crashes. Default false → physics on.
+  define: {
+    __DISABLE_PHYSICS__: JSON.stringify(process.env.DISABLE_PHYSICS === '1'),
+  },
   worker: {
     // ES-module worker output so the TTS worker can code-split its dynamic
     // imports (kokoro-js / transformers). The default 'iife' rejects splitting.
