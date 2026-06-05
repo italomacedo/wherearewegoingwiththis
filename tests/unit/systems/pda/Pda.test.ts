@@ -23,6 +23,12 @@ describe('Pda (pure)', () => {
     expect(next.map((e) => e.subjectId)).toEqual(['a', 'b']);
   });
 
+  it('propagates the deceased flag through buildPdaState', () => {
+    const dead: PdaEntry = { subjectId: 'm', subjectName: 'Mback', lines: ['Role: fixer'], deceased: true };
+    const v = buildPdaState([dead]);
+    expect(v.entries[0]!.deceased).toBe(true);
+  });
+
   it('upsertPdaEntry replaces an existing subject and moves it to the end', () => {
     const updated: PdaEntry = { subjectId: 'a', subjectName: 'Ana', lines: ['new'] };
     const next = upsertPdaEntry([entry('a'), entry('b')], updated);

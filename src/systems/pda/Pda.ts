@@ -9,6 +9,8 @@ export interface PdaEntry {
   subjectName: string;
   /** Dossier facts gathered about the subject (newest scan replaces the prior one). */
   lines: string[];
+  /** True when the subject is dead — surfaced in the overlay as a red DECEASED stamp. */
+  deceased?: boolean;
 }
 
 export interface PdaView {

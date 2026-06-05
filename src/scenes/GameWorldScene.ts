@@ -2917,7 +2917,13 @@ export class GameWorldScene extends BaseScene {
   private openPda(): void {
     this.pda = this.pda.map((e) => {
       const a = this.npcManager?.getAgent(e.subjectId);
-      return a ? { ...e, subjectName: a.definition.name, lines: this.dossierLinesFor(a) } : e;
+      if (!a) return e;
+      return {
+        ...e,
+        subjectName: a.definition.name,
+        lines: this.dossierLinesFor(a),
+        deceased: a.isDefeated(), // stamps a red DECEASED mark in the overlay
+      };
     });
     this.pdaOverlay?.show(this.pda);
   }

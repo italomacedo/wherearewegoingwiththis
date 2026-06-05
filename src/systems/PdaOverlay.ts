@@ -174,6 +174,32 @@ export class PdaOverlay {
         l.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         inner.addControl(l);
       }
+
+      // DECEASED stamp — military-document style: bold red, rotated, on top of the card.
+      if (e.deceased) {
+        // Faint outline frame so the stamp reads even on long cards.
+        const frame = new Rectangle(`pda-dead-frame-${e.subjectId}`);
+        frame.width = '170px'; frame.height = '40px';
+        frame.thickness = 3;
+        frame.color = '#ff3a3a';
+        frame.background = 'rgba(120,0,0,0.18)';
+        frame.cornerRadius = 4;
+        frame.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+        frame.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        frame.left = '-18px'; frame.top = '12px';
+        frame.rotation = -0.18; // ~ -10° tilt
+        frame.isHitTestVisible = false;
+        card.addControl(frame);
+
+        const stamp = new TextBlock(`pda-dead-${e.subjectId}`);
+        stamp.text = 'DECEASED';
+        stamp.color = '#ff5050';
+        stamp.fontSize = 22;
+        stamp.fontFamily = '"Courier New", monospace';
+        stamp.fontStyle = 'bold';
+        stamp.alpha = 0.92;
+        frame.addControl(stamp);
+      }
     }
   }
 }
