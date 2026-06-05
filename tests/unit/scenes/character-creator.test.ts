@@ -12,6 +12,16 @@ const mockSceneManager = {
   transitionDurationMs: 0,
 };
 
+/** Make every required choice so the BEGIN gate (skills 2+3 + a tier-1 perk per
+ *  attribute) is satisfied (Fase 20: onBegin requires a complete sheet). */
+function completeCreatorChoices(scene: CharacterCreatorScene): void {
+  scene.setStartingSkills(['armas_de_fogo', 'medicina'], ['furtividade', 'persuasao', 'comercio']);
+  scene.setSlotPerk('forca_t1_punho_calejado');
+  scene.setSlotPerk('destreza_t1_dedos_leves');
+  scene.setSlotPerk('inteligencia_t1_olho_clinico');
+  scene.setSlotPerk('carisma_t1_labia');
+}
+
 describe('CharacterCreatorScene (Quaternius outfits)', () => {
   let engine: NullEngine;
   let scene: CharacterCreatorScene;
@@ -175,6 +185,10 @@ describe('CharacterCreatorScene (Quaternius outfits)', () => {
     mockSceneManager.loadScene.mockClear();
     await scene.onBegin('   ');
     expect(mockSceneManager.loadScene).not.toHaveBeenCalled();
+    // Incomplete sheet → BEGIN is gated even with a valid name (Fase 20).
+    await scene.onBegin('Kai');
+    expect(mockSceneManager.loadScene).not.toHaveBeenCalled();
+    completeCreatorChoices(scene);
     await scene.onBegin('Kai');
     expect(mockSceneManager.loadScene).toHaveBeenCalledWith('game-world');
   });
@@ -182,6 +196,7 @@ describe('CharacterCreatorScene (Quaternius outfits)', () => {
   it('onBegin creates a save and registers a GameSession carrying the outfit', async () => {
     await scene.onEnter();
     await scene.setOutfit('swat');
+    completeCreatorChoices(scene);
     await scene.onBegin('Kai');
     expect(SaveService.listMeta()).toHaveLength(1);
     const session = ServiceLocator.get<GameSession>('gameSession');
@@ -233,9 +248,22 @@ describe('CharacterCreatorScene (Quaternius outfits)', () => {
     expect(perks).not.toContain('forca_t1_punho_calejado');
   });
 
+  it('canBegin requires a full skill allocation AND a tier-1 perk per attribute (Fase 20 gate)', () => {
+    expect(scene.canBegin()).toBe(false); // fresh sheet: nothing chosen
+    scene.setStartingSkills(['armas_de_fogo', 'medicina'], ['furtividade', 'persuasao', 'comercio']);
+    expect(scene.canBegin()).toBe(false); // skills done, perks still pending
+    scene.setSlotPerk('forca_t1_punho_calejado');
+    scene.setSlotPerk('destreza_t1_dedos_leves');
+    scene.setSlotPerk('inteligencia_t1_olho_clinico');
+    expect(scene.canBegin()).toBe(false); // 3 of 4 perks
+    scene.setSlotPerk('carisma_t1_labia');
+    expect(scene.canBegin()).toBe(true); // skills + all four perks
+  });
+
   it('onBegin persists the RPG sheet onto the saved character', async () => {
     await scene.onEnter();
     scene.cyclePrimaryAttribute(); // forca → destreza
+    completeCreatorChoices(scene);
     await scene.onBegin('Kai');
     const session = ServiceLocator.get<GameSession>('gameSession');
     expect(session.character.stats!.attributes.destreza).toBe(30);

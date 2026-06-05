@@ -15,7 +15,7 @@ import {
   CharacterStats, AttributeId, ATTRIBUTES, SKILLS, StartingSkillPick, StartTier,
   createDefaultStats, setPrimaryAttribute as applyPrimaryAttribute,
   allocateStartingSkills, isValidStartingSkills, choosePerk as applyChoosePerk,
-  choosePerkReplacing, perksForTier, toggleStartingSkill, startingSkillState,
+  choosePerkReplacing, perksForTier, pendingPerkSlots, toggleStartingSkill, startingSkillState,
 } from '@entities/CharacterStats';
 import { type Gender, outfitsForGender, genderOfOutfit, outfitProvidesPart } from '@assets/AvatarMeshCatalog';
 import { ARMOR_OUTFIT_KEYS } from '@entities/items/ItemCatalog';
@@ -124,6 +124,11 @@ export class CharacterCreatorScene extends BaseScene {
   // Native DOM name field (Babylon GUI InputText mangles non-US keyboards — Lesson 15).
   private domName: HTMLInputElement | null = null;
   private domNameWrap: HTMLDivElement | null = null;
+  /** True once the starting-skill allocation is complete (2 majors + 3 minors).
+   *  BEGIN is gated on this so a partial pick can't start with default (10%) skills. */
+  private startingSkillsComplete = false;
+  /** The BEGIN button, disabled until the allocation is complete (browser only). */
+  private beginButton: import('@babylonjs/gui').Button | null = null;
 
   // RPG sheet — a valid default (primary 'forca' = 30%, others 20%, skills 10%).
   private primaryAttribute: AttributeId = 'forca';
@@ -197,8 +202,29 @@ export class CharacterCreatorScene extends BaseScene {
     void sm.loadScene('main-menu');
   }
 
+  /**
+   * True when the player may start: a complete starting-skill allocation (2 majors +
+   * 3 minors) AND a tier-1 perk chosen for every attribute (no pending perk slots).
+   * Gating this prevents starting with default 10% skills / no perks (owner's call).
+   */
+  canBegin(): boolean {
+    return this.startingSkillsComplete && pendingPerkSlots(this.stats).length === 0;
+  }
+
+  /** Reflect `canBegin()` on the BEGIN button (enabled + dimmed). Browser-only. */
+  /* istanbul ignore next — browser GUI only */
+  private refreshBeginButton(): void {
+    if (!this.beginButton) return;
+    const ok = this.canBegin();
+    this.beginButton.isEnabled = ok;
+    this.beginButton.alpha = ok ? 1 : 0.4;
+  }
+
   async onBegin(playerName: string): Promise<void> {
     if (!playerName.trim()) return;
+    // Gate: every choice made — full skill allocation + all tier-1 perks — or a
+    // partial pick would start with base (10%) skills / no perks (owner's call).
+    if (!this.canBegin()) return;
     this.characterData.name = playerName.trim();
 
     // Persist a fresh save and hand the GameWorldScene a session carrying the
@@ -256,6 +282,8 @@ export class CharacterCreatorScene extends BaseScene {
   setStartingSkills(majorIds: string[], minorIds: string[]): boolean {
     if (!isValidStartingSkills(majorIds, minorIds)) return false;
     this.stats = allocateStartingSkills(this.stats, majorIds, minorIds);
+    this.startingSkillsComplete = true;
+    this.refreshBeginButton();
     return true;
   }
 
@@ -270,6 +298,7 @@ export class CharacterCreatorScene extends BaseScene {
   setSlotPerk(perkId: string): boolean {
     const before = JSON.stringify(this.stats.perks);
     this.stats = choosePerkReplacing(this.stats, perkId);
+    this.refreshBeginButton(); // picking the last perk may enable BEGIN
     return JSON.stringify(this.stats.perks) !== before;
   }
 
@@ -554,6 +583,8 @@ export class CharacterCreatorScene extends BaseScene {
     beginBtn.paddingBottom = '24px';
     beginBtn.onPointerUpObservable.add(() => void this.onBegin(this.domName?.value || 'Operative'));
     gui.addControl(beginBtn);
+    this.beginButton = beginBtn;
+    this.refreshBeginButton(); // starts disabled until skills + perks are chosen
 
     const backBtn = Button.CreateSimpleButton('back', t('common.back'));
     backBtn.width = '120px';
@@ -687,6 +718,7 @@ export class CharacterCreatorScene extends BaseScene {
       counter.text = t('creator.skillCounter', { majors: pick.majors.length, minors: pick.minors.length });
       counter.color = ok ? '#00FFAA' : '#FFCC66';
       if (ok) this.setStartingSkills(pick.majors, pick.minors);
+      else { this.startingSkillsComplete = false; this.refreshBeginButton(); } // un-picking re-locks BEGIN
     };
     for (const s of SKILLS) {
       const btn = Button.CreateSimpleButton(`sk-${s.id}`, `${t(`skill.${s.id}`)} — 10%`);
