@@ -621,15 +621,8 @@ export class GameWorldScene extends BaseScene {
     for (const key of this.npcTiles) {
       if (!want.has(key)) this.despawnTileNpcs(key);
     }
-    // While piloting the nave, DON'T spawn procedural NPCs: the nave crosses a tile
-    // every few seconds, so streaming a full modular avatar (skeleton + skinned
-    // meshes + a Havok capsule) per NPC piles up heavy native work mid-flight — the
-    // burst right before the main-process crash. You can't engage NPCs from the air
-    // anyway; they spawn on dismount (handleVehicleInput re-runs the ring). (Fase 18.)
-    if (!(this.vehicle?.isOccupied() ?? false)) {
-      for (const key of want) {
-        if (!this.npcTiles.has(key)) this.enqueueTileNpcs(key);
-      }
+    for (const key of want) {
+      if (!this.npcTiles.has(key)) this.enqueueTileNpcs(key);
     }
     this.updateAwakeNpcs();
   }
@@ -664,7 +657,6 @@ export class GameWorldScene extends BaseScene {
   /** Build at most ONE queued NPC avatar per frame (the heaviest streaming cost). */
   /* istanbul ignore next — browser-only avatar build */
   private async pumpNpcSpawns(): Promise<void> {
-    if (this.vehicle?.isOccupied()) return; // no heavy avatar builds while flying (Fase 18)
     const job = this.npcSpawnQueue.shift();
     if (!job || !this.npcTiles.has(job.key)) return; // tile despawned meanwhile
     await this.buildNPCVisual(job.def);
@@ -1337,10 +1329,6 @@ export class GameWorldScene extends BaseScene {
     if (typeof document === 'undefined') return;
     if (!this.npcManager || !this.autonomyQueue) return;
     if (!SettingsService.get('npcAutonomy')) return;
-    // No background deliberation while piloting the nave: flying crosses quadrants
-    // every few seconds (rapidly waking NPCs), and you can't engage them from the
-    // air anyway — this bounds the Claude CLI spawns during flight (Fase 17H).
-    if (this.vehicle?.isOccupied()) return;
 
     this.autonomyAccumMs += dt * 1000;
     if (this.autonomyAccumMs < GameWorldScene.AUTONOMY_TICK_MS) return;
@@ -2700,7 +2688,6 @@ export class GameWorldScene extends BaseScene {
       this.player.startFalling(p.y); // kinematic fall path (no-physics/tests)
       this.cameraSystem.setTarget(this.player.getRoot());
       this.cameraSystem.exitVehicleMode();
-      this.updateNpcRing(); // on foot again → spawn the current quadrant's NPCs (skipped while flying)
     } else if (this.vehicle.canEnter(this.player.getPosition())) {
       this.vehicle.enter();
       this.player.getRoot().setEnabled(false);
