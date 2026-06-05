@@ -63,5 +63,16 @@ const api: ElectronAPI = {
 
 contextBridge.exposeInMainWorld('electronAPI', api);
 
+// Forward any uncaught renderer error/rejection to the main process so it lands in
+// the terminal log even if the window dies before the console flushes (crash diag).
+window.addEventListener('error', (e) => {
+  const m = e.error?.stack || `${e.message} @ ${e.filename}:${e.lineno}`;
+  ipcRenderer.send('renderer-fatal', `error: ${m}`);
+});
+window.addEventListener('unhandledrejection', (e) => {
+  const r = e.reason;
+  ipcRenderer.send('renderer-fatal', `unhandledrejection: ${r?.stack || String(r)}`);
+});
+
 // The renderer-side global Window.electronAPI typing lives in src/vite-env.d.ts
 // (declared optional, since it is undefined until the preload runs).

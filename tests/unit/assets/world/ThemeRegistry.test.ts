@@ -92,6 +92,23 @@ describe('ThemeRegistry (pure)', () => {
       }
     });
 
+    it('market food props carry a fit footprint (so they render hand-sized, not huge)', () => {
+      const food = ARCHETYPES.market.propPool.filter((p) => p.model.includes('/food/'));
+      expect(food.length).toBeGreaterThan(0);
+      for (const p of food) expect(typeof p.fit).toBe('number');
+    });
+
+    it('scattered nature solids stay in the framed interior (±22, off the sidewalk ring)', () => {
+      for (const t of tiles) {
+        if (ARCHETYPES[t.theme].layout !== 'scatter') continue;
+        const [cx, , cz] = tileCenter(t.coord.tx, t.coord.tz);
+        for (const p of t.props.filter((x) => x.key.includes('-tree-'))) {
+          expect(Math.abs(p.position[0] - cx)).toBeLessThanOrEqual(22);
+          expect(Math.abs(p.position[2] - cz)).toBeLessThanOrEqual(22);
+        }
+      }
+    });
+
     it('carries a themed ground color', () => {
       for (const t of tiles) {
         expect(t.ground).toEqual(ARCHETYPES[t.theme].ground);

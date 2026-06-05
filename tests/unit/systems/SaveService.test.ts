@@ -367,6 +367,22 @@ describe('SaveService', () => {
       expect(written.some((s) => s.saveId === fresh.saveId)).toBe(true);
     });
 
+    it('delete() removes the on-disk file via the bridge (so it stays deleted on relaunch)', async () => {
+      const deleted: string[] = [];
+      const a = SaveService.createNewSave(testCharacter, 'A');
+      win.window = {
+        electronAPI: {
+          saveList: async () => [JSON.parse(JSON.stringify(a))],
+          saveWrite: async () => true,
+          saveDelete: async (id: string) => { deleted.push(id); return true; },
+        },
+      };
+      await SaveService.init();
+      expect(SaveService.delete(a.saveId)).toBe(true);
+      expect(deleted).toEqual([a.saveId]);                 // disk file removed via IPC
+      expect(SaveService.listMeta().some((m) => m.saveId === a.saveId)).toBe(false);
+    });
+
     it('init() is a no-op (no throw) when no Electron bridge is present', async () => {
       await expect(SaveService.init()).resolves.toBeUndefined();
     });

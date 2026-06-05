@@ -95,9 +95,11 @@ cumulative process pressure on `main`, not concurrency. Owner-rejected: "only au
 - `GameWorldScene.updateAwakeNpcs()` — called from `updateNpcRing()`, which `streamWorld()` runs **only on
   tile change** — wakes exactly the current tile's NPC set (`tileNpcIds.get(curKey)`, or the authored
   `zoneNpcIds` at (0,0)) and hibernates everyone else.
-- `driveAutonomy` also early-returns while `vehicle.isOccupied()` — flight crosses a quadrant every few
-  seconds (a wake burst) and NPCs can't be engaged from the air.
-Hibernating NPCs stay 100% interactive on contact (E / proximity / combat). See Lesson 42. (`feat/streaming-perf`.)
+Hibernating NPCs stay 100% interactive on contact (E / proximity / combat). The quadrant scoping is kept
+for **token cost**. **REVERTED (Fase 18):** the extra "pause autonomy / skip avatar builds while piloting"
+guards (`driveAutonomy`/`updateNpcRing`/`pumpNpcSpawns` `isOccupied()` early-returns) were removed — the
+"crash" they chased was Ctrl+W closing the window (clean exit 0), not a real crash (see Lesson 47); NPCs
+spawn + deliberate normally during flight again, scoped to the current quadrant. See Lessons 42 + 47.
 
 ## Save deltas (Fase 18) — what the streamed world persists
 The layout regenerates from `worldSeed`, so the save stores only **player-caused

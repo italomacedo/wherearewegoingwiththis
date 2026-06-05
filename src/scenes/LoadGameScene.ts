@@ -10,6 +10,9 @@ import { t } from '@systems/I18n';
 export class LoadGameScene extends BaseScene {
   private saves: SaveMeta[] = [];
   private pendingDelete: string | null = null;
+  /** The fullscreen GUI — disposed before each rebuild so a deleted row doesn't
+   *  linger under a freshly-stacked second GUI (the "delete doesn't remove the row" bug). */
+  private gui: AdvancedDynamicTexture | null = null;
 
   constructor(engine: Engine) {
     super(engine);
@@ -24,6 +27,8 @@ export class LoadGameScene extends BaseScene {
 
   async onExit(): Promise<void> {
     this.pendingDelete = null;
+    /* istanbul ignore next — browser GUI cleanup */
+    if (this.gui) { this.gui.dispose(); this.gui = null; }
   }
 
   // ─── Navigation ───────────────────────────────────────────────────────────
@@ -83,7 +88,11 @@ export class LoadGameScene extends BaseScene {
 
   /* istanbul ignore next */
   private buildUIBrowser(): void {
+    // Dispose the previous GUI first — otherwise rebuildUI() (after a delete) stacks a
+    // second fullscreen layer over the old one and the deleted row stays visible.
+    if (this.gui) this.gui.dispose();
     const gui = AdvancedDynamicTexture.CreateFullscreenUI('load-ui', true, this.babylonScene);
+    this.gui = gui;
 
     const title = new TextBlock('title');
     title.text = t('load.title');

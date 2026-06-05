@@ -58,8 +58,9 @@ export interface Archetype {
   ground: [number, number, number];
   /** GLB paths for the big solids — buildings (urban) or trees (scatter). */
   buildingPool: string[];
-  /** Smaller scattered props (rocks/foliage/decals). */
-  propPool: { model: string; solid: boolean }[];
+  /** Smaller scattered props (rocks/foliage/decals). `fit` = footprint (m) the loader
+   *  scales the GLB down to (pack meshes — e.g. food — are authored huge). */
+  propPool: { model: string; solid: boolean; fit?: number }[];
   /** How many big solids per tile (urban uses fixed edge slots; scatter uses this). */
   solidCount: { min: number; max: number };
   /** How many small props per tile. */
@@ -124,12 +125,14 @@ const DESERT_PROPS: { model: string; solid: boolean }[] = [
   { model: `${NAT}rock_7.glb`, solid: true }, { model: `${NAT}grass_short.glb`, solid: false },
   { model: `${NAT}cactusflower_1.glb`, solid: false }, { model: `${NAT}cactusflowers_2.glb`, solid: false },
 ];
-const MARKET_PROPS: { model: string; solid: boolean }[] = [
+const MARKET_PROPS: { model: string; solid: boolean; fit?: number }[] = [
   { model: 'world/props/props_shelf_tall.glb', solid: true },
   { model: `${DT}prop_planter_single.glb`, solid: true },
   { model: `${DT}prop_bollard.glb`, solid: true },
-  { model: 'world/food/apple.glb', solid: false },
-  { model: 'world/food/bread.glb', solid: false },
+  // Food GLBs are authored huge — fit them to a hand-sized footprint so they read as
+  // props next to the avatars (not building-sized).
+  { model: 'world/food/apple.glb', solid: false, fit: 0.25 },
+  { model: 'world/food/bread.glb', solid: false, fit: 0.4 },
 ];
 
 // ─── NPC pools ──────────────────────────────────────────────────────────────
@@ -378,28 +381,31 @@ function layBuildings(rng: RollFn, arch: Archetype, c: TileCoord): TileProp[] {
   return out;
 }
 
-/** Scatter big solids (trees/cacti) across the tile interior (world-positioned). */
+/** Scatter big solids (trees/cacti) across the tile INTERIOR (≤22 m), keeping them
+ *  off the sidewalk/road ring that now frames every tile. */
 function scatterSolids(rng: RollFn, arch: Archetype, c: TileCoord): TileProp[] {
   const out: TileProp[] = [];
   const n = intRange(rng, arch.solidCount.min, arch.solidCount.max);
   for (let i = 0; i < n; i++) {
     const model = pick(rng, arch.buildingPool);
-    const [x, , z] = tileLocalToWorld(c.tx, c.tz, [range(rng, -26, 26), 0, range(rng, -26, 26)]);
+    const [x, , z] = tileLocalToWorld(c.tx, c.tz, [range(rng, -22, 22), 0, range(rng, -22, 22)]);
     out.push({ key: `t-tree-${c.tx}-${c.tz}-${i}`, model, position: [x, 0, z], rotationY: range(rng, 0, Math.PI * 2), solid: true });
   }
   return out;
 }
 
-/** Scatter small props (rocks/foliage/decals) across the tile interior. */
+/** Scatter small props (rocks/foliage/decals/food) across the tile interior. */
 function scatterProps(rng: RollFn, arch: Archetype, c: TileCoord): TileProp[] {
   const out: TileProp[] = [];
   const n = intRange(rng, arch.propCount.min, arch.propCount.max);
-  // Urban props hug the road centre band; scatter themes spread everywhere.
-  const zSpread = arch.layout === 'urban' ? 6 : 26;
+  // Urban props hug the road centre band; scatter themes spread across the framed
+  // interior only (≤22 m) so foliage never lands on the new sidewalk/road ring.
+  const xSpread = arch.layout === 'urban' ? 24 : 22;
+  const zSpread = arch.layout === 'urban' ? 6 : 22;
   for (let i = 0; i < n; i++) {
     const p = pick(rng, arch.propPool);
-    const [x, , z] = tileLocalToWorld(c.tx, c.tz, [range(rng, -24, 24), 0, range(rng, -zSpread, zSpread)]);
-    out.push({ key: `t-prop-${c.tx}-${c.tz}-${i}`, model: p.model, position: [x, 0, z], rotationY: range(rng, 0, Math.PI * 2), solid: p.solid });
+    const [x, , z] = tileLocalToWorld(c.tx, c.tz, [range(rng, -xSpread, xSpread), 0, range(rng, -zSpread, zSpread)]);
+    out.push({ key: `t-prop-${c.tx}-${c.tz}-${i}`, model: p.model, position: [x, 0, z], rotationY: range(rng, 0, Math.PI * 2), solid: p.solid, fit: p.fit });
   }
   return out;
 }

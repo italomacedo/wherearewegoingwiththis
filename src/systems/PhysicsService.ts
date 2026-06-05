@@ -1,5 +1,10 @@
 import { Scene, Vector3 } from '@babylonjs/core';
 
+// Build-time flag (Vite `define`). Run `DISABLE_PHYSICS=1 npm run electron:dev` to
+// skip Havok entirely and fall back to kinematic movement — a diagnostic toggle for
+// the hard crashes. Undefined (→ false) in tests and in a normal run.
+declare const __DISABLE_PHYSICS__: boolean | undefined;
+
 /**
  * Wraps Havok physics initialization. The Havok engine ships as a WASM module
  * loaded asynchronously — it only runs in browser/Electron. In Node.js/Jest,
@@ -12,6 +17,12 @@ export class PhysicsService {
 
   /** Loads Havok WASM and enables physics on the scene. Browser/Electron only. */
   async init(scene: Scene): Promise<boolean> {
+    /* istanbul ignore next — diagnostic toggle; the global is undefined in tests */
+    if (typeof __DISABLE_PHYSICS__ !== 'undefined' && __DISABLE_PHYSICS__) {
+      this.enabled = false;
+      console.warn('[Physics] DISABLED via DISABLE_PHYSICS=1 (kinematic fallback, test)');
+      return false;
+    }
     if (typeof document === 'undefined') {
       // Node.js / Jest — no WASM available
       this.enabled = false;

@@ -347,7 +347,9 @@ export class VehicleController {
     this.root.computeWorldMatrix(true);
     const { min, max } = this.root.getHierarchyBoundingVectors(true);
     const ext = max.subtract(min);
-    if (ext.x < 0.05 || ext.y < 0.05 || ext.z < 0.05) return;
+    // Reject a degenerate OR non-finite bbox: a NaN/Infinity extent slips past
+    // `< 0.05` (NaN < 0.05 is false) into a NaN Havok shape that ABORTS the process.
+    if (![ext.x, ext.y, ext.z].every((v) => Number.isFinite(v) && v >= 0.05)) return;
     const center = min.add(max).scale(0.5).subtract(this.root.getAbsolutePosition());
     this.bodyShape = new PhysicsShapeBox(center, Quaternion.Identity(), ext, this.scene);
     const body = new PhysicsBody(this.root, PhysicsMotionType.DYNAMIC, false, this.scene);

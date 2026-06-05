@@ -81,6 +81,42 @@ import { GroundItem, addGroundItem, removeGroundItemAt, nearestGroundItemIndex }
 import { generateTile } from '@assets/world/ThemeRegistry';
 import { AssetCache, babylonContainerLoader } from '@systems/world/AssetCache';
 
+/** Max seconds a single frame may advance the simulation. */
+export const MAX_FRAME_DELTA = 0.1;
+
+/**
+ * Convert an engine frame delta (ms) to seconds, CAPPED. When the window is
+ * backgrounded (Alt+Tab / minimise) the render loop pauses, and the next
+ * `getDeltaTime()` returns the whole elapsed gap (seconds). Feeding that into the
+ * dt-integrated physics produced a multi-second leap: the abandoned nave's
+ * free-fall velocity (gravity × dt) blew past the crash threshold and it exploded
+ * while parked; the hero could likewise be launched. Capping any single frame
+ * keeps the sim stable on focus loss. Pure + tested.
+ */
+export function clampFrameDelta(deltaMs: number, maxSeconds = MAX_FRAME_DELTA): number {
+  const s = deltaMs / 1000;
+  if (!(s > 0)) return 0;            // NaN / negative / zero → no advance
+  return s > maxSeconds ? maxSeconds : s;
+}
+
+/**
+ * Capsule dimensions from a holder's bbox extents (x,y,z), GUARDED. A skinned
+ * mesh can report NaN/Infinity bounds for a frame mid modular-rebind; feeding that
+ * to a Havok capsule makes `{height:NaN, radius:NaN}`, and Havok's WASM `abort()`s
+ * the WHOLE process with no JS stack (the "main PID gone, no crash handler" deaths).
+ * `Math.max(0.8, NaN)` is itself NaN, so the old floor did NOT protect us. Fall back
+ * to a human-sized default on bad bounds and clamp to sane limits. Pure + tested.
+ */
+export function safeCapsuleDims(sx: number, sy: number, sz: number): { height: number; radius: number } {
+  if (!(Number.isFinite(sx) && Number.isFinite(sy) && Number.isFinite(sz))) {
+    return { height: 1.8, radius: 0.3 }; // degenerate/NaN bbox → safe human default
+  }
+  return {
+    height: Math.min(5, Math.max(0.8, sy)),
+    radius: Math.min(2, Math.max(0.2, Math.min(sx, sz) * 0.5)),
+  };
+}
+
 export class GameWorldScene extends BaseScene {
   /** Setting used for the ambient "react to surroundings" narration (global chat). */
   private static readonly SURROUNDINGS =
@@ -705,10 +741,11 @@ export class GameWorldScene extends BaseScene {
   /* istanbul ignore next — physics colliders are browser/Electron only */
   private buildNpcCapsule(id: string, holder: TransformNode): void {
     holder.computeWorldMatrix(true);
+    // Bake the (skinned) child world matrices so the bbox is valid — a stale/NaN one
+    // would make a NaN capsule that ABORTS Havok natively (kills the process).
+    for (const m of holder.getChildMeshes()) m.computeWorldMatrix(true);
     const { min, max } = holder.getHierarchyBoundingVectors(true);
-    const size = max.subtract(min);
-    const height = Math.max(0.8, size.y);
-    const radius = Math.max(0.2, Math.min(size.x, size.z) * 0.5);
+    const { height, radius } = safeCapsuleDims(max.x - min.x, max.y - min.y, max.z - min.z);
     const mesh = MeshBuilder.CreateCapsule(`cap-npc-${id}`, { height, radius }, this.babylonScene);
     mesh.isVisible = false;
     mesh.parent = holder;
@@ -909,7 +946,9 @@ export class GameWorldScene extends BaseScene {
   }
 
   update(): void {
-    const dt = this.engine.getDeltaTime() / 1000;
+    // Capped so an Alt+Tab / minimise (which pauses the render loop) can't return a
+    // multi-second delta that explodes the falling nave or launches the hero.
+    const dt = clampFrameDelta(this.engine.getDeltaTime());
 
     // Keep the action ribbon in sync (shown only during free on-foot play; Attack
     // Ranged enabled only with a firearm in hand). Done before the early returns so
@@ -1290,10 +1329,6 @@ export class GameWorldScene extends BaseScene {
     if (typeof document === 'undefined') return;
     if (!this.npcManager || !this.autonomyQueue) return;
     if (!SettingsService.get('npcAutonomy')) return;
-    // No background deliberation while piloting the nave: flying crosses quadrants
-    // every few seconds (rapidly waking NPCs), and you can't engage them from the
-    // air anyway — this bounds the Claude CLI spawns during flight (Fase 17H).
-    if (this.vehicle?.isOccupied()) return;
 
     this.autonomyAccumMs += dt * 1000;
     if (this.autonomyAccumMs < GameWorldScene.AUTONOMY_TICK_MS) return;

@@ -1,5 +1,5 @@
 import { NullEngine, Vector3 } from '@babylonjs/core';
-import { GameWorldScene } from '../../../src/scenes/GameWorldScene';
+import { GameWorldScene, clampFrameDelta, MAX_FRAME_DELTA, safeCapsuleDims } from '../../../src/scenes/GameWorldScene';
 import { ServiceLocator } from '../../../src/core/ServiceLocator';
 import { GameSession } from '../../../src/core/GameSession';
 import { EventBus } from '../../../src/core/EventBus';
@@ -819,3 +819,40 @@ function makeInjectedService(reply: string) {
   };
   return { service: new ClaudeNPCService({ claudePath: 'claude', bridge }), prompts };
 }
+
+describe('clampFrameDelta (frame-delta cap — Alt+Tab safety)', () => {
+  it('converts ms to seconds for normal frames', () => {
+    expect(clampFrameDelta(16)).toBeCloseTo(0.016);
+    expect(clampFrameDelta(100)).toBeCloseTo(0.1);
+  });
+  it('caps a huge backgrounded-frame delta to MAX_FRAME_DELTA', () => {
+    expect(clampFrameDelta(5000)).toBe(MAX_FRAME_DELTA);   // 5s Alt+Tab gap → 0.1s
+    expect(clampFrameDelta(60000)).toBe(MAX_FRAME_DELTA);
+  });
+  it('treats zero / negative / NaN as no advance', () => {
+    expect(clampFrameDelta(0)).toBe(0);
+    expect(clampFrameDelta(-10)).toBe(0);
+    expect(clampFrameDelta(NaN)).toBe(0);
+  });
+});
+
+describe('safeCapsuleDims (NPC capsule sizing — Havok-abort safety)', () => {
+  it('sizes a normal human bbox sensibly', () => {
+    const d = safeCapsuleDims(0.6, 1.8, 0.4);
+    expect(d.height).toBeCloseTo(1.8);
+    expect(d.radius).toBeCloseTo(0.2); // min(0.6,0.4)/2 = 0.2
+  });
+  it('floors tiny extents (never zero) WITHOUT letting NaN slip through', () => {
+    expect(safeCapsuleDims(0, 0, 0)).toEqual({ height: 0.8, radius: 0.2 });
+  });
+  it('falls back to a human default on NaN / Infinity bbox (the crash case)', () => {
+    expect(safeCapsuleDims(NaN, NaN, NaN)).toEqual({ height: 1.8, radius: 0.3 });
+    expect(safeCapsuleDims(0.5, Infinity, 0.5)).toEqual({ height: 1.8, radius: 0.3 });
+    expect(safeCapsuleDims(0.5, -Infinity, 0.5)).toEqual({ height: 1.8, radius: 0.3 });
+  });
+  it('clamps an absurdly large bbox to sane limits', () => {
+    const d = safeCapsuleDims(99, 99, 99);
+    expect(d.height).toBe(5);
+    expect(d.radius).toBe(2);
+  });
+});

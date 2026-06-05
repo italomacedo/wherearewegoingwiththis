@@ -19,14 +19,14 @@ import {
   Scene, MeshBuilder, StandardMaterial, Color3, AbstractMesh, TransformNode,
   PhysicsAggregate, PhysicsShapeType, Vector3,
 } from '@babylonjs/core';
-import { TILE_SIZE, tileCenter, borderWallColliders, type TileCoord } from '@systems/world/WorldGrid';
-import { tileRng, range } from '@systems/world/SeededRng';
+import { borderWallColliders, type TileCoord } from '@systems/world/WorldGrid';
+import { tileRng } from '@systems/world/SeededRng';
 import { framePlanes, crosswalkStripes, manholeSpots } from '@assets/world/CityFrame';
 import type { AssetCache } from '@systems/world/AssetCache';
 import type { TileProp } from '@assets/world/ThemeRegistry';
 
-const ASPHALT = new Color3(0.13, 0.13, 0.15);
-const SIDEWALK = new Color3(0.40, 0.40, 0.44);
+const ASPHALT = new Color3(0.32, 0.32, 0.34); // mid grey road (was near-black)
+const SIDEWALK = new Color3(0.46, 0.46, 0.50); // lighter grey curb
 const CROSSWALK = new Color3(0.9, 0.92, 0.95);
 const MANHOLE_MODEL = 'world/downtown/prop_manholecover.glb';
 
@@ -46,10 +46,12 @@ export class TileScenery {
     private readonly urban: boolean,
   ) {}
 
-  /** Cheap synchronous part: ground/frame/crosswalks/border walls. Queues the GLB props. */
+  /** Cheap synchronous part: frame/crosswalks/border walls. Queues the GLB props.
+   *  EVERY tile (urban AND nature) gets the asphalt+sidewalk road frame so the grid
+   *  streets always have sidewalks on BOTH sides — the interior plane just takes the
+   *  themed tint (green park, sand desert, …). (Owner fix.) */
   build(): void {
-    if (this.urban) this.buildUrbanFrame();
-    else this.buildGround();
+    this.buildUrbanFrame();
     this.buildBorderWalls();
     this.pending = this.allLoadProps();
   }
@@ -76,23 +78,8 @@ export class TileScenery {
     if (p.solid) this.addSolidCollider(holder, p.key);
   }
 
-  /** Nature tiles: one full-tile themed ground plane (off the road grid). */
-  private buildGround(): void {
-    const { tx, tz } = this.coord;
-    const rng = tileRng(this.worldSeed, tx, tz);
-    const [cx, , cz] = tileCenter(tx, tz);
-    const ground = MeshBuilder.CreateGround(`tile-ground-${tx}-${tz}`, { width: TILE_SIZE, height: TILE_SIZE }, this.scene);
-    ground.position.set(cx, 0, cz);
-    const mat = new StandardMaterial(`tile-ground-mat-${tx}-${tz}`, this.scene);
-    const [r, g, b] = this.groundColor;
-    const j = range(rng, -0.02, 0.02);
-    mat.diffuseColor = new Color3(r + j, g + j, b + j);
-    mat.specularColor = new Color3(0, 0, 0);
-    ground.material = mat;
-    this.meshes.push(ground);
-  }
-
-  /** Urban tiles: asphalt ▸ sidewalk ▸ themed-interior planes + crosswalks. */
+  /** Every tile: asphalt ▸ sidewalk ▸ themed-interior planes + crosswalks. The
+   *  interior plane carries the theme tint (downtown grey, park green, sand…). */
   private buildUrbanFrame(): void {
     const [ir, ig, ib] = this.groundColor;
     for (const p of framePlanes(this.coord.tx, this.coord.tz)) {

@@ -255,6 +255,13 @@ export class SaveService {
     const existed = SaveService.memoryStore.has(saveId) || SaveService.load(saveId) !== null;
     SaveService.memoryStore.delete(saveId);
     SaveService.memoryIndex = SaveService.memoryIndex.filter((id) => id !== saveId);
+    // Delete the ON-DISK file (Electron) — the Fase-18 refactor wired the disk
+    // backend into save() but missed this, so deleted saves came back on relaunch
+    // (init() re-read the still-present file). Also purge any localStorage copy so a
+    // legacy save can't be resurrected by init()'s one-time import next boot.
+    const api = SaveService.api();
+    /* istanbul ignore next — browser/IPC delete */
+    if (api?.saveDelete) void api.saveDelete(saveId).catch(() => { /* logged in main */ });
     /* istanbul ignore next */
     if (typeof localStorage !== 'undefined') {
       localStorage.removeItem(`${STORAGE_KEY_PREFIX}${saveId}`);
