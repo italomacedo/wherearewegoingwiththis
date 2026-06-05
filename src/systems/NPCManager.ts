@@ -9,6 +9,7 @@ import { NPCDisposition } from '@entities/NPCAgent';
 import { IntentCandidate, NPCIntent, parseIntent } from '@systems/npc/Intent';
 import { ClaudeCallQueue } from '@systems/ClaudeCallQueue';
 import { InventoryState } from '@entities/Inventory';
+import { HealthState } from '@entities/Health';
 
 export const COOLDOWN_SECONDS = 3;
 
@@ -25,6 +26,8 @@ export type NPCMemoryEntry = ConversationState & {
   inventory?: InventoryState;
   /** Death status (Fase 18): a defeated NPC reloads dead, not alive. */
   defeated?: boolean;
+  /** Pervasive HP (Fase 20): persists wounds across reloads and in/out of combat. */
+  health?: HealthState;
 };
 export type NPCMemoryMap = Record<string, NPCMemoryEntry>;
 
@@ -313,6 +316,7 @@ export class NPCManager {
       relationships: agent.relationshipsRecord(),
       events: agent.getKnownEvents(),
       inventory: agent.getInventoryState(),
+      health: agent.getHealthState(),
     };
   }
 
@@ -334,6 +338,8 @@ export class NPCManager {
     if (ledger) agent.restoreRelationships(ledger);
     agent.restoreEvents(NPCManager.restoreEvents(memory, def.id));
     agent.restoreInventory(NPCManager.restoreInventory(memory, def.id));
+    const savedHp = memory?.[def.id]?.health;
+    if (savedHp) agent.setHealthState(savedHp); // pervasive HP restored (Fase 20)
     if (memory?.[def.id]?.defeated) agent.markDefeated(); // stays dead across reloads (Fase 18)
     return agent;
   }

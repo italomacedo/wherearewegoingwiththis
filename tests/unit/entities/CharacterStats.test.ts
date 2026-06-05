@@ -4,6 +4,7 @@ import {
   applySkillUse, unlockedTierCount, pendingPerkSlots, canChoosePerk, choosePerk, choosePerkReplacing, checkValue,
   perksForTier, skillsForAttribute, toggleStartingSkill, startingSkillState,
   detectPerkPointGrants, grantPerkPoints, pickPerk, totalPerkPoints,
+  maxHpFor, isHacker, BASE_HP, HACKER_SKILL_THRESHOLD,
   type StartingSkillPick,
 } from '../../../src/entities/CharacterStats';
 
@@ -171,6 +172,30 @@ describe('CharacterStats — checkValue (skill fits → skill, else attribute)',
     const s = setPrimaryAttribute(createDefaultStats(), 'destreza');
     expect(checkValue(s, null, 'destreza')).toBe(30);
     expect(checkValue(s, 'unknown_skill', 'destreza')).toBe(30);
+  });
+});
+
+describe('CharacterStats — maxHpFor (Fase 20 pervasive HP)', () => {
+  it('equals BASE_HP at untrained Resistência (10)', () => {
+    expect(maxHpFor(createDefaultStats())).toBe(BASE_HP);
+  });
+  it('scales +0.5 HP per Resistência point above 10', () => {
+    const s = createDefaultStats();
+    s.skills.resistencia = 40; // +30 → +15
+    expect(maxHpFor(s)).toBe(BASE_HP + 15);
+    s.skills.resistencia = 100; // +90 → +45
+    expect(maxHpFor(s)).toBe(BASE_HP + 45);
+  });
+});
+
+describe('CharacterStats — isHacker (Fase 20 cyberdeck rule)', () => {
+  it('false below the IT threshold, true at/above it', () => {
+    const s = createDefaultStats(); // IT = 10
+    expect(isHacker(s)).toBe(false);
+    s.skills.tecnologia_informacao = HACKER_SKILL_THRESHOLD;
+    expect(isHacker(s)).toBe(true);
+    s.skills.tecnologia_informacao = 40;
+    expect(isHacker(s)).toBe(true);
   });
 });
 

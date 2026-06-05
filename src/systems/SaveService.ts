@@ -2,7 +2,7 @@ import { CharacterData, DEFAULT_APPEARANCE, cloneAppearance, migrateAppearance }
 import { ConversationState } from '@systems/npc/ConversationContext';
 import { HealthState } from '@entities/Health';
 import { HungerState } from '@entities/Hunger';
-import { createDefaultStats } from '@entities/CharacterStats';
+import { createDefaultStats, maxHpFor } from '@entities/CharacterStats';
 import { NPCDisposition } from '@entities/NPCAgent';
 import { InventoryState, defaultInventoryState } from '@entities/Inventory';
 import type { AttachOverrides } from '@systems/HeldItems';
@@ -133,6 +133,8 @@ export class SaveService {
   static createNewSave(character: CharacterData, saveName?: string): SaveGame {
     const now = new Date().toISOString();
     const saveId = SaveService.generateId();
+    // Pervasive HP scaled by Resistência (Fase 20): a fresh hero's max HP comes from stats.
+    const maxHp = character.stats ? maxHpFor(character.stats) : DEFAULT_PLAYER_HEALTH.max;
     return {
       saveId,
       saveName: saveName ?? `Save ${saveId.slice(0, 4)}`,
@@ -147,7 +149,7 @@ export class SaveService {
         worldSeed: SaveService.seedFrom(saveId),
         currentTile: [0, 0],
       },
-      playerHealth: { ...DEFAULT_PLAYER_HEALTH },
+      playerHealth: { current: maxHp, max: maxHp },
       playerHunger: { ...DEFAULT_PLAYER_HUNGER },
       vehicle: { health: { ...DEFAULT_VEHICLE_STATE.health }, destroyed: false },
       inventory: defaultInventoryState(),

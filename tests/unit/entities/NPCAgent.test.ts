@@ -1,7 +1,7 @@
 import { Vector3 } from '@babylonjs/core';
 import {
   NPCAgent, NPCDefinition, worsenedDisposition, improvedDisposition, dispositionMagnitude, DISPOSITION_SCALE,
-  friendlyFireDefection,
+  friendlyFireDefection, NPC_DEFAULT_MAX_HP,
 } from '../../../src/entities/NPCAgent';
 
 describe('disposition scale helpers (pure)', () => {
@@ -74,6 +74,20 @@ describe('NPCAgent', () => {
   it('a loadout with no weapon leaves the NPC unarmed', () => {
     const medic = new NPCAgent({ ...def, loadout: [{ id: 'medkit', qty: 1 }] });
     expect(medic.getCombatWeaponId()).toBeNull();
+  });
+
+  it('starts at full pervasive HP (NPC default max)', () => {
+    expect(agent.getHealthState()).toEqual({ current: NPC_DEFAULT_MAX_HP, max: NPC_DEFAULT_MAX_HP });
+    expect(agent.getHealth().fraction()).toBe(1);
+  });
+
+  it('persists and restores wounded HP (pervasive across reloads)', () => {
+    agent.getHealth().applyDamage(25);
+    const wounded = agent.getHealthState();
+    expect(wounded.current).toBe(NPC_DEFAULT_MAX_HP - 25);
+    const reloaded = new NPCAgent(def);
+    reloaded.setHealthState(wounded);
+    expect(reloaded.getHealthState()).toEqual(wounded);
   });
 
   it('restoreInventory loads a persisted inventory, or rebuilds from the loadout when absent', () => {

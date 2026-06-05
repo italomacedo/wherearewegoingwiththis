@@ -1488,8 +1488,9 @@ export class GameWorldScene extends BaseScene {
         const holder = this.npcHolderById.get(id);
         if (!a || a.isDefeated()) continue;
         const pos = holder?.position ?? a.getPosition();
-        const hp = GameWorldScene.NPC_COMBAT_HP;
-        combatants.push({ id, name: a.getDisplayName(), isPlayer: false, stats: this.enemyStatsFor(a), health: { current: hp, max: hp }, pos: { x: pos.x, z: pos.z }, side, weapon: weaponProfile(a.getCombatWeaponId()), weaponName: this.weaponLabel(a.getCombatWeaponId()) });
+        // Pervasive HP (Fase 20): the encounter reads the NPC's current world HP (so a
+        // wounded NPC enters the fight already hurt) and writes it back on endCombat.
+        combatants.push({ id, name: a.getDisplayName(), isPlayer: false, stats: this.enemyStatsFor(a), health: a.getHealthState(), pos: { x: pos.x, z: pos.z }, side, weapon: weaponProfile(a.getCombatWeaponId()), weaponName: this.weaponLabel(a.getCombatWeaponId()) });
         this.combatWeaponId.set(id, a.getCombatWeaponId());
         names[id] = a.getDisplayName();
         if (holder) sources[id] = holder;
@@ -2001,8 +2002,11 @@ export class GameWorldScene extends BaseScene {
           agent.markDefeated();
           this.playCombatClip(c.id, 'death', true); // hold the downed pose
           this.completeMissionsAgainst(c.id); // Phase 16: pay out any contract on this target
-        } else if (outcome !== 'player_lost' && this.combatPlayerSide && c.side !== this.combatPlayerSide) {
-          agent.setDisposition('wary');
+        } else {
+          agent.setHealthState({ current: c.hp.current, max: c.hp.max }); // persist wounds (Fase 20)
+          if (outcome !== 'player_lost' && this.combatPlayerSide && c.side !== this.combatPlayerSide) {
+            agent.setDisposition('wary');
+          }
         }
       }
       // (C) Surviving NPCs learn who died — recorded in their memory so it surfaces in
@@ -2061,9 +2065,6 @@ export class GameWorldScene extends BaseScene {
     s.skills.percepcao = 20;
     return s;
   }
-
-  /** Starting HP for a recruited NPC combatant (lower than the player so fights resolve). */
-  private static readonly NPC_COMBAT_HP = 70;
 
   /** Other known NPCs near the given agent (within ~20m) it could engage. */
   /* istanbul ignore next — browser-only helper */

@@ -152,6 +152,26 @@ export const STAT_MAX = 100;
 export const PERK_TIER_STEP = 20;   // attribute % per tier
 export const PERK_TIERS = 5;        // tiers per attribute
 
+// ─── Derived combat/world status (Fase 20: HP is pervasive, scaled by Resistência) ──
+export const BASE_HP = 100;         // baseline max HP at the starting Resistência (10)
+/** Min IT% to count as a hacker (born with a cyberdeck) — creation + procedural NPC gen. */
+export const HACKER_SKILL_THRESHOLD = 20;
+
+/**
+ * Pure: a sheet's maximum HP, scaled by Resistência on top of the baseline (Fase 20,
+ * decision #12). At Resistência 10 (untrained) = BASE_HP; +0.5 HP per point above 10
+ * (e.g. 40 → 115, 100 → 145). Tunable constant kept in code (owner's call). Floored at 1.
+ */
+export function maxHpFor(stats: CharacterStats): number {
+  const resistencia = stats.skills['resistencia'] ?? SKILL_BASE;
+  return Math.max(1, Math.round(BASE_HP + (resistencia - SKILL_BASE) * 0.5));
+}
+
+/** True when the sheet's Information Technology skill makes them an (amateur) hacker. */
+export function isHacker(stats: CharacterStats): boolean {
+  return (stats.skills['tecnologia_informacao'] ?? SKILL_BASE) >= HACKER_SKILL_THRESHOLD;
+}
+
 // ─── Lookups ──────────────────────────────────────────────────────────────────
 
 const SKILL_BY_ID = new Map<string, SkillDef>(SKILLS.map((s) => [s.id, s]));

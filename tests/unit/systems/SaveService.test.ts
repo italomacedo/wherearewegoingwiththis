@@ -1,5 +1,6 @@
 import { SaveService, SaveGame, EMPTY_CHARACTER } from '../../../src/systems/SaveService';
 import { DEFAULT_APPEARANCE } from '../../../src/entities/CharacterData';
+import { createDefaultStats, maxHpFor } from '../../../src/entities/CharacterStats';
 
 const testCharacter = {
   name: 'Kai',
@@ -23,6 +24,15 @@ describe('SaveService', () => {
     expect(save.character.name).toBe('Kai');
     expect(save.gameTimeSeconds).toBe(0);
     expect(save.world.zone).toBe('mercado_sombras');
+  });
+
+  it('createNewSave scales player max HP from Resistência when stats are present (Fase 20)', () => {
+    const stats = createDefaultStats();
+    stats.skills.resistencia = 100; // tanky build
+    const save = SaveService.createNewSave({ ...testCharacter, stats });
+    const expected = maxHpFor(stats);
+    expect(expected).toBeGreaterThan(100);
+    expect(save.playerHealth).toEqual({ current: expected, max: expected });
   });
 
   it('createNewSave includes default player + vehicle health', () => {

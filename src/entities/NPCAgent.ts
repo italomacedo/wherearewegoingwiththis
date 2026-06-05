@@ -4,6 +4,12 @@ import { CharacterAppearance } from '@entities/CharacterData';
 import type { NPCIntent } from '@systems/npc/Intent';
 import { Inventory, InventoryStack, InventoryState } from '@entities/Inventory';
 import { isWeapon } from '@entities/items/ItemCatalog';
+import { Health, HealthState } from '@entities/Health';
+
+/** Default max HP for a recruited NPC — kept lower than the player so fights resolve
+ * (was GameWorldScene.NPC_COMBAT_HP). HP is now pervasive: it persists in the world,
+ * combat reads/writes it, and a non-combat damaging action draws it down (Fase 20). */
+export const NPC_DEFAULT_MAX_HP = 70;
 
 export type NPCMood = 'neutral' | 'friendly' | 'suspicious' | 'hostile' | 'scared';
 
@@ -113,6 +119,9 @@ export class NPCAgent {
   /** What the NPC carries (built from the loadout; mutated by looting). */
   private inventory: Inventory;
 
+  /** Pervasive HP — persists in the world, used as the source of truth by combat (Fase 20). */
+  private health = new Health(NPC_DEFAULT_MAX_HP);
+
   constructor(definition: NPCDefinition, conversation?: ConversationContext) {
     this.definition = definition;
     this.mood = definition.defaultMood;
@@ -123,6 +132,17 @@ export class NPCAgent {
     }
     this.inventory = NPCAgent.buildLoadout(definition.loadout);
   }
+
+  // ─── Pervasive HP (Fase 20: same value in the world and in combat) ───────────
+
+  /** The NPC's live HP object (combat reads/writes this; world actions can damage it). */
+  getHealth(): Health { return this.health; }
+
+  /** Serialize HP for persistence. */
+  getHealthState(): HealthState { return this.health.toState(); }
+
+  /** Replace HP from a persisted/combat state (load, or write-back after a fight). */
+  setHealthState(state: HealthState): void { this.health = Health.fromState(state); }
 
   /** Build an inventory from a loadout list, auto-equipping the first weapon. */
   private static buildLoadout(loadout?: InventoryStack[]): Inventory {
