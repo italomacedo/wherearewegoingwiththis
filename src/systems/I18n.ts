@@ -127,6 +127,7 @@ export const STRINGS: Record<string, Entry> = {
   'ribbon.attackMelee': e('Strike', 'Golpear'),
   'ribbon.talk': e('Talk', 'Falar'),
   'ribbon.inventory': e('Inventory', 'Inventário'),
+  'ribbon.characterSheet': e('Character', 'Ficha'),
 
   // ─── Inventory (Phase 9) ─────────────────────────────────────────────────────
   'inventory.title': e('Inventory', 'Inventário'),

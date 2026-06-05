@@ -537,13 +537,14 @@ export class GameWorldScene extends BaseScene {
       onClose: () => { /* camera unchanged while adjusting — nothing to restore */ },
     });
 
-    // Main action ribbon (Phase 11): Attack Ranged / Melee / Talk / Inventory.
+    // Main action ribbon (Phase 11): Attack Ranged / Melee / Talk / Inventory / Character.
     this.actionRibbon = new ActionRibbon(this.babylonScene);
     this.actionRibbon.setHandlers({
       onAttackRanged: () => { this.sfx('ui_click'); this.enterSurpriseTargeting('ranged'); },
       onAttackMelee: () => { this.sfx('ui_click'); this.enterSurpriseTargeting('melee'); },
       onTalk: () => { this.sfx('ui_click'); this.openTalkFromRibbon(); },
       onInventory: () => { this.sfx('ui_click'); this.inventoryOverlay?.openManage(this.playerInventory); },
+      onCharacterSheet: () => { this.sfx('ui_open'); this.characterSheetOverlay?.show(this.playerStats); },
     });
 
     // Turn-based combat overlay (triggered by a hostile NPC's attack intent).
