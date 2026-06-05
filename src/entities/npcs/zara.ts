@@ -55,10 +55,12 @@ export const ZARA_DEFINITION: NPCDefinition = {
   // Loathes the corporate fixer — sides against him in a multi-combatant fight (8B).
   npcRelationships: { npc_mback_fence_01: 'wary' },
   // Keeps a length of pipe for self-defence and a medkit (lootable from her corpse).
+  // A cyberdeck too — she's an activist hacker, so she can resist/detect hacks (Fase 20).
   loadout: [
     { id: 'pipe', qty: 1 },
     { id: 'medkit', qty: 1 },
     { id: 'scrap', qty: 2 },
+    { id: 'cyberdeck', qty: 1 },
   ],
 };
 

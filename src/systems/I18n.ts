@@ -149,6 +149,7 @@ export const STRINGS: Record<string, Entry> = {
   'item.bat': e('Baseball Bat', 'Taco de Beisebol'),
   'item.medkit': e('Medkit', 'Kit Médico'),
   'item.scrap': e('Scrap', 'Sucata'),
+  'item.cyberdeck': e('Cyberdeck', 'Cyberdeck'),
   'item.credstick': e('Credstick', 'Cartão de Créditos'),
   // Armor pieces (Phase 15) — tactical (25% set) / space (50% set).
   'item.armor_tac_head': e('Tactical Helmet', 'Capacete Tático'),

@@ -190,8 +190,8 @@ describe('GameWorldScene', () => {
     const overlay = scene.getInventoryOverlay()!;
     expect(overlay.isOpen()).toBe(true);
     expect(overlay.getMode()).toBe('loot');
-    // Zara's loadout (pipe + medkit + scrap) is lootable.
-    expect(overlay.sourceRows().map((r) => r.id).sort()).toEqual(['medkit', 'pipe', 'scrap']);
+    // Zara's loadout (pipe + medkit + scrap + cyberdeck) is lootable.
+    expect(overlay.sourceRows().map((r) => r.id).sort()).toEqual(['cyberdeck', 'medkit', 'pipe', 'scrap']);
   });
 
   it('I opens the inventory overlay (manage) and freezes the world; ESC closes it', async () => {

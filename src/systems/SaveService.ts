@@ -2,7 +2,7 @@ import { CharacterData, DEFAULT_APPEARANCE, cloneAppearance, migrateAppearance }
 import { ConversationState } from '@systems/npc/ConversationContext';
 import { HealthState } from '@entities/Health';
 import { HungerState } from '@entities/Hunger';
-import { createDefaultStats, maxHpFor } from '@entities/CharacterStats';
+import { createDefaultStats, maxHpFor, isHacker } from '@entities/CharacterStats';
 import { NPCDisposition } from '@entities/NPCAgent';
 import { InventoryState, defaultInventoryState } from '@entities/Inventory';
 import type { AttachOverrides } from '@systems/HeldItems';
@@ -135,6 +135,9 @@ export class SaveService {
     const saveId = SaveService.generateId();
     // Pervasive HP scaled by Resistência (Fase 20): a fresh hero's max HP comes from stats.
     const maxHp = character.stats ? maxHpFor(character.stats) : DEFAULT_PLAYER_HEALTH.max;
+    // Cyberdeck rule (Fase 20): IT ≥ 20 means an amateur hacker → starts with a deck.
+    const inventory = defaultInventoryState();
+    if (character.stats && isHacker(character.stats)) inventory.items.push({ id: 'cyberdeck', qty: 1 });
     return {
       saveId,
       saveName: saveName ?? `Save ${saveId.slice(0, 4)}`,
@@ -152,7 +155,7 @@ export class SaveService {
       playerHealth: { current: maxHp, max: maxHp },
       playerHunger: { ...DEFAULT_PLAYER_HUNGER },
       vehicle: { health: { ...DEFAULT_VEHICLE_STATE.health }, destroyed: false },
-      inventory: defaultInventoryState(),
+      inventory,
       heldAttach: {},
       missions: [],
       groundItems: [],

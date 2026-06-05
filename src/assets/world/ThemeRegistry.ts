@@ -162,7 +162,8 @@ const DOWNTOWN_NPCS: Partial<Record<NpcRole, NpcArchetypeEntry[]>> = {
     routine: 'Run jobs across the strip, dodging Vyse-Tek patrols and rival crews.',
     relationships: 'Owes money to a fixer and pretends not to.',
     defaultMood: 'suspicious', initialDisposition: 'wary', outfit: 'casual_hoodie',
-    loadout: [{ id: 'knife', qty: 1 }, ...credit(3)],
+    // Edgerunners run the net — a cyberdeck marks them as a hacker (can resist/detect hacks, Fase 20).
+    loadout: [{ id: 'knife', qty: 1 }, { id: 'cyberdeck', qty: 1 }, ...credit(3)],
   }],
   corporate: [{
     name: 'Vance', role: 'Vyse-Tek corporate fixer',

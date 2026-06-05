@@ -35,6 +35,16 @@ describe('SaveService', () => {
     expect(save.playerHealth).toEqual({ current: expected, max: expected });
   });
 
+  it('createNewSave grants a cyberdeck when IT ≥ 20 (hacker), none otherwise (Fase 20)', () => {
+    const hacker = createDefaultStats();
+    hacker.skills.tecnologia_informacao = 20;
+    const withDeck = SaveService.createNewSave({ ...testCharacter, stats: hacker });
+    expect(withDeck.inventory.items.some((s) => s.id === 'cyberdeck')).toBe(true);
+
+    const noDeck = SaveService.createNewSave({ ...testCharacter, stats: createDefaultStats() });
+    expect(noDeck.inventory.items.some((s) => s.id === 'cyberdeck')).toBe(false);
+  });
+
   it('createNewSave includes default player + vehicle health', () => {
     const save = SaveService.createNewSave(testCharacter);
     expect(save.playerHealth).toEqual({ current: 100, max: 100 });

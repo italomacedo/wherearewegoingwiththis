@@ -111,6 +111,9 @@ export const ITEM_REGISTRY: Readonly<Record<string, ItemDef>> = Object.freeze({
   backpack:   { id: 'backpack',   nameKey: 'item.backpack',   category: 'misc', weight: 1.5, stackable: false, maxStack: 1, equipSlot: 'back', capacityBonus: 20, modelPath: 'items/backpack.glb', attach: hold(0.33) },
   flashlight: { id: 'flashlight', nameKey: 'item.flashlight', category: 'misc', weight: 0.4, stackable: false, maxStack: 1, equipSlot: 'main_hand', modelPath: 'items/torch.glb', attach: hold(0.2) },
   phone:      { id: 'phone',      nameKey: 'item.phone',      category: 'misc', weight: 0.2, stackable: false, maxStack: 1, modelPath: 'items/phone.glb', attach: hold(0.33) },
+  // Cyberdeck (Fase 20): the hacking tool that gates Information Technology actions.
+  // Born with one at IT ≥ 20 (creation + procedural NPCs). No GLB yet (held-prop optional).
+  cyberdeck:  { id: 'cyberdeck',  nameKey: 'item.cyberdeck',  category: 'misc', weight: 1.0, stackable: false, maxStack: 1 },
   // ── Consumables ──
   medkit: { id: 'medkit', nameKey: 'item.medkit', category: 'consumable', weight: 0.8, stackable: true, maxStack: 5, heal: 40, modelPath: 'items/firstaidkit.glb', attach: hold(0.32) },
   // ── Food (consumable — restores hunger; eaten with an in-hand prop) ──
@@ -211,7 +214,7 @@ export const WEAPON_REGISTRY: Readonly<Record<string, WeaponDef>> = Object.freez
 export const ITEM_VALUES: Readonly<Record<string, number>> = Object.freeze({
   knife: 12, pipe: 8, bat: 8, axe: 20, shovel: 15, flashlight: 10,
   pistol: 60, revolver: 80, shotgun: 120,
-  backpack: 40, phone: 25,
+  backpack: 40, phone: 25, cyberdeck: 150,
   medkit: 20,
   burger: 8, cheeseburger: 10, hotdog: 6, apple: 3, banana: 3, bread: 4, donut: 4, sushi: 7,
   armor_tac_head: 40, armor_tac_top: 70, armor_tac_legs: 55,
