@@ -2698,8 +2698,19 @@ export class GameWorldScene extends BaseScene {
       agent.seedTamper({ kind: this.skillTamperKind(cls.effect)!, playerSkillValue: skillValue });
     }
 
-    // The target reacts (unless it was just robbed blind — a surprise stays silent).
-    if (agent && !res.surprise) {
+    // A FAILED pickpocket — aware OR surprise — gets you caught red-handed:
+    // disposition worsens one step; if that pushes the NPC to hostile, the next
+    // autonomy tick starts combat via shouldInitiateCombat. (Owner: always react.)
+    let caughtThief = false;
+    if (cls.effect === 'steal' && !res.success && agent) {
+      agent.onHostilePlayerAction();
+      caughtThief = true;
+      this.logSkill(`caught: pickpocket failed → ${agent.definition.name} disposition=${agent.getDisposition()}`);
+    }
+
+    // The target reacts (unless it was just robbed blind — a surprise stays silent
+    // when successful; a CAUGHT thief, by contrast, always provokes a reply).
+    if (agent && (!res.surprise || caughtThief)) {
       await this.streamNpcReply(agent, this.buildWorldSnapshot(agent, agent.distanceTo(this.player.getPosition())), message);
     }
     this.persistSession();
