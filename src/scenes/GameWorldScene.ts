@@ -30,6 +30,7 @@ import { weaponProfile, itemDef, isMeleeWeapon, isFirearm, armorOverlayParts, it
 import {
   resolveSkillAction, SkillActionInput, SkillTargetInfo, SkillMutation, BlockReason,
 } from '@systems/skills/SkillActions';
+import { craftTargetFromText, scrapCostFor, sabotageDamage } from '@systems/skills/Crafting';
 import {
   canTrade, canOfferMission, priceFor, sellableItems, creditBalance, payCredits, grantCredits,
 } from '@systems/economy/Economy';
@@ -180,6 +181,8 @@ export class GameWorldScene extends BaseScene {
   private pdaOverlay: PdaOverlay | null = null;
   /** Intel dossiers gathered by scanning/hacking NPCs (Fase 20 PDA), persisted. */
   private pda: PdaEntry[] = [];
+  /** The weapon a pending `craft` action will produce (resolved from the emote text). */
+  private skillCraftTarget = 'knife';
   /** Items dropped into the world (Fase 18), persisted in SaveGame.groundItems. */
   private groundItems: GroundItem[] = [];
   /** Live pickup markers, keyed by their GroundItem (browser-only). */
@@ -241,6 +244,8 @@ export class GameWorldScene extends BaseScene {
   private static readonly COMBAT_TURN_DELAY = 0.7; // seconds between AI turns (live pacing)
   /** True for a player-absent fight (cinematic centroid camera); else free RTS camera. */
   private combatSpectator = false;
+  /** Set when a sabotaged NPC's gear blew at combat start (Fase 20H) — narrated once. */
+  private combatSabotageNote: string | null = null;
   private static readonly COMBAT_PAN_SPEED = 14; // metres/second for free-camera panning
   /**
    * Desired facing yaw per combatant during combat, re-asserted every combat frame
@@ -1514,6 +1519,15 @@ export class GameWorldScene extends BaseScene {
         const holder = this.npcHolderById.get(id);
         if (!a || a.isDefeated()) continue;
         const pos = holder?.position ?? a.getPosition();
+        // Sabotaged gear (Fase 20H): the rigged weapon blows as the NPC draws it for the
+        // fight — self-damage on its pervasive HP before the encounter reads it.
+        /* istanbul ignore next — browser-only sabotage hook (Crafting math is tested) */
+        if (a.isSabotaged()) {
+          const dmg = sabotageDamage(weaponProfile(a.getCombatWeaponId())?.damageBase ?? 8);
+          a.getHealth().applyDamage(dmg);
+          a.clearSabotage();
+          this.combatSabotageNote = a.getDisplayName();
+        }
         // Pervasive HP (Fase 20): the encounter reads the NPC's current world HP (so a
         // wounded NPC enters the fight already hurt) and writes it back on endCombat.
         combatants.push({ id, name: a.getDisplayName(), isPlayer: false, stats: this.enemyStatsFor(a), health: a.getHealthState(), pos: { x: pos.x, z: pos.z }, side, weapon: weaponProfile(a.getCombatWeaponId()), weaponName: this.weaponLabel(a.getCombatWeaponId()) });
@@ -1553,6 +1567,12 @@ export class GameWorldScene extends BaseScene {
     });
     this.combat.setPortraitSources(sources);
     this.combat.start(controller);
+    // Narrate (TTS) a sabotaged-gear blow that fired as the fight opened (Fase 20H);
+    // the self-damage already shows in the NPC's portrait HP.
+    if (this.combatSabotageNote) {
+      this.speakNarration(t('skill.sabotageBlows', { name: this.combatSabotageNote }));
+      this.combatSabotageNote = null;
+    }
     (this.audio ??= ServiceLocator.tryGet<AudioManager>('audio'))?.playMusic('combat');
     // Seed each combatant facing its nearest foe so the fight opens looking engaged,
     // and the per-frame pin keeps it (Bug A).
@@ -2650,6 +2670,9 @@ export class GameWorldScene extends BaseScene {
       this.applyPerkPointGrants(before, this.playerStats);
     }
 
+    // Crafting picks its output weapon from the emote text (Fase 20H).
+    if (cls.effect === 'craft') this.skillCraftTarget = craftTargetFromText(message);
+
     for (const m of res.mutations) this.applySkillMutation(m);
 
     const narration = await this.npcManager.narrateOutcome(message, res.success, languageName(getLocale()));
@@ -2782,13 +2805,26 @@ export class GameWorldScene extends BaseScene {
         break;
       }
       case 'add_pda':
-        this.recordPda(m.subjectId); // Fase 20F formalizes the PDA store + overlay
+        this.recordPda(m.subjectId);
         break;
+      case 'craft': {
+        const wid = this.skillCraftTarget;
+        const cost = scrapCostFor(wid) ?? 0;
+        if (this.playerInventory.count('scrap') >= cost && cost > 0) {
+          this.playerInventory.remove('scrap', cost);
+          this.playerInventory.add(wid, 1);
+          this.dialog?.addSystemLine(t('skill.crafted', { item: t(itemDef(wid)?.nameKey ?? wid), n: cost }));
+        } else {
+          this.dialog?.addSystemLine(t('skill.noScrap'));
+        }
+        break;
+      }
       case 'repair':
-      case 'craft':
+        // No durability system yet — repair just succeeds narratively (placeholder).
+        break;
       case 'haggle':
       case 'appraise':
-        break; // wired in 20H/20I
+        break; // wired in 20I
     }
   }
 
