@@ -200,19 +200,38 @@ export class ClaudeNPCService {
   }
 
   /** Run a single prompt and return the full trimmed reply (no session, no history). */
+  /**
+   * Pin a minimal system prompt on EVERY one-shot call (narrate/classify/intent/
+   * gossip). Without it the Claude CLI falls back to its default Claude Code system
+   * prompt and the model can leak "I'm Claude Code, built to help with software
+   * engineering…" instead of the game narration/label (Lesson 40 — applied to NPC
+   * turns already, missing on one-shots until now).
+   */
+  private static readonly ONE_SHOT_SYSTEM =
+    "You are the game-engine narrator/classifier for a cyberpunk roleplay RPG. " +
+    "Respond ONLY in the format the user's prompt requires (a short narration or a structured label set). " +
+    "Stay fully in the fictional frame. Never break character, never mention you are an AI, " +
+    "never offer software-engineering or assistant services, never reveal a name like 'Claude'. " +
+    "If the prompt asks for narration, output ONLY the narration with no preamble. " +
+    "If the prompt asks for structured lines, output ONLY those lines.";
+
   private async oneShot(id: string, prompt: string, label = 'one-shot'): Promise<string> {
     let response = '';
     const offChunk = this.bridge.onClaudeResponseChunk((data) => {
       if (data.npcId === id) response += data.chunk;
     });
-    ClaudeNPCService.traceFire(label, id, prompt);
+    const systemPrompt = ClaudeNPCService.ONE_SHOT_SYSTEM;
+    ClaudeNPCService.traceFire(label, id, prompt, systemPrompt);
     try {
-      await this.bridge.claudeQuery({ npcId: id, prompt, claudePath: this.claudePath, model: NPC_MODEL, effort: NPC_EFFORT });
+      await this.bridge.claudeQuery({
+        npcId: id, prompt, claudePath: this.claudePath, model: NPC_MODEL, effort: NPC_EFFORT,
+        systemPrompt,
+      });
     } finally {
       offChunk();
     }
     const text = response.trim();
-    ClaudeNPCService.traceDone(label, id, prompt, text);
+    ClaudeNPCService.traceDone(label, id, prompt, text, systemPrompt);
     return text;
   }
 

@@ -135,8 +135,11 @@ export function isCheckTimeEmote(message: string): boolean {
   return emoteTexts(message).some((t) => TIME_RE.test(t));
 }
 
+// `ferimento(s)` is matched explicitly; `\b` is unreliable around accented letters
+// (Lesson 49), so PT-BR variants `sa[úu]de` / `condi[çc][ãa]o` are anchored with the
+// same word boundary but the accented ranges are tolerated by the case-insensitive flag.
 const SELF_EXAM_RE =
-  /\b(wound|wounds|hurt|injur\w*|bleed\w*|health|condition|ferida|ferid\w*|ferimento|sa[úu]de|machuca\w*|condi[çc][ãa]o)\b/i;
+  /\b(wound|wounds|hurt|injur\w*|bleed\w*|health|condition|ferida|ferid\w*|ferimento|ferimentos|sa[úu]de|machuca\w*|condi[çc][ãa]o)\b/i;
 
 /** True when an emote is the player checking their own condition (Medicina-gated). */
 export function isSelfExamEmote(message: string): boolean {

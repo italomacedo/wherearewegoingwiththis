@@ -45,6 +45,7 @@ describe('EmoteIntent (pure)', () => {
     it('matches checking your own condition (en + pt)', () => {
       expect(isSelfExamEmote('*check my wounds*')).toBe(true);
       expect(isSelfExamEmote('*avalio meu ferimento*')).toBe(true);
+      expect(isSelfExamEmote('*examino meus ferimentos*')).toBe(true); // pt-BR plural (Fase 20 fix)
       expect(isSelfExamEmote('*how is my health*')).toBe(true);
     });
     it('does not match unrelated emotes', () => {
