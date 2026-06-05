@@ -222,7 +222,7 @@ export const STRINGS: Record<string, Entry> = {
   'creator.bottomOriginal': e('Bottom Colors', 'Cores de Baixo'),
   'creator.original': e('Original', 'Original'),
   'creator.custom': e('Custom', 'Personalizado'),
-  'creator.attributes': e('ATTRIBUTES — pick your primary (30%)', 'ATRIBUTOS — escolha o primário (30%)'),
+  'creator.attributes': e('ATTRIBUTES — click to cycle: 20% → 40% ★ → 30% ◆ → 20%', 'ATRIBUTOS — clique para ciclar: 20% → 40% ★ → 30% ◆ → 20%'),
   'creator.startingSkills': e('STARTING SKILLS', 'SKILLS INICIAIS'),
   'creator.skillCounter': e('Majors {majors}/2 · Minors {minors}/3', 'Maiores {majors}/2 · Menores {minors}/3'),
   'creator.tier1Perks': e('TIER-1 PERKS', 'PERKS DE TIER 1'),

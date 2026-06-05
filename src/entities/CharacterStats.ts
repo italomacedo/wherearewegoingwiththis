@@ -141,7 +141,8 @@ function slug(label: string): string {
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 export const ATTR_BASE = 20;        // every attribute starts here
-export const ATTR_PRIMARY = 30;     // the one chosen attribute starts here
+export const ATTR_PRIMARY = 40;     // the chosen primary attribute
+export const ATTR_SECONDARY = 30;   // the chosen secondary attribute (different from primary)
 export const SKILL_BASE = 10;       // every untrained skill starts here
 export const SKILL_MAJOR = 40;      // 2 starting skills
 export const SKILL_MINOR = 20;      // 3 starting skills
@@ -210,10 +211,27 @@ function clamp(v: number): number {
   return Math.min(STAT_MAX, Math.max(0, v));
 }
 
-/** Set the chosen primary attribute to 30%, the others to 20% (creation). */
+/** Set the chosen primary attribute to 40%, the others to 20% (creation, legacy 1-tier). */
 export function setPrimaryAttribute(stats: CharacterStats, primary: AttributeId): CharacterStats {
   const attributes = {} as Record<AttributeId, number>;
   ATTRIBUTES.forEach((a) => { attributes[a.id] = a.id === primary ? ATTR_PRIMARY : ATTR_BASE; });
+  return { ...stats, attributes };
+}
+
+/**
+ * Set BOTH the primary (40%) and secondary (30%) attributes; the other two go to 20%
+ * (creation). The two ids must be distinct. A null `secondary` falls back to 1-tier
+ * (only the primary at 40%, the rest at 20%). Pure.
+ */
+export function setPrimaryAndSecondaryAttributes(
+  stats: CharacterStats, primary: AttributeId, secondary: AttributeId | null,
+): CharacterStats {
+  const attributes = {} as Record<AttributeId, number>;
+  ATTRIBUTES.forEach((a) => {
+    if (a.id === primary) attributes[a.id] = ATTR_PRIMARY;
+    else if (secondary && a.id === secondary && a.id !== primary) attributes[a.id] = ATTR_SECONDARY;
+    else attributes[a.id] = ATTR_BASE;
+  });
   return { ...stats, attributes };
 }
 

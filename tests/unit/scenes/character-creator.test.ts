@@ -12,11 +12,17 @@ const mockSceneManager = {
   transitionDurationMs: 0,
 };
 
-/** Make every required choice so the BEGIN gate (skills 2+3 + a tier-1 perk per
- *  attribute) is satisfied (Fase 20: onBegin requires a complete sheet). */
+/** Make every required choice so the BEGIN gate is satisfied (Fase 20):
+ *  - 1×40% primary + 1×30% secondary attribute
+ *  - 2 majors + 3 minors of starting skills
+ *  - a perk in EVERY unlocked tier slot (4 tier-1 + 1 tier-2 from the 40% primary —
+ *    note: the tier-2 slot is always on the attribute the player chose as primary,
+ *    whichever that is; this helper hardcodes forca because it sets forca as primary). */
 function completeCreatorChoices(scene: CharacterCreatorScene): void {
+  scene.setPrimaryAndSecondary('forca', 'destreza'); // 40% on forca → unlocks forca tier1+tier2
   scene.setStartingSkills(['armas_de_fogo', 'medicina'], ['furtividade', 'persuasao', 'comercio']);
   scene.setSlotPerk('forca_t1_punho_calejado');
+  scene.setSlotPerk('forca_t2_pancada_firme'); // tier-2 of the primary (would be the secondary-attr tier-2 if 'destreza' were primary)
   scene.setSlotPerk('destreza_t1_dedos_leves');
   scene.setSlotPerk('inteligencia_t1_olho_clinico');
   scene.setSlotPerk('carisma_t1_labia');
@@ -212,18 +218,38 @@ describe('CharacterCreatorScene (Quaternius outfits)', () => {
 
   // ─── RPG sheet (Phase 3) ────────────────────────────────────────────────────
 
-  it('starts with a valid default RPG sheet (primary Força = 30%)', () => {
+  it('starts with a valid default RPG sheet (Força 40% primary, Destreza 30% secondary)', () => {
     const stats = scene.getStats();
     expect(scene.getPrimaryAttribute()).toBe('forca');
-    expect(stats.attributes.forca).toBe(30);
-    expect(stats.attributes.destreza).toBe(20);
+    expect(scene.getSecondaryAttribute()).toBe('destreza');
+    expect(stats.attributes.forca).toBe(40);
+    expect(stats.attributes.destreza).toBe(30);
+    expect(stats.attributes.inteligencia).toBe(20);
+    expect(stats.attributes.carisma).toBe(20);
     expect(Object.values(stats.skills).every((v) => v === 10)).toBe(true);
   });
 
-  it('cyclePrimaryAttribute moves the 30% around the four attributes', () => {
+  it('cyclePrimaryAttribute moves the 40% around the four attributes (legacy 1-tier)', () => {
     expect(scene.cyclePrimaryAttribute()).toBe('destreza');
-    expect(scene.getStats().attributes.destreza).toBe(30);
-    expect(scene.getStats().attributes.forca).toBe(20);
+    expect(scene.getStats().attributes.destreza).toBe(40);
+  });
+
+  it('cycleAttribute cycles 20 → 40 → 30 → 20 (Fase 20)', () => {
+    scene.setPrimaryAndSecondary('forca', 'destreza'); // baseline
+    // Clicking 'inteligencia' (was 20): becomes the new primary (40); old primary 'forca' demotes to secondary (30); old secondary 'destreza' drops to 20.
+    expect(scene.cycleAttribute('inteligencia')).toBe('primary');
+    expect(scene.getStats().attributes.inteligencia).toBe(40);
+    expect(scene.getStats().attributes.forca).toBe(30);
+    expect(scene.getStats().attributes.destreza).toBe(20);
+    // Clicking 'inteligencia' again (was 40 primary) → 30 secondary; primary is now empty.
+    expect(scene.cycleAttribute('inteligencia')).toBe('secondary');
+    expect(scene.getStats().attributes.inteligencia).toBe(30);
+    expect(scene.getPrimaryAttribute()).toBeNull();
+    expect(scene.canBegin()).toBe(false); // gated: no 40%
+    // Clicking 'inteligencia' once more (was 30) → back to 20; secondary slot empties.
+    expect(scene.cycleAttribute('inteligencia')).toBe('base');
+    expect(scene.getStats().attributes.inteligencia).toBe(20);
+    expect(scene.getSecondaryAttribute()).toBeNull();
   });
 
   it('setStartingSkills validates and applies 2x40 + 3x20', () => {
@@ -248,24 +274,48 @@ describe('CharacterCreatorScene (Quaternius outfits)', () => {
     expect(perks).not.toContain('forca_t1_punho_calejado');
   });
 
-  it('canBegin requires a full skill allocation AND a tier-1 perk per attribute (Fase 20 gate)', () => {
-    expect(scene.canBegin()).toBe(false); // fresh sheet: nothing chosen
+  it('the extra tier-2 perk slot follows whichever attribute is the 40% primary', () => {
+    // With Inteligência as primary (40%) the extra perk slot is INTELIGENCIA t2,
+    // not forca t2. Choosing the wrong attribute's tier-2 doesn't satisfy the gate.
+    scene.setPrimaryAndSecondary('inteligencia', 'destreza');
+    scene.setStartingSkills(['armas_de_fogo', 'medicina'], ['furtividade', 'persuasao', 'comercio']);
+    scene.setSlotPerk('inteligencia_t1_olho_clinico');
+    scene.setSlotPerk('destreza_t1_dedos_leves');
+    scene.setSlotPerk('forca_t1_punho_calejado');
+    scene.setSlotPerk('carisma_t1_labia');
+    expect(scene.canBegin()).toBe(false); // missing inteligencia t2
+    // Choosing forca_t2 would NOT satisfy it (forca is at 20%, tier-2 still locked).
+    scene.setSlotPerk('forca_t2_pancada_firme'); // no-op: forca tier-2 is locked
+    expect(scene.canBegin()).toBe(false);
+    // The right slot to fill is inteligencia tier-2:
+    scene.setSlotPerk('inteligencia_t2_leitura_de_rede');
+    expect(scene.canBegin()).toBe(true);
+  });
+
+  it('canBegin requires attrs (40+30) + skills (2+3) + EVERY unlocked perk slot (Fase 20)', () => {
+    // 40% primary unlocks BOTH tier-1 and tier-2 of that attribute → 5 perk slots
+    // total (forca t1 + forca t2 + 1 t1 each for the other three).
+    scene.setPrimaryAndSecondary('forca', null); // 40 set, 30 empty
+    expect(scene.canBegin()).toBe(false); // missing secondary + skills + perks
+    scene.setPrimaryAndSecondary('forca', 'destreza'); // both attrs set
+    expect(scene.canBegin()).toBe(false); // skills + perks still missing
     scene.setStartingSkills(['armas_de_fogo', 'medicina'], ['furtividade', 'persuasao', 'comercio']);
     expect(scene.canBegin()).toBe(false); // skills done, perks still pending
     scene.setSlotPerk('forca_t1_punho_calejado');
     scene.setSlotPerk('destreza_t1_dedos_leves');
     scene.setSlotPerk('inteligencia_t1_olho_clinico');
-    expect(scene.canBegin()).toBe(false); // 3 of 4 perks
     scene.setSlotPerk('carisma_t1_labia');
-    expect(scene.canBegin()).toBe(true); // skills + all four perks
+    expect(scene.canBegin()).toBe(false); // 4 of 5 — tier-2 of the 40% primary still open
+    scene.setSlotPerk('forca_t2_pancada_firme');
+    expect(scene.canBegin()).toBe(true); // all 5 slots filled
   });
 
   it('onBegin persists the RPG sheet onto the saved character', async () => {
     await scene.onEnter();
-    scene.cyclePrimaryAttribute(); // forca → destreza
-    completeCreatorChoices(scene);
+    completeCreatorChoices(scene); // forca 40 primary, destreza 30 secondary
     await scene.onBegin('Kai');
     const session = ServiceLocator.get<GameSession>('gameSession');
+    expect(session.character.stats!.attributes.forca).toBe(40);
     expect(session.character.stats!.attributes.destreza).toBe(30);
   });
 });

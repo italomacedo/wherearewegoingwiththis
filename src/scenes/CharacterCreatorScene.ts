@@ -13,7 +13,8 @@ import {
 } from '@entities/CharacterData';
 import {
   CharacterStats, AttributeId, ATTRIBUTES, SKILLS, StartingSkillPick, StartTier,
-  createDefaultStats, setPrimaryAttribute as applyPrimaryAttribute,
+  createDefaultStats,
+  setPrimaryAndSecondaryAttributes as applyPrimaryAndSecondaryAttributes,
   allocateStartingSkills, isValidStartingSkills, choosePerk as applyChoosePerk,
   choosePerkReplacing, perksForTier, pendingPerkSlots, toggleStartingSkill, startingSkillState,
 } from '@entities/CharacterStats';
@@ -131,9 +132,10 @@ export class CharacterCreatorScene extends BaseScene {
   /** The BEGIN button, disabled until the allocation is complete (browser only). */
   private beginButton: import('@babylonjs/gui').Button | null = null;
 
-  // RPG sheet — a valid default (primary 'forca' = 30%, others 20%, skills 10%).
+  // RPG sheet — defaults: 'forca' primary (40%), 'destreza' secondary (30%), others 20%, skills 10%.
   private primaryAttribute: AttributeId = 'forca';
-  private stats: CharacterStats = applyPrimaryAttribute(createDefaultStats(), 'forca');
+  private secondaryAttribute: AttributeId = 'destreza';
+  private stats: CharacterStats = applyPrimaryAndSecondaryAttributes(createDefaultStats(), 'forca', 'destreza');
 
   constructor(engine: Engine) {
     super(engine);
@@ -209,7 +211,9 @@ export class CharacterCreatorScene extends BaseScene {
    * Gating this prevents starting with default 10% skills / no perks (owner's call).
    */
   canBegin(): boolean {
-    return this.startingSkillsComplete && pendingPerkSlots(this.stats).length === 0;
+    return this.startingSkillsComplete
+      && pendingPerkSlots(this.stats).length === 0
+      && !!this.primaryAttribute && !!this.secondaryAttribute; // 1×40% + 1×30% required
   }
 
   /** Reflect `canBegin()` on the BEGIN button (enabled + dimmed). Browser-only. */
@@ -265,13 +269,68 @@ export class CharacterCreatorScene extends BaseScene {
     return this.primaryAttribute;
   }
 
-  /** Set the 30% primary attribute (others 20%). */
-  setPrimaryAttribute(attr: AttributeId): void {
-    this.primaryAttribute = attr;
-    this.stats = applyPrimaryAttribute(this.stats, attr);
+  getSecondaryAttribute(): AttributeId | null {
+    return this.secondaryAttribute;
   }
 
-  /** Cycle the primary attribute through the four, returning the new one. */
+  /**
+   * Set the 40% primary attribute (others reset; legacy 1-tier helper kept for tests).
+   * Side-effect: clears the secondary (the new primary may have been the secondary).
+   */
+  setPrimaryAttribute(attr: AttributeId): void {
+    this.primaryAttribute = attr;
+    if (this.secondaryAttribute === attr) this.secondaryAttribute = null as unknown as AttributeId; // cleared
+    this.stats = applyPrimaryAndSecondaryAttributes(this.stats, attr, this.secondaryAttribute);
+  }
+
+  /** Set BOTH the primary (40%) and secondary (30%); the other two go to 20%. */
+  setPrimaryAndSecondary(primary: AttributeId, secondary: AttributeId | null): void {
+    if (secondary && secondary === primary) secondary = null;
+    this.primaryAttribute = primary;
+    this.secondaryAttribute = secondary as AttributeId;
+    this.stats = applyPrimaryAndSecondaryAttributes(this.stats, primary, secondary);
+  }
+
+  /**
+   * Cycle one attribute through 20 → 40 → 30 → 20 on click (owner's UX decision).
+   *   - 20% → 40%: becomes the primary; the previous primary drops to 20% (or to the
+   *     secondary's slot if it WAS the secondary, freeing the secondary spot).
+   *   - 40% → 30%: becomes the secondary; the previous secondary drops to 20%.
+   *   - 30% → 20%: just reverts to base (the secondary slot empties).
+   * Returns the new role of `attr` after the cycle.
+   */
+  cycleAttribute(attr: AttributeId): 'base' | 'primary' | 'secondary' {
+    const isPrimary = this.primaryAttribute === attr;
+    const isSecondary = this.secondaryAttribute === attr;
+    if (isPrimary) {
+      // 40% → 30%: it becomes the secondary; the previous secondary (if any) drops to 20%.
+      // The primary slot now needs a new occupant — left empty here; UI shows null and
+      // demands the player pick a new 40% to satisfy canBegin().
+      this.secondaryAttribute = attr;
+      this.primaryAttribute = (null as unknown) as AttributeId;
+      this.stats = applyPrimaryAndSecondaryAttributes(this.stats, this.primaryAttribute, this.secondaryAttribute);
+      this.refreshBeginButton();
+      return 'secondary';
+    }
+    if (isSecondary) {
+      // 30% → 20%: just clear the secondary slot.
+      this.secondaryAttribute = (null as unknown) as AttributeId;
+      this.stats = applyPrimaryAndSecondaryAttributes(this.stats, this.primaryAttribute, null);
+      this.refreshBeginButton();
+      return 'base';
+    }
+    // 20% → 40%: becomes the primary. If there was already a primary, demote it to
+    // the secondary (and the OLD secondary, if any, drops to 20%). This keeps the
+    // single-click flow intuitive: clicking any attribute always "promotes" it.
+    const oldPrimary = this.primaryAttribute;
+    this.primaryAttribute = attr;
+    this.secondaryAttribute = (oldPrimary as AttributeId | null) ?? this.secondaryAttribute;
+    this.stats = applyPrimaryAndSecondaryAttributes(this.stats, attr, this.secondaryAttribute);
+    this.refreshBeginButton();
+    return 'primary';
+  }
+
+  /** Legacy: cycle through the 4 attributes setting each as primary. Used by tests. */
   cyclePrimaryAttribute(): AttributeId {
     const ids = ATTRIBUTES.map((a) => a.id);
     const next = ids[(ids.indexOf(this.primaryAttribute) + 1) % ids.length]!;
@@ -679,14 +738,23 @@ export class CharacterCreatorScene extends BaseScene {
       panel.addControl(h);
     };
 
-    // ── Attributes (click one to make it the 30% primary; others 20%) ──
+    // ── Attributes — click each to cycle 20% → 40% (primary) → 30% (secondary) → 20%.
+    // The player MUST end with exactly one 40% and one 30% (canBegin enforces it).
     addHeader(t('creator.attributes'));
     const attrLabelOf = (id: AttributeId): string => t(`attr.${id}`);
     const attrBtns: Array<{ id: AttributeId; btn: Button }> = [];
     const refreshAttrs = (): void => {
       attrBtns.forEach(({ id, btn }) => {
-        if (btn.textBlock) btn.textBlock.text = `${attrLabelOf(id)} — ${this.stats.attributes[id]}%`;
-        btn.background = id === this.primaryAttribute ? 'rgba(0,80,60,0.95)' : 'rgba(0,30,40,0.7)';
+        const isPrim = id === this.primaryAttribute;
+        const isSec = id === this.secondaryAttribute;
+        const tag = isPrim ? ' ★' : isSec ? ' ◆' : '';
+        if (btn.textBlock) btn.textBlock.text = `${attrLabelOf(id)} — ${this.stats.attributes[id]}%${tag}`;
+        btn.background = isPrim
+          ? 'rgba(0,120,80,0.95)'   // 40% — strong neon green
+          : isSec
+            ? 'rgba(0,80,60,0.85)'  // 30% — medium teal
+            : 'rgba(0,30,40,0.7)';  // 20% — neutral
+        btn.color = isPrim ? '#00FFCC' : isSec ? '#7FE6CA' : '#9FD8FF';
       });
     };
     for (const a of ATTRIBUTES) {
@@ -698,7 +766,7 @@ export class CharacterCreatorScene extends BaseScene {
       btn.fontFamily = 'monospace';
       btn.thickness = 1;
       btn.onPointerUpObservable.add(() => {
-        this.setPrimaryAttribute(a.id);
+        this.cycleAttribute(a.id); // 20 → 40 → 30 → 20
         refreshAttrs();
         showDesc(t(`attr.${a.id}`), hasKey(`attr.${a.id}.desc`) ? t(`attr.${a.id}.desc`) : '');
       });

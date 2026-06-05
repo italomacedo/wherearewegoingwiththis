@@ -5,6 +5,7 @@ import {
   perksForTier, skillsForAttribute, toggleStartingSkill, startingSkillState,
   detectPerkPointGrants, grantPerkPoints, pickPerk, totalPerkPoints,
   maxHpFor, isHacker, BASE_HP, HACKER_SKILL_THRESHOLD,
+  setPrimaryAndSecondaryAttributes,
   type StartingSkillPick,
 } from '../../../src/entities/CharacterStats';
 
@@ -40,10 +41,32 @@ describe('CharacterStats — creation', () => {
     expect(s.perks).toEqual([]);
   });
 
-  it('setPrimaryAttribute: chosen 30, others 20', () => {
+  it('setPrimaryAttribute: chosen 40, others 20 (Fase 20: primary is now 40%)', () => {
     const s = setPrimaryAttribute(createDefaultStats(), 'destreza');
-    expect(s.attributes.destreza).toBe(30);
+    expect(s.attributes.destreza).toBe(40);
     expect(s.attributes.forca).toBe(20);
+  });
+
+  it('setPrimaryAndSecondaryAttributes: 1×40 + 1×30 + 2×20 when both given', () => {
+    const s = setPrimaryAndSecondaryAttributes(createDefaultStats(), 'destreza', 'forca');
+    expect(s.attributes.destreza).toBe(40);
+    expect(s.attributes.forca).toBe(30);
+    expect(s.attributes.inteligencia).toBe(20);
+    expect(s.attributes.carisma).toBe(20);
+  });
+
+  it('setPrimaryAndSecondaryAttributes: 1×40 + 3×20 when secondary is null', () => {
+    const s = setPrimaryAndSecondaryAttributes(createDefaultStats(), 'inteligencia', null);
+    expect(s.attributes.inteligencia).toBe(40);
+    expect(s.attributes.forca).toBe(20);
+    expect(s.attributes.destreza).toBe(20);
+    expect(s.attributes.carisma).toBe(20);
+  });
+
+  it('setPrimaryAndSecondaryAttributes: secondary collapses to 20 when equal to primary', () => {
+    const s = setPrimaryAndSecondaryAttributes(createDefaultStats(), 'carisma', 'carisma');
+    expect(s.attributes.carisma).toBe(40);
+    expect(Object.values(s.attributes).filter((v) => v === 20)).toHaveLength(3);
   });
 
   it('validates the starting skill allocation (2 majors + 3 minors, distinct, real)', () => {
@@ -170,8 +193,8 @@ describe('CharacterStats — checkValue (skill fits → skill, else attribute)',
   });
   it('falls back to the attribute when skill is null or unknown', () => {
     const s = setPrimaryAttribute(createDefaultStats(), 'destreza');
-    expect(checkValue(s, null, 'destreza')).toBe(30);
-    expect(checkValue(s, 'unknown_skill', 'destreza')).toBe(30);
+    expect(checkValue(s, null, 'destreza')).toBe(40);
+    expect(checkValue(s, 'unknown_skill', 'destreza')).toBe(40);
   });
 });
 
