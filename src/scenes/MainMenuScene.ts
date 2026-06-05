@@ -5,6 +5,7 @@ import {
 } from '@babylonjs/core';
 import { AdvancedDynamicTexture, TextBlock, Button, StackPanel, Rectangle } from '@babylonjs/gui';
 import { t } from '@systems/I18n';
+import { UI } from '@systems/UiStyle';
 import { BaseScene } from './BaseScene';
 import { SceneManager } from '@core/SceneManager';
 import { ServiceLocator } from '@core/ServiceLocator';
@@ -213,24 +214,27 @@ export class MainMenuScene extends BaseScene {
       const container = new Rectangle(`btn-${label}`);
       container.height = '48px';
       container.thickness = 1;
-      container.color = '#004444';
-      container.background = 'rgba(0,20,30,0.7)';
+      container.color = UI.cardBorder;
+      container.background = UI.cardBg;
+      container.cornerRadius = UI.cornerMd;
 
       const btn = Button.CreateSimpleButton(`btn-inner-${label}`, label);
-      btn.color = '#00CCAA';
+      btn.color = UI.btnFg;
       btn.fontSize = 16;
-      btn.fontFamily = '"Courier New", monospace';
+      btn.fontFamily = UI.font;
       btn.background = 'transparent';
       btn.thickness = 0;
       btn.height = '48px';
       btn.onPointerUpObservable.add(() => { playSfxCue('ui_click'); action(); });
       btn.onPointerEnterObservable.add(() => {
-        container.color = '#00FFCC';
+        container.color = UI.accent;
+        container.background = UI.cardBgHover;
         btn.color = '#FFFFFF';
       });
       btn.onPointerOutObservable.add(() => {
-        container.color = '#004444';
-        btn.color = '#00CCAA';
+        container.color = UI.cardBorder;
+        container.background = UI.cardBg;
+        btn.color = UI.btnFg;
       });
 
       container.addControl(btn);

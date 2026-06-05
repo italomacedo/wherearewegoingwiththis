@@ -1,5 +1,6 @@
 import { Engine, Color4, FreeCamera, Vector3 } from '@babylonjs/core';
-import { AdvancedDynamicTexture, TextBlock, Button, StackPanel, Rectangle, InputText } from '@babylonjs/gui';
+import { AdvancedDynamicTexture, TextBlock, Button, StackPanel, ScrollViewer, Rectangle, InputText, Control } from '@babylonjs/gui';
+import { UI } from '@systems/UiStyle';
 import { BaseScene } from './BaseScene';
 import { SceneManager } from '@core/SceneManager';
 import { ServiceLocator } from '@core/ServiceLocator';
@@ -235,26 +236,58 @@ export class OptionsScene extends BaseScene {
     const gui = AdvancedDynamicTexture.CreateFullscreenUI('options-ui', true, this.babylonScene);
     this.gui = gui;
 
-    // Title
+    // ── Shell (scrim + centred frame + header) — unified visual identity ──
+    const scrim = new Rectangle('opt-scrim');
+    scrim.width = '100%'; scrim.height = '100%';
+    scrim.background = UI.scrim; scrim.thickness = 0;
+    gui.addControl(scrim);
+
+    const frame = new Rectangle('opt-frame');
+    frame.width = '82%'; frame.height = '88%';
+    frame.background = UI.frameBg; frame.color = UI.frameBorder;
+    frame.thickness = 2; frame.cornerRadius = UI.cornerLg;
+    scrim.addControl(frame);
+
+    const header = new Rectangle('opt-header');
+    header.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+    header.height = UI.headerHeight;
+    header.background = UI.headerBg; header.thickness = 0;
+    frame.addControl(header);
+
+    const accent = new Rectangle('opt-accent');
+    accent.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+    accent.height = '2px'; accent.background = UI.accent; accent.thickness = 0;
+    header.addControl(accent);
+
     const title = new TextBlock('title');
     title.text = t('options.title');
-    title.color = '#00FFCC';
-    title.fontSize = 32;
-    title.fontFamily = '"Courier New", monospace';
+    title.color = UI.accent;
+    title.fontSize = UI.fontTitle;
+    title.fontFamily = UI.font;
     title.fontStyle = 'bold';
-    title.verticalAlignment = 0;
-    title.top = '30px';
-    title.height = '50px';
-    gui.addControl(title);
+    title.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+    title.left = '24px';
+    header.addControl(title);
 
-    // Tab bar
+    const backBtn = Button.CreateSimpleButton('back', t('common.back'));
+    backBtn.width = '116px'; backBtn.height = '34px';
+    backBtn.color = UI.btnFg; backBtn.background = UI.btnBg;
+    backBtn.cornerRadius = UI.cornerSm;
+    backBtn.fontSize = 13; backBtn.fontFamily = 'monospace';
+    backBtn.thickness = 1;
+    backBtn.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+    backBtn.left = '-16px';
+    backBtn.onPointerUpObservable.add(() => { playSfxCue('ui_click'); this.onBack(); });
+    header.addControl(backBtn);
+
+    // ── Tab bar (right under the header) ──
     const tabBar = new StackPanel('tab-bar');
     tabBar.isVertical = false;
-    tabBar.verticalAlignment = 0;
-    tabBar.top = '90px';
-    tabBar.height = '40px';
-    tabBar.spacing = 4;
-    gui.addControl(tabBar);
+    tabBar.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+    tabBar.top = '68px';
+    tabBar.height = '36px';
+    tabBar.spacing = 6;
+    frame.addControl(tabBar);
 
     const tabLabels: Array<{ id: OptionsTab; label: string }> = [
       { id: 'game', label: t('options.tab.game').toUpperCase() },
@@ -266,29 +299,40 @@ export class OptionsScene extends BaseScene {
     tabLabels.forEach(({ id, label }) => {
       const tab = Button.CreateSimpleButton(`tab-${id}`, label);
       tab.width = '120px';
-      tab.height = '36px';
-      tab.color = id === this.activeTab ? '#00FFCC' : '#446666';
-      tab.background = id === this.activeTab ? 'rgba(0,80,60,0.5)' : 'transparent';
-      tab.fontSize = 13;
-      tab.fontFamily = '"Courier New", monospace';
-      tab.thickness = 1;
+      tab.height = '32px';
+      tab.color = id === this.activeTab ? UI.accent : UI.textMuted;
+      tab.background = id === this.activeTab ? UI.btnBg : 'rgba(0,16,26,0.7)';
+      tab.cornerRadius = UI.cornerSm;
+      tab.fontSize = 12;
+      tab.fontFamily = UI.font;
+      tab.thickness = id === this.activeTab ? 2 : 1;
       tab.onPointerUpObservable.add(() => {
         playSfxCue('ui_click');
         this.selectTab(id);
-        this.rebuildUI(); // swap the content panel to the selected tab
+        this.rebuildUI();
       });
       tabBar.addControl(tab);
     });
 
-    // Content panel
+    // ── Scrollable content area inside the frame (no calc — Lesson 48) ──
+    const scroll = new ScrollViewer('opt-scroll');
+    scroll.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+    scroll.top = '110px';
+    scroll.width = '94%';
+    scroll.height = '76%';
+    scroll.thickness = 0;
+    scroll.barColor = UI.accentSoft;
+    scroll.barBackground = UI.accentBgSoft;
+    frame.addControl(scroll);
+
     const content = new StackPanel('content');
-    content.verticalAlignment = 0;
-    content.top = '150px';
-    content.left = '80px';
-    content.width = '600px';
-    content.spacing = 12;
-    content.horizontalAlignment = 0;
-    gui.addControl(content);
+    content.width = '100%';
+    content.spacing = 10;
+    content.paddingTop = '8px';
+    content.paddingBottom = '12px';
+    content.paddingLeft = '24px';
+    content.paddingRight = '24px';
+    scroll.addControl(content);
 
     // Generic label + cycling-button row helper.
     const mkCycler = (
@@ -485,20 +529,6 @@ export class OptionsScene extends BaseScene {
       );
     }
 
-    // Back button
-    const backBtn = Button.CreateSimpleButton('back', t('common.back'));
-    backBtn.width = '140px';
-    backBtn.height = '44px';
-    backBtn.color = '#00CCAA';
-    backBtn.background = 'rgba(0,20,30,0.8)';
-    backBtn.fontSize = 16;
-    backBtn.fontFamily = '"Courier New", monospace';
-    backBtn.thickness = 1;
-    backBtn.verticalAlignment = 2;
-    backBtn.horizontalAlignment = 0;
-    backBtn.left = '80px';
-    backBtn.top = '-40px';
-    backBtn.onPointerUpObservable.add(() => { playSfxCue('ui_click'); this.onBack(); });
-    gui.addControl(backBtn);
+    // (BACK button is in the header now, top-right of the frame.)
   }
 }

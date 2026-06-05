@@ -3,6 +3,7 @@ import {
   AdvancedDynamicTexture, Rectangle, TextBlock, Button, StackPanel, Control,
 } from '@babylonjs/gui';
 import { t } from '@systems/I18n';
+import { UI } from '@systems/UiStyle';
 
 export interface GameOverHandlers {
   /** Reload the player's last save and re-enter the world. */
@@ -66,45 +67,65 @@ export class GameOverMenu {
     this.gui = gui;
 
     const scrim = new Rectangle('gameover-scrim');
-    scrim.width = '100%';
-    scrim.height = '100%';
-    scrim.background = 'rgba(20,0,4,0.82)';
-    scrim.thickness = 0;
+    scrim.width = '100%'; scrim.height = '100%';
+    // Red-tinted scrim — keeps the "death" mood while sharing the centred-frame shell.
+    scrim.background = 'rgba(20,0,4,0.86)'; scrim.thickness = 0;
     scrim.isVisible = false;
     gui.addControl(scrim);
     this.panel = scrim;
 
-    const stack = new StackPanel('gameover-stack');
-    stack.width = '360px';
-    stack.spacing = 14;
-    scrim.addControl(stack);
+    const frame = new Rectangle('gameover-frame');
+    frame.width = '420px'; frame.height = '300px';
+    frame.background = UI.frameBg;
+    frame.color = '#5a0b1b'; // dark red border instead of teal — fits the GAME OVER mood
+    frame.thickness = 2; frame.cornerRadius = UI.cornerLg;
+    scrim.addControl(frame);
+
+    // Header with red accent line.
+    const header = new Rectangle('gameover-header');
+    header.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+    header.height = UI.headerHeight;
+    header.background = 'rgba(40,4,10,0.95)'; header.thickness = 0;
+    frame.addControl(header);
+
+    const accent = new Rectangle('gameover-accent');
+    accent.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+    accent.height = '2px'; accent.background = '#ff4466'; accent.thickness = 0;
+    header.addControl(accent);
 
     const title = new TextBlock('gameover-title', t('gameover.title'));
-    title.color = '#FF4466';
-    title.fontSize = 40;
-    title.fontFamily = '"Courier New", monospace';
+    title.color = '#ff5577';
+    title.fontSize = UI.fontTitle;
+    title.fontFamily = UI.font;
     title.fontStyle = 'bold';
-    title.height = '70px';
-    stack.addControl(title);
+    title.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+    header.addControl(title);
+
+    const stack = new StackPanel('gameover-stack');
+    stack.width = '360px';
+    stack.spacing = 12;
+    stack.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+    stack.top = '88px';
+    frame.addControl(stack);
 
     const make = (key: string, label: string, action: () => void): void => {
       const btn = Button.CreateSimpleButton(key, label);
       btn.width = '340px';
-      btn.height = '48px';
-      btn.color = '#00FFCC';
-      btn.background = 'rgba(0,40,50,0.9)';
-      btn.fontSize = 17;
-      btn.fontFamily = '"Courier New", monospace';
+      btn.height = '46px';
+      btn.color = UI.btnFg;
+      btn.background = UI.btnBg;
+      btn.cornerRadius = UI.cornerSm;
+      btn.fontSize = 15;
+      btn.fontFamily = UI.font;
       btn.thickness = 1;
+      btn.onPointerEnterObservable.add(() => { btn.background = UI.cardBgHover; });
+      btn.onPointerOutObservable.add(() => { btn.background = UI.btnBg; });
       btn.onPointerUpObservable.add(action);
       stack.addControl(btn);
     };
 
     make('gameover-load', t('gameover.load').toUpperCase(), () => this.loadLastSave());
     make('gameover-menu', t('gameover.menu').toUpperCase(), () => this.quitToMainMenu());
-
-    scrim.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
-    scrim.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
   }
 
   dispose(): void {

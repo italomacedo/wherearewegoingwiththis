@@ -3,6 +3,7 @@ import {
   AdvancedDynamicTexture, Rectangle, TextBlock, Button, StackPanel, Control,
 } from '@babylonjs/gui';
 import { t } from '@systems/I18n';
+import { UI } from '@systems/UiStyle';
 import { playSfxCue } from '@systems/UiSound';
 
 export interface PauseMenuHandlers {
@@ -106,36 +107,59 @@ export class PauseMenu {
     this.gui = gui;
 
     const scrim = new Rectangle('pause-scrim');
-    scrim.width = '100%';
-    scrim.height = '100%';
-    scrim.background = 'rgba(0,6,10,0.78)';
-    scrim.thickness = 0;
+    scrim.width = '100%'; scrim.height = '100%';
+    scrim.background = UI.scrim; scrim.thickness = 0;
     scrim.isVisible = false;
     gui.addControl(scrim);
     this.panel = scrim;
 
-    const stack = new StackPanel('pause-stack');
-    stack.width = '320px';
-    stack.spacing = 12;
-    scrim.addControl(stack);
+    const frame = new Rectangle('pause-frame');
+    frame.width = '380px'; frame.height = '420px';
+    frame.background = UI.frameBg; frame.color = UI.frameBorder;
+    frame.thickness = 2; frame.cornerRadius = UI.cornerLg;
+    scrim.addControl(frame);
+
+    // Header strip with accent line.
+    const header = new Rectangle('pause-header');
+    header.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+    header.height = UI.headerHeight;
+    header.background = UI.headerBg; header.thickness = 0;
+    frame.addControl(header);
+
+    const accent = new Rectangle('pause-accent');
+    accent.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+    accent.height = '2px'; accent.background = UI.accent; accent.thickness = 0;
+    header.addControl(accent);
 
     const title = new TextBlock('pause-title', t('pause.title'));
-    title.color = '#00FFCC';
-    title.fontSize = 34;
-    title.fontFamily = '"Courier New", monospace';
+    title.color = UI.accent;
+    title.fontSize = UI.fontTitle;
+    title.fontFamily = UI.font;
     title.fontStyle = 'bold';
-    title.height = '60px';
-    stack.addControl(title);
+    title.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+    title.left = '24px';
+    header.addControl(title);
+
+    // Button stack inside the frame.
+    const stack = new StackPanel('pause-stack');
+    stack.width = '320px';
+    stack.spacing = 10;
+    stack.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+    stack.top = '76px';
+    frame.addControl(stack);
 
     const make = (key: string, label: string, action: () => void): Button => {
       const btn = Button.CreateSimpleButton(key, label);
       btn.width = '300px';
       btn.height = '46px';
-      btn.color = '#00FFCC';
-      btn.background = 'rgba(0,40,50,0.9)';
-      btn.fontSize = 17;
-      btn.fontFamily = '"Courier New", monospace';
+      btn.color = UI.btnFg;
+      btn.background = UI.btnBg;
+      btn.cornerRadius = UI.cornerSm;
+      btn.fontSize = 15;
+      btn.fontFamily = UI.font;
       btn.thickness = 1;
+      btn.onPointerEnterObservable.add(() => { btn.background = UI.cardBgHover; });
+      btn.onPointerOutObservable.add(() => { btn.background = UI.btnBg; });
       btn.onPointerUpObservable.add(() => { playSfxCue('ui_click'); action(); });
       stack.addControl(btn);
       return btn;
@@ -148,15 +172,13 @@ export class PauseMenu {
 
     const toast = new TextBlock('pause-toast', '');
     toast.color = '#9CFFE9';
-    toast.fontSize = 15;
-    toast.fontFamily = '"Courier New", monospace';
-    toast.height = '28px';
+    toast.fontSize = 13;
+    toast.fontFamily = UI.font;
+    toast.height = '24px';
+    toast.paddingTop = '8px';
     toast.isVisible = false;
     stack.addControl(toast);
     this.savedToast = toast;
-
-    scrim.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
-    scrim.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
   }
 
   dispose(): void {

@@ -13,6 +13,7 @@ import {
   AdvancedDynamicTexture, Rectangle, TextBlock, Button, StackPanel, Control,
 } from '@babylonjs/gui';
 import type { ItemAttach, EquipSlot } from '@entities/items/ItemCatalog';
+import { UI } from '@systems/UiStyle';
 import { AttachAdjuster } from '@systems/AttachAdjuster';
 
 export interface AdjustHandlers {
@@ -95,30 +96,34 @@ export class AdjustOverlay {
     if (typeof document === 'undefined' || this.gui) return;
     const ui = AdvancedDynamicTexture.CreateFullscreenUI('adjust-ui', true, this.scene);
     const panel = new Rectangle('adjust-panel');
-    panel.width = '560px';
+    panel.width = '580px';
     panel.height = '180px';
-    panel.cornerRadius = 8;
-    panel.thickness = 1;
-    panel.color = '#22d3ee';
-    panel.background = 'rgba(8,12,18,0.82)';
+    panel.cornerRadius = UI.cornerLg;
+    panel.thickness = 2;
+    panel.color = UI.frameBorder;
+    panel.background = UI.frameBg;
     panel.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
     panel.top = '-90px';
     ui.addControl(panel);
 
     const col = new StackPanel();
-    col.paddingTop = '8px';
+    col.paddingTop = '10px';
+    col.spacing = 4;
     panel.addControl(col);
 
     const title = new TextBlock('adjust-title', 'ADJUST — held prop');
-    title.color = '#22d3ee';
+    title.color = UI.accent;
     title.height = '22px';
     title.fontSize = 14;
+    title.fontFamily = UI.font;
+    title.fontStyle = 'bold';
     col.addControl(title);
 
     const readout = new TextBlock('adjust-readout', '');
-    readout.color = '#e2e8f0';
+    readout.color = UI.textBody;
     readout.height = '40px';
     readout.fontSize = 12;
+    readout.fontFamily = UI.font;
     readout.textWrapping = true;
     col.addControl(readout);
     this.readout = readout;
@@ -127,14 +132,19 @@ export class AdjustOverlay {
       const bar = new StackPanel();
       bar.isVertical = false;
       bar.height = '40px';
+      bar.spacing = 6;
       for (const c of controls) {
         const b = Button.CreateSimpleButton(`adj-${c.label}`, c.label);
-        b.width = '92px';
+        b.width = '96px';
         b.height = '32px';
-        b.paddingLeft = '4px';
-        b.color = '#e2e8f0';
-        b.background = '#1e293b';
+        b.color = UI.btnFg;
+        b.background = UI.btnBg;
+        b.cornerRadius = UI.cornerSm;
         b.fontSize = 12;
+        b.fontFamily = UI.font;
+        b.thickness = 1;
+        b.onPointerEnterObservable.add(() => { b.background = UI.cardBgHover; });
+        b.onPointerOutObservable.add(() => { b.background = UI.btnBg; });
         b.onPointerUpObservable.add(() => c.act());
         bar.addControl(b);
       }

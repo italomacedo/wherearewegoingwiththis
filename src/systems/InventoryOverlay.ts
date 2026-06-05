@@ -7,6 +7,7 @@ import {
   itemDef, isWeapon, isArmor, itemArmorRegion, itemModelPath, ItemCategory, EquipSlot,
 } from '@entities/items/ItemCatalog';
 import { t } from '@systems/I18n';
+import { UI } from '@systems/UiStyle';
 
 export interface InventoryOverlayHandlers {
   /** Persist after any mutation (equip/use/drop/loot). */
@@ -247,62 +248,69 @@ export class InventoryOverlay {
     this.gui = gui;
 
     const scrim = new Rectangle('inv-scrim');
-    scrim.width = '100%';
-    scrim.height = '100%';
-    scrim.background = 'rgba(0,6,10,0.82)';
-    scrim.thickness = 0;
+    scrim.width = '100%'; scrim.height = '100%';
+    scrim.background = UI.scrim; scrim.thickness = 0;
     scrim.isVisible = false;
     gui.addControl(scrim);
     this.panel = scrim;
 
     const frame = new Rectangle('inv-frame');
-    frame.width = '560px';
-    frame.height = '560px';
-    frame.cornerRadius = 6;
-    frame.thickness = 1;
-    frame.color = '#00FFCC';
-    frame.background = 'rgba(0,20,26,0.95)';
+    frame.width = '600px'; frame.height = '600px';
+    frame.background = UI.frameBg; frame.color = UI.frameBorder;
+    frame.thickness = 2; frame.cornerRadius = UI.cornerLg;
     scrim.addControl(frame);
 
-    const stack = new StackPanel('inv-stack');
-    stack.width = '520px';
-    stack.spacing = 10;
-    frame.addControl(stack);
+    // Header with accent line and title.
+    const header = new Rectangle('inv-header');
+    header.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+    header.height = UI.headerHeight;
+    header.background = UI.headerBg; header.thickness = 0;
+    frame.addControl(header);
+
+    const accent = new Rectangle('inv-accent');
+    accent.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+    accent.height = '2px'; accent.background = UI.accent; accent.thickness = 0;
+    header.addControl(accent);
 
     const title = new TextBlock('inv-title', '');
-    title.color = '#00FFCC';
-    title.fontSize = 26;
-    title.fontFamily = '"Courier New", monospace';
+    title.color = UI.accent;
+    title.fontSize = UI.fontTitle;
+    title.fontFamily = UI.font;
     title.fontStyle = 'bold';
-    title.height = '44px';
-    stack.addControl(title);
+    title.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+    title.left = '24px';
+    header.addControl(title);
     this.titleBlock = title;
 
+    const close = Button.CreateSimpleButton('inv-close', t('inventory.close').toUpperCase());
+    close.width = '116px'; close.height = '34px';
+    close.color = UI.btnFg; close.background = UI.btnBg;
+    close.cornerRadius = UI.cornerSm;
+    close.fontSize = 13; close.fontFamily = 'monospace';
+    close.thickness = 1;
+    close.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+    close.left = '-16px';
+    close.onPointerUpObservable.add(() => this.close());
+    header.addControl(close);
+
+    // Scrollable item list inside the frame.
     const scroll = new ScrollViewer('inv-scroll');
-    scroll.width = '520px';
-    scroll.height = '420px';
+    scroll.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+    scroll.top = '64px';
+    scroll.width = '94%';
+    scroll.height = '86%';
     scroll.thickness = 0;
-    stack.addControl(scroll);
+    scroll.barColor = UI.accentSoft;
+    scroll.barBackground = UI.accentBgSoft;
+    frame.addControl(scroll);
 
     const list = new StackPanel('inv-list');
-    list.width = '500px';
+    list.width = '100%';
     list.spacing = 6;
+    list.paddingTop = '6px';
+    list.paddingBottom = '10px';
     scroll.addControl(list);
     this.listPanel = list;
-
-    const close = Button.CreateSimpleButton('inv-close', t('inventory.close').toUpperCase());
-    close.width = '200px';
-    close.height = '40px';
-    close.color = '#00FFCC';
-    close.background = 'rgba(0,40,50,0.9)';
-    close.fontSize = 16;
-    close.fontFamily = '"Courier New", monospace';
-    close.thickness = 1;
-    close.onPointerUpObservable.add(() => this.close());
-    stack.addControl(close);
-
-    scrim.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
-    scrim.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
   }
 
   /* istanbul ignore next — browser GUI only */

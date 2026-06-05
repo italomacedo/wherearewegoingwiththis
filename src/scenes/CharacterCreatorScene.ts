@@ -20,6 +20,7 @@ import {
 import { type Gender, outfitsForGender, genderOfOutfit, outfitProvidesPart } from '@assets/AvatarMeshCatalog';
 import { ARMOR_OUTFIT_KEYS } from '@entities/items/ItemCatalog';
 import { t, hasKey } from '@systems/I18n';
+import { UI } from '@systems/UiStyle';
 
 // Maps the pure schema's English labels to i18n keys (creator chrome).
 const CREATOR_CATEGORY_KEY: Record<string, string> = {
@@ -571,27 +572,31 @@ export class CharacterCreatorScene extends BaseScene {
 
     const beginBtn = Button.CreateSimpleButton('begin', t('common.begin'));
     beginBtn.width = '220px';
-    beginBtn.height = '50px';
-    beginBtn.color = '#00FFCC';
-    beginBtn.background = 'rgba(0,60,50,0.9)';
-    beginBtn.fontSize = 18;
-    beginBtn.fontFamily = '"Courier New", monospace';
+    beginBtn.height = '48px';
+    beginBtn.color = UI.btnFg;
+    beginBtn.background = UI.btnBg;
+    beginBtn.cornerRadius = UI.cornerMd;
+    beginBtn.fontSize = 16;
+    beginBtn.fontFamily = UI.font;
     beginBtn.fontStyle = 'bold';
-    beginBtn.thickness = 1;
+    beginBtn.thickness = 2;
     beginBtn.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
     beginBtn.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
     beginBtn.paddingBottom = '24px';
+    beginBtn.onPointerEnterObservable.add(() => { beginBtn.background = UI.cardBgHover; });
+    beginBtn.onPointerOutObservable.add(() => { beginBtn.background = UI.btnBg; });
     beginBtn.onPointerUpObservable.add(() => void this.onBegin(this.domName?.value || 'Operative'));
     gui.addControl(beginBtn);
     this.beginButton = beginBtn;
     this.refreshBeginButton(); // starts disabled until skills + perks are chosen
 
     const backBtn = Button.CreateSimpleButton('back', t('common.back'));
-    backBtn.width = '120px';
-    backBtn.height = '40px';
-    backBtn.color = '#888888';
-    backBtn.background = 'rgba(0,20,30,0.8)';
-    backBtn.fontSize = 14;
+    backBtn.width = '116px';
+    backBtn.height = '34px';
+    backBtn.color = UI.btnFg;
+    backBtn.background = UI.btnBg;
+    backBtn.cornerRadius = UI.cornerSm;
+    backBtn.fontSize = 13;
     backBtn.fontFamily = 'monospace';
     backBtn.thickness = 1;
     backBtn.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;

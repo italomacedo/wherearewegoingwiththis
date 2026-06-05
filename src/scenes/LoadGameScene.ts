@@ -6,6 +6,7 @@ import { ServiceLocator } from '@core/ServiceLocator';
 import { GameSession } from '@core/GameSession';
 import { SaveService, SaveMeta } from '@systems/SaveService';
 import { t } from '@systems/I18n';
+import { UI } from '@systems/UiStyle';
 
 export class LoadGameScene extends BaseScene {
   private saves: SaveMeta[] = [];
@@ -97,37 +98,37 @@ export class LoadGameScene extends BaseScene {
     // Full-screen dim scrim behind the panel (same shell as Character Sheet / PDA).
     const scrim = new Rectangle('load-scrim');
     scrim.width = '100%'; scrim.height = '100%';
-    scrim.background = 'rgba(2,5,11,0.86)';
+    scrim.background = UI.scrim;
     scrim.thickness = 0;
     gui.addControl(scrim);
 
     // Centred panel frame (responsive: % of the screen).
     const frame = new Rectangle('load-frame');
     frame.width = '78%'; frame.height = '86%';
-    frame.background = 'rgba(7,14,24,0.98)';
-    frame.color = '#0c4d57';
+    frame.background = UI.frameBg;
+    frame.color = UI.frameBorder;
     frame.thickness = 2;
-    frame.cornerRadius = 12;
+    frame.cornerRadius = UI.cornerLg;
     scrim.addControl(frame);
 
     // ── Header bar ──
     const header = new Rectangle('load-header');
     header.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-    header.height = '56px';
-    header.background = 'rgba(0,28,38,0.95)';
+    header.height = UI.headerHeight;
+    header.background = UI.headerBg;
     header.thickness = 0;
     frame.addControl(header);
 
     const accent = new Rectangle('load-accent');
     accent.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-    accent.height = '2px'; accent.background = '#00FFCC'; accent.thickness = 0;
+    accent.height = '2px'; accent.background = UI.accent; accent.thickness = 0;
     header.addControl(accent);
 
     const title = new TextBlock('title');
     title.text = t('load.title');
-    title.color = '#00FFCC';
-    title.fontSize = 22;
-    title.fontFamily = '"Courier New", monospace';
+    title.color = UI.accent;
+    title.fontSize = UI.fontTitle;
+    title.fontFamily = UI.font;
     title.fontStyle = 'bold';
     title.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
     title.left = '24px';
@@ -135,8 +136,8 @@ export class LoadGameScene extends BaseScene {
 
     const backBtn = Button.CreateSimpleButton('back', t('common.back'));
     backBtn.width = '116px'; backBtn.height = '34px';
-    backBtn.color = '#00FFCC'; backBtn.background = 'rgba(0,40,50,0.9)';
-    backBtn.cornerRadius = 6;
+    backBtn.color = UI.btnFg; backBtn.background = UI.btnBg;
+    backBtn.cornerRadius = UI.cornerSm;
     backBtn.fontSize = 13; backBtn.fontFamily = 'monospace';
     backBtn.thickness = 1;
     backBtn.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
