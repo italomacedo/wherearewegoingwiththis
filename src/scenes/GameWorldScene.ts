@@ -700,6 +700,8 @@ export class GameWorldScene extends BaseScene {
     await this.buildNPCVisual(job.def);
     const holder = this.npcHolderById.get(job.def.id);
     if (holder && this.babylonScene.isPhysicsEnabled()) this.buildNpcCapsule(job.def.id, holder);
+    // If reloaded as a corpse: hold the Death pose so it stays down where it fell.
+    if (this.npcManager?.getAgent(job.def.id)?.isDefeated()) this.playCombatClip(job.def.id, 'death', true);
   }
 
   /** Despawn a tile's NPCs (visuals + logical agents) and flush their memory. */
@@ -1237,12 +1239,13 @@ export class GameWorldScene extends BaseScene {
     this.zoneNpcIds = definitions.map((d) => d.id);
     for (const def of definitions) {
       // Centralized restore (Fase 20 fix): spawnWithMemory restores conversation,
-      // disposition, ledger, events, inventory, pervasive HP, tamper/sabotage AND
-      // the `defeated` flag — the old manual path here forgot `defeated`, so a
-      // killed authored NPC (Zara/Mback) came back alive on reload.
-      this.npcManager.spawnWithMemory(def, this.npcMemory);
+      // disposition, ledger, events, inventory, pervasive HP, tamper/sabotage,
+      // POSITION and the `defeated` flag (the old manual path forgot these).
+      const agent = this.npcManager.spawnWithMemory(def, this.npcMemory);
       const anchor = await this.buildNPCVisual(def);
       this.npcAnchors.push(anchor);
+      // If reloaded as a corpse: hold the Death pose so it stays down where it fell.
+      if (agent.isDefeated()) this.playCombatClip(def.id, 'death', true);
     }
 
     // Autonomy queue (throttled per the player's Options). With ≥2 co-located
@@ -1435,7 +1438,7 @@ export class GameWorldScene extends BaseScene {
   /* istanbul ignore next — browser-only combat wiring (pure logic is tested) */
   private beginCombat(
     initiatorId: string, targetId: string,
-    opts: { ambush?: boolean; openingAttack?: 'melee' | 'ranged' } = {},
+    opts: { ambush?: boolean; openingAttack?: 'melee' | 'ranged'; noLunge?: boolean } = {},
   ): void {
     if (typeof document === 'undefined' || !this.combat || this.combat.isOpen()) return;
     const mgr = this.npcManager;
@@ -1447,8 +1450,9 @@ export class GameWorldScene extends BaseScene {
 
     // Melee surprise: lunge the hero adjacent to the target so the opening strike
     // lands. Collision capsules keep the player just outside the 1 m melee gate, so
-    // without this the auto opening attack would whiff. (Ranged needs no lunge.)
-    if (opts.ambush && opts.openingAttack === 'melee' && this.player && targetId !== 'player') {
+    // without this the auto opening attack would whiff. (Ranged needs no lunge; a
+    // REMOTE attack like an IT hack also doesn't lunge — the player stays put.)
+    if (opts.ambush && opts.openingAttack === 'melee' && !opts.noLunge && this.player && targetId !== 'player') {
       const tp = this.npcHolderById.get(targetId)?.position ?? mgr.getAgent(targetId)?.getPosition();
       if (tp) {
         const pp = this.player.getRoot().position;
@@ -2770,7 +2774,8 @@ export class GameWorldScene extends BaseScene {
       case 'begin_combat': {
         const mainHand = this.playerInventory.combatWeaponId;
         const openingAttack = mainHand && isFirearm(mainHand) ? 'ranged' : 'melee';
-        this.beginCombat('player', m.targetId, { ambush: m.ambush, openingAttack });
+        // Remote attacks (IT hack) must not lunge the player into the target.
+        this.beginCombat('player', m.targetId, { ambush: m.ambush, openingAttack, noLunge: m.remote });
         break;
       }
       case 'steal_credits': {

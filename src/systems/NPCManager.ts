@@ -34,6 +34,9 @@ export type NPCMemoryEntry = ConversationState & {
   tamper?: TamperTrace;
   /** Rigged gear flag (Fase 20H): explodes on the NPC's first combat use. */
   sabotaged?: boolean;
+  /** The NPC's last world position [x,y,z] (Fase 20): so a corpse stays where it fell
+   *  and a moved NPC reloads in place, not back at the authored spawn point. */
+  position?: [number, number, number];
 };
 export type NPCMemoryMap = Record<string, NPCMemoryEntry>;
 
@@ -366,11 +369,14 @@ export class NPCManager {
    * keep only the death status + the corpse inventory (so loot state survives a
    * reload) — keeps the save lean (Fase 18, owner-decided). */
   private memoryOf(agent: NPCAgent): NPCMemoryEntry {
+    const pos = agent.definition.position;
+    const position: [number, number, number] = [pos[0], pos[1], pos[2]];
     if (agent.isDefeated()) {
       return {
         mode: 'stateless', sessionId: null, history: [],
         defeated: true,
         inventory: agent.getInventoryState(),
+        position, // so the corpse reloads where it fell, not at the spawn point
       };
     }
     return {
@@ -382,6 +388,7 @@ export class NPCManager {
       health: agent.getHealthState(),
       tamper: agent.getTamper() ?? undefined,
       sabotaged: agent.isSabotaged() || undefined,
+      position, // so an NPC that walked off reloads where it stopped, not at spawn
     };
   }
 
@@ -407,6 +414,10 @@ export class NPCManager {
     if (savedHp) agent.setHealthState(savedHp); // pervasive HP restored (Fase 20)
     agent.restoreTamper(memory?.[def.id]?.tamper);   // pending covert action (Fase 20G)
     agent.restoreSabotaged(memory?.[def.id]?.sabotaged); // rigged gear (Fase 20H)
+    // Restore the last world position BEFORE markDefeated so the holder builds
+    // there (the visual reads agent.definition.position, mutated by setPosition).
+    const savedPos = memory?.[def.id]?.position;
+    if (savedPos) agent.setPosition(new Vector3(savedPos[0], savedPos[1], savedPos[2]));
     if (memory?.[def.id]?.defeated) agent.markDefeated(); // stays dead across reloads (Fase 18)
     return agent;
   }

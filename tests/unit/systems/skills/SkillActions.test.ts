@@ -60,11 +60,15 @@ describe('SkillActions — attack starts combat', () => {
     expect(r.allowed).toBe(true);
     expect(r.rolled).toBe(false);
     expect(r.surprise).toBe(true);
-    expect(r.mutations).toEqual([{ kind: 'begin_combat', targetId: 'npc1', ambush: true }]);
+    expect(r.mutations).toEqual([{ kind: 'begin_combat', targetId: 'npc1', ambush: true, remote: false }]);
   });
   it('aware target → open combat (no ambush)', () => {
-    const r = resolveSkillAction(input({ effect: 'attack', target: target({ aware: true }) }), rollHigh);
-    expect(r.mutations).toEqual([{ kind: 'begin_combat', targetId: 'npc1', ambush: false }]);
+    const r = resolveSkillAction(input({ effect: 'attack', skillId: 'combate_corpo_a_corpo', target: target({ aware: true }) }), rollHigh);
+    expect(r.mutations).toEqual([{ kind: 'begin_combat', targetId: 'npc1', ambush: false, remote: false }]);
+  });
+  it('IT attack (hack) is REMOTE — flags remote=true so the scene does not lunge the player', () => {
+    const r = resolveSkillAction(input({ effect: 'attack', skillId: 'tecnologia_informacao', target: target({ aware: false }) }), rollHigh);
+    expect(r.mutations).toEqual([{ kind: 'begin_combat', targetId: 'npc1', ambush: true, remote: true }]);
   });
 });
 

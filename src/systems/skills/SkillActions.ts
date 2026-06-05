@@ -76,7 +76,7 @@ export interface SkillActionInput {
 }
 
 export type SkillMutation =
-  | { kind: 'begin_combat'; targetId: string; ambush: boolean }
+  | { kind: 'begin_combat'; targetId: string; ambush: boolean; remote: boolean }
   | { kind: 'steal_item'; targetId: string }
   | { kind: 'steal_credits'; targetId: string }
   | { kind: 'add_pda'; subjectId: string }
@@ -155,12 +155,14 @@ export function resolveSkillAction(input: SkillActionInput, rng: RollFn = defaul
     if (input.effect === 'relationship' && !t.otherId) return blocked('no_target');
   }
 
-  // ── attack: no pre-check here — it begins combat (ambush when the target is unaware). ──
+  // ── attack: no pre-check here — it begins combat (ambush when the target is unaware).
+  // A hack-as-attack (IT) is REMOTE: the scene must not lunge the player into melee range.
   if (input.effect === 'attack') {
     const ambush = !!t && !t.aware;
+    const remote = input.skillId === 'tecnologia_informacao';
     return {
       allowed: true, surprise: ambush, rolled: false, success: true, critical: false,
-      probability: 1, roll: 0, mutations: [{ kind: 'begin_combat', targetId: t!.id, ambush }],
+      probability: 1, roll: 0, mutations: [{ kind: 'begin_combat', targetId: t!.id, ambush, remote }],
     };
   }
 

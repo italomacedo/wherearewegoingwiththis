@@ -499,6 +499,34 @@ describe('NPCManager — covert-action detection (Fase 20G)', () => {
     m.dispose();
   });
 
+  it('serializeMemory persists the NPC position and spawnWithMemory restores it (Fase 20)', () => {
+    const m = new NPCManager();
+    const agent = m.spawn(def);
+    agent.setPosition(new Vector3(12, 0, -7));
+    const mem = m.serializeMemory();
+    expect(mem.npc_a!.position).toEqual([12, 0, -7]);
+    const m2 = new NPCManager();
+    const restored = m2.spawnWithMemory(def, mem);
+    expect(restored.getPosition().x).toBeCloseTo(12);
+    expect(restored.getPosition().z).toBeCloseTo(-7);
+    m.dispose(); m2.dispose();
+  });
+
+  it('serializeMemory persists position even for defeated NPCs (corpse stays where it fell)', () => {
+    const m = new NPCManager();
+    const agent = m.spawn(def);
+    agent.setPosition(new Vector3(5, 0, 5));
+    agent.markDefeated();
+    const mem = m.serializeMemory();
+    expect(mem.npc_a!.defeated).toBe(true);
+    expect(mem.npc_a!.position).toEqual([5, 0, 5]);
+    const m2 = new NPCManager();
+    const restored = m2.spawnWithMemory(def, mem);
+    expect(restored.isDefeated()).toBe(true);
+    expect(restored.getPosition().x).toBeCloseTo(5);
+    m.dispose(); m2.dispose();
+  });
+
   it('serializeMemory persists a pending tamper + sabotage flag, and spawnWithMemory restores them', () => {
     const m = new NPCManager();
     const agent = m.spawn(def);
