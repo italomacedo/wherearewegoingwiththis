@@ -223,6 +223,23 @@ function createWindow() {
     console.error('[CRASH] render-process-gone:', JSON.stringify(details));
   });
   win.webContents.on('unresponsive', () => console.error('[CRASH] renderer unresponsive (hang)'));
+  /* eslint-enable no-console */
+
+  // Block Chromium's built-in keyboard accelerators that would wreck a game session:
+  // Ctrl/Cmd+W CLOSES the window — but W is "move forward" and Ctrl is "descend the
+  // nave", so flying down-and-forward quit the whole app (looked like a random crash).
+  // Also block reload (Ctrl/Cmd+R, F5) so a stray keypress can't nuke the play session.
+  win.webContents.on('before-input-event', (event, input) => {
+    if (input.type !== 'keyDown') return;
+    const mod = input.control || input.meta;
+    const key = (input.key || '').toLowerCase();
+    // Ctrl/Cmd+W closes the window — never wanted in a game; block it always.
+    if (mod && key === 'w') { event.preventDefault(); return; }
+    // Reload (Ctrl/Cmd+R, F5) nukes the play session — block in the packaged build,
+    // but keep it in dev for HMR / manual reload.
+    if (!VITE_DEV_SERVER_URL && ((mod && key === 'r') || key === 'f5')) event.preventDefault();
+  });
+  /* eslint-disable no-console */
   // Forward the RENDERER console to this terminal so the last error before a hard
   // crash (e.g. a Havok/WASM abort) survives the window closing — the in-window
   // DevTools dies with the renderer, but the main-process terminal persists.
