@@ -2698,19 +2698,27 @@ export class GameWorldScene extends BaseScene {
       agent.seedTamper({ kind: this.skillTamperKind(cls.effect)!, playerSkillValue: skillValue });
     }
 
-    // A FAILED pickpocket — aware OR surprise — gets you caught red-handed:
-    // disposition worsens one step; if that pushes the NPC to hostile, the next
-    // autonomy tick starts combat via shouldInitiateCombat. (Owner: always react.)
-    let caughtThief = false;
-    if (cls.effect === 'steal' && !res.success && agent) {
-      agent.onHostilePlayerAction();
-      caughtThief = true;
-      this.logSkill(`caught: pickpocket failed → ${agent.definition.name} disposition=${agent.getDisposition()}`);
+    // Social failures that come from PRESSURE (coerce, or an intimidation-driven
+    // disposition shift) cost goodwill — caught trying to threaten or strong-arm
+    // worsens disposition one step. Persuasion failures (effect=disposition with
+    // skill=persuasao) and pure-narration paths don't punish. Pickpocket failures
+    // count as "caught red-handed" by the same rule (Carisma 'hostil' family).
+    const failed = !res.success && !!agent;
+    const punitiveOnFail = failed && (
+      cls.effect === 'steal' ||
+      cls.effect === 'coerce' ||
+      (cls.effect === 'disposition' && cls.skillId === 'intimidacao')
+    );
+    let caughtRedHanded = false;
+    if (punitiveOnFail) {
+      agent!.onHostilePlayerAction();
+      caughtRedHanded = true;
+      this.logSkill(`caught: ${cls.effect}/${cls.skillId} failed → ${agent!.definition.name} disposition=${agent!.getDisposition()}`);
     }
 
-    // The target reacts (unless it was just robbed blind — a surprise stays silent
-    // when successful; a CAUGHT thief, by contrast, always provokes a reply).
-    if (agent && (!res.surprise || caughtThief)) {
+    // The target reacts (unless it was just robbed blind — a successful surprise
+    // stays silent; being caught red-handed, by contrast, always provokes a reply).
+    if (agent && (!res.surprise || caughtRedHanded)) {
       await this.streamNpcReply(agent, this.buildWorldSnapshot(agent, agent.distanceTo(this.player.getPosition())), message);
     }
     this.persistSession();
