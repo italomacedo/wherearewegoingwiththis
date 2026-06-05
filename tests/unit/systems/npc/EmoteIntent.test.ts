@@ -85,6 +85,27 @@ describe('EmoteIntent (pure)', () => {
       expect(r.attribute).toBeNull();
       expect(r.difficulty).toBe(50);
       expect(r.hostile).toBe(false);
+      expect(r.effect).toBe('none');
+      expect(r.target2).toBeNull();
+      expect(r.dir).toBeNull();
+    });
+    it('parses EFFECT/TARGET2/DIR (Fase 20)', () => {
+      const r = parseActionClassification(
+        'VERDICT=DETERMINISTIC\nSKILL=tecnologia_informacao\nATTR=inteligencia\nDIFF=hard\nEFFECT=relationship\nTARGET2=Mback\nDIR=down');
+      expect(r.effect).toBe('relationship');
+      expect(r.target2).toBe('Mback');
+      expect(r.dir).toBe('down');
+    });
+    it('EFFECT defaults to none when invalid/absent; TARGET2=none → null', () => {
+      const r = parseActionClassification('VERDICT=DETERMINISTIC\nEFFECT=teleport\nTARGET2=none\nDIR=sideways');
+      expect(r.effect).toBe('none');
+      expect(r.target2).toBeNull();
+      expect(r.dir).toBeNull();
+    });
+    it('parses EFFECT=steal and DIR=up', () => {
+      const r = parseActionClassification('VERDICT=DETERMINISTIC\nSKILL=furtividade\nEFFECT=steal\nDIR=up');
+      expect(r.effect).toBe('steal');
+      expect(r.dir).toBe('up');
     });
     it('parses HOSTILE=yes (and treats sim/true as hostile)', () => {
       expect(parseActionClassification('VERDICT=DETERMINISTIC\nSKILL=combate_corpo_a_corpo\nATTR=forca\nDIFF=medium\nHOSTILE=yes').hostile).toBe(true);

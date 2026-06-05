@@ -150,7 +150,7 @@ export class ClaudeNPCService {
       const raw = await this.oneShot(`${npcId}::action`, PromptBuilder.buildActionClassifierPrompt(message), 'action-classify');
       return parseActionClassification(raw);
     } catch {
-      return { deterministic: false, skillId: null, attribute: null, difficulty: 50, hostile: false };
+      return { deterministic: false, skillId: null, attribute: null, difficulty: 50, hostile: false, effect: 'none', target2: null, dir: null };
     }
   }
 

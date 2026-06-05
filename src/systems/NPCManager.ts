@@ -160,7 +160,7 @@ export class NPCManager {
    * NARRATIVE classification when there is no Claude service.
    */
   async classifyAction(npcId: string, message: string): Promise<ActionClassification> {
-    if (!this.service) return { deterministic: false, skillId: null, attribute: null, difficulty: 50, hostile: false };
+    if (!this.service) return { deterministic: false, skillId: null, attribute: null, difficulty: 50, hostile: false, effect: 'none', target2: null, dir: null };
     return this.service.classifyAction(npcId, message);
   }
 

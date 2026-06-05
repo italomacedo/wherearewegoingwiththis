@@ -154,12 +154,15 @@ describe('PromptBuilder', () => {
   });
 
   describe('buildActionClassifierPrompt', () => {
-    it('asks for the 4 structured lines and includes the message + skill/attr lists', () => {
+    it('asks for the structured lines and includes the message + skill/attr lists', () => {
       const p = PromptBuilder.buildActionClassifierPrompt('*picks the lock*');
       expect(p).toContain('VERDICT=DETERMINISTIC or NARRATIVE');
       expect(p).toContain('SKILL=');
       expect(p).toContain('ATTR=');
       expect(p).toContain('DIFF=');
+      expect(p).toContain('EFFECT='); // Fase 20 mechanical effect
+      expect(p).toContain('TARGET2=');
+      expect(p).toContain('DIR=');
       expect(p).toContain('picks the lock');
       expect(p).toContain('armas_de_fogo'); // a real skill id is listed
       expect(p).toContain('inteligencia'); // a real attribute id is listed

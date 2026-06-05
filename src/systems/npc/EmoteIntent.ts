@@ -31,6 +31,32 @@ export function difficultyValue(level: string): number {
   return DIFFICULTY_LEVELS[key] ?? DIFFICULTY_LEVELS.medium;
 }
 
+/**
+ * The mechanical effect a deterministic skill action produces (Fase 20). `none` =
+ * pure roleplay / no mechanical result (the legacy behaviour). The scene maps each
+ * to a concrete mutation in the resolution layer (SkillActions).
+ */
+export type SkillEffect =
+  | 'attack'        // offensive strike/shot/hack → ambush combat (pervasive HP)
+  | 'steal'         // pickpocket an item or wire-transfer credits (surprise)
+  | 'info'          // hack/scan to learn about the target → PDA entry
+  | 'relationship'  // alter the NPC↔NPC ledger (IT social hack / persuasion)
+  | 'disposition'   // shift the target's stance toward the player
+  | 'coerce'        // intimidation: fear → target yields item/credits/info
+  | 'heal'          // restore HP (self or another)
+  | 'sabotage'      // rig the target's gear to explode on next use
+  | 'repair'        // restore one's own item
+  | 'craft'         // build an existing melee weapon from scrap
+  | 'haggle'        // commerce: improve a price
+  | 'appraise'      // commerce: reveal an item's real value → PDA
+  | 'traverse'      // athletics: climb/force/shove/escape
+  | 'none';
+
+export const SKILL_EFFECTS: readonly SkillEffect[] = [
+  'attack', 'steal', 'info', 'relationship', 'disposition', 'coerce', 'heal',
+  'sabotage', 'repair', 'craft', 'haggle', 'appraise', 'traverse', 'none',
+];
+
 export interface ActionClassification {
   deterministic: boolean;
   skillId: string | null;
@@ -38,6 +64,12 @@ export interface ActionClassification {
   difficulty: number;
   /** True when the action is aggression aimed at a person present (→ disposition worsens, may start combat). */
   hostile: boolean;
+  /** The mechanical effect to apply (Fase 20); `none` = no mechanical result. */
+  effect: SkillEffect;
+  /** A SECOND NPC named in the action (for NPC↔NPC relationship effects), else null. */
+  target2: string | null;
+  /** Direction for disposition/relationship effects: 'up' improves, 'down' worsens, null = default per skill. */
+  dir: 'up' | 'down' | null;
 }
 
 /**
@@ -64,7 +96,19 @@ export function parseActionClassification(raw: string): ActionClassification {
 
   const hostile = /HOSTILE\s*=\s*(yes|true|sim)\b/i.test(raw);
 
-  return { deterministic, skillId, attribute, difficulty, hostile };
+  const effMatch = raw.match(/EFFECT\s*=\s*([a-z_]+)/i);
+  const effId = effMatch?.[1]!.toLowerCase();
+  const effect: SkillEffect = (effId && SKILL_EFFECTS.includes(effId as SkillEffect))
+    ? (effId as SkillEffect) : 'none';
+
+  const t2Match = raw.match(/TARGET2\s*=\s*([^\n\r]+)/i);
+  const t2 = t2Match?.[1]!.trim();
+  const target2 = (t2 && !/^(none|n\/a|null)$/i.test(t2)) ? t2 : null;
+
+  const dirMatch = raw.match(/DIR\s*=\s*(up|down)\b/i);
+  const dir = dirMatch ? (dirMatch[1]!.toLowerCase() as 'up' | 'down') : null;
+
+  return { deterministic, skillId, attribute, difficulty, hostile, effect, target2, dir };
 }
 
 /** True when the message contains at least one *emote* segment. */
