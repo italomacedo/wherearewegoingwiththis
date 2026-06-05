@@ -346,3 +346,16 @@ describe('VehicleController instance', () => {
     expect(vehicle.getPosition().equals(before)).toBe(true);
   });
 });
+
+describe('VehicleController.effectiveMaxSpeed (Phase 19C)', () => {
+  it('at pilotagem=50 returns the base max speed unchanged', () => {
+    expect(VehicleController.effectiveMaxSpeed(14, 50)).toBeCloseTo(14);
+  });
+  it('at pilotagem=10 (untrained) returns 80% of base', () => {
+    expect(VehicleController.effectiveMaxSpeed(14, 10)).toBeCloseTo(14 * 0.8);
+  });
+  it('at pilotagem=100 (mastery) returns 125% of base', () => {
+    expect(VehicleController.effectiveMaxSpeed(14, 100)).toBeCloseTo(14 * 1.25);
+  });
+});
+

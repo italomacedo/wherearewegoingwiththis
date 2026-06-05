@@ -172,6 +172,9 @@ export interface CharacterStats {
   attributes: Record<AttributeId, number>;
   skills: Record<string, number>;
   perks: string[]; // chosen perk ids
+  /** Unspent perk points per attribute, earned when an attribute crosses a 20-point
+   *  threshold (40/60/80/100). Tier-1 perks are free at character creation. */
+  perkPoints: Partial<Record<AttributeId, number>>;
 }
 
 /** A fresh sheet: every attribute 20%, every skill 10%, no perks. */
@@ -180,7 +183,7 @@ export function createDefaultStats(): CharacterStats {
   ATTRIBUTES.forEach((a) => { attributes[a.id] = ATTR_BASE; });
   const skills: Record<string, number> = {};
   SKILLS.forEach((s) => { skills[s.id] = SKILL_BASE; });
-  return { attributes, skills, perks: [] };
+  return { attributes, skills, perks: [], perkPoints: {} };
 }
 
 function clamp(v: number): number {
@@ -340,4 +343,60 @@ export function checkValue(stats: CharacterStats, skillId: string | null, attrib
     if (def) return stats.skills[skillId] ?? SKILL_BASE;
   }
   return stats.attributes[attribute];
+}
+
+// ─── Perk points (19D) ────────────────────────────────────────────────────────
+
+/**
+ * Compare two stat snapshots and return perk points to grant for each attribute
+ * whose value crossed a 20-point threshold going upward (tiers 2–5 only; tier 1
+ * is free at character creation).
+ */
+export function detectPerkPointGrants(
+  before: CharacterStats,
+  after: CharacterStats,
+): Partial<Record<AttributeId, number>> {
+  const grants: Partial<Record<AttributeId, number>> = {};
+  for (const a of ATTRIBUTES) {
+    const prevTierAbove1 = Math.max(0, Math.min(Math.floor(before.attributes[a.id] / PERK_TIER_STEP), PERK_TIERS) - 1);
+    const newTierAbove1 = Math.max(0, Math.min(Math.floor(after.attributes[a.id] / PERK_TIER_STEP), PERK_TIERS) - 1);
+    const crossed = newTierAbove1 - prevTierAbove1;
+    if (crossed > 0) grants[a.id] = crossed;
+  }
+  return grants;
+}
+
+/** Apply a perk-point grant to a stats sheet (returns a new sheet). */
+export function grantPerkPoints(
+  stats: CharacterStats,
+  grants: Partial<Record<AttributeId, number>>,
+): CharacterStats {
+  if (Object.keys(grants).length === 0) return stats;
+  const perkPoints = { ...stats.perkPoints };
+  for (const [attr, n] of Object.entries(grants) as [AttributeId, number][]) {
+    perkPoints[attr] = (perkPoints[attr] ?? 0) + n;
+  }
+  return { ...stats, perkPoints };
+}
+
+/**
+ * Spend a perk point to pick a perk in-game (K-screen). Returns updated stats or
+ * null if the pick is invalid: perk unknown, no point for that attribute, tier
+ * locked, perk already chosen, or slot already filled for that tier.
+ */
+export function pickPerk(perkId: string, stats: CharacterStats): CharacterStats | null {
+  const perk = PERK_BY_ID.get(perkId);
+  if (!perk) return null;
+  const points = stats.perkPoints?.[perk.attribute] ?? 0;
+  if (points <= 0) return null;
+  if (perk.tier > unlockedTierCount(stats.attributes[perk.attribute])) return null;
+  if (stats.perks.includes(perkId)) return null;
+  if (chosenPerkAt(stats, perk.attribute, perk.tier) !== null) return null;
+  const perkPoints = { ...stats.perkPoints, [perk.attribute]: points - 1 };
+  return { ...stats, perks: [...stats.perks, perkId], perkPoints };
+}
+
+/** Total unspent perk points across all attributes. */
+export function totalPerkPoints(stats: CharacterStats): number {
+  return Object.values(stats.perkPoints ?? {}).reduce((s, n) => s + (n ?? 0), 0);
 }

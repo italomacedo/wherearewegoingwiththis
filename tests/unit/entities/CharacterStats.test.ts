@@ -3,6 +3,7 @@ import {
   createDefaultStats, setPrimaryAttribute, isValidStartingSkills, allocateStartingSkills,
   applySkillUse, unlockedTierCount, pendingPerkSlots, canChoosePerk, choosePerk, choosePerkReplacing, checkValue,
   perksForTier, skillsForAttribute, toggleStartingSkill, startingSkillState,
+  detectPerkPointGrants, grantPerkPoints, pickPerk, totalPerkPoints,
   type StartingSkillPick,
 } from '../../../src/entities/CharacterStats';
 
@@ -170,5 +171,136 @@ describe('CharacterStats — checkValue (skill fits → skill, else attribute)',
     const s = setPrimaryAttribute(createDefaultStats(), 'destreza');
     expect(checkValue(s, null, 'destreza')).toBe(30);
     expect(checkValue(s, 'unknown_skill', 'destreza')).toBe(30);
+  });
+});
+
+describe('CharacterStats — perk points (Phase 19)', () => {
+  it('createDefaultStats has empty perkPoints', () => {
+    const s = createDefaultStats();
+    expect(s.perkPoints).toEqual({});
+    expect(totalPerkPoints(s)).toBe(0);
+  });
+
+  it('detectPerkPointGrants: no grants when no threshold is crossed', () => {
+    const before = createDefaultStats(); // forca=20
+    const after = applySkillUse(before, 'combate_corpo_a_corpo'); // forca≈20.1
+    expect(detectPerkPointGrants(before, after)).toEqual({});
+  });
+
+  it('detectPerkPointGrants: 1 grant when attribute crosses 40% (tier 2)', () => {
+    const before = createDefaultStats();
+    before.attributes.forca = 39.9;
+    const after = { ...before, attributes: { ...before.attributes, forca: 40.1 } };
+    const grants = detectPerkPointGrants(before, after);
+    expect(grants.forca).toBe(1);
+    expect(grants.destreza).toBeUndefined();
+  });
+
+  it('detectPerkPointGrants: grants multiple points when multiple thresholds crossed at once', () => {
+    const before = createDefaultStats();
+    before.attributes.forca = 39;
+    const after = { ...before, attributes: { ...before.attributes, forca: 61 } };
+    const grants = detectPerkPointGrants(before, after);
+    expect(grants.forca).toBe(2); // crossed 40 and 60
+  });
+
+  it('detectPerkPointGrants: does not grant for the first threshold (tier 1 is free)', () => {
+    const before = createDefaultStats();
+    before.attributes.forca = 0;
+    const after = { ...before, attributes: { ...before.attributes, forca: 20 } };
+    expect(detectPerkPointGrants(before, after)).toEqual({});
+  });
+
+  it('grantPerkPoints adds to existing points and returns a new sheet', () => {
+    const s = createDefaultStats();
+    const s2 = grantPerkPoints(s, { forca: 1 });
+    expect(s2.perkPoints.forca).toBe(1);
+    const s3 = grantPerkPoints(s2, { forca: 1, destreza: 2 });
+    expect(s3.perkPoints.forca).toBe(2);
+    expect(s3.perkPoints.destreza).toBe(2);
+    expect(grantPerkPoints(s, {})).toBe(s); // no-op if empty
+  });
+
+  it('pickPerk succeeds when tier unlocked and point available', () => {
+    const [t2a] = perksForTier('forca', 2);
+    let s = createDefaultStats();
+    s.attributes.forca = 40; // tier 2 unlocked
+    s = grantPerkPoints(s, { forca: 1 });
+    const result = pickPerk(t2a!.id, s);
+    expect(result).not.toBeNull();
+    expect(result!.perks).toContain(t2a!.id);
+    expect(result!.perkPoints.forca).toBe(0);
+  });
+
+  it('pickPerk: null when no point available', () => {
+    const [t2a] = perksForTier('forca', 2);
+    const s = createDefaultStats();
+    s.attributes.forca = 40; // tier 2 unlocked but no points
+    expect(pickPerk(t2a!.id, s)).toBeNull();
+  });
+
+  it('pickPerk: null when tier is locked', () => {
+    const [t2a] = perksForTier('forca', 2);
+    let s = createDefaultStats();
+    s = grantPerkPoints(s, { forca: 1 }); // point but tier locked (forca=20)
+    expect(pickPerk(t2a!.id, s)).toBeNull();
+  });
+
+  it('pickPerk: null when perk already chosen', () => {
+    const [t2a] = perksForTier('forca', 2);
+    let s = createDefaultStats();
+    s.attributes.forca = 40;
+    s = grantPerkPoints(s, { forca: 2 });
+    s = pickPerk(t2a!.id, s)!;
+    expect(pickPerk(t2a!.id, s)).toBeNull(); // already chosen
+  });
+
+  it('pickPerk: null when slot is already filled by another perk', () => {
+    const [t2a, t2b] = perksForTier('forca', 2);
+    let s = createDefaultStats();
+    s.attributes.forca = 40;
+    s = grantPerkPoints(s, { forca: 2 });
+    s = pickPerk(t2a!.id, s)!;
+    expect(pickPerk(t2b!.id, s)).toBeNull(); // slot filled by t2a
+  });
+
+  it('pickPerk: null for unknown perk id', () => {
+    expect(pickPerk('does_not_exist', createDefaultStats())).toBeNull();
+  });
+
+  it('totalPerkPoints sums across all attributes', () => {
+    let s = createDefaultStats();
+    s = grantPerkPoints(s, { forca: 2, destreza: 1 });
+    expect(totalPerkPoints(s)).toBe(3);
+  });
+
+  it('pickPerk handles stats with undefined perkPoints (legacy save)', () => {
+    // A legacy save may not have perkPoints — the optional chain should not throw.
+    const [t2a] = perksForTier('forca', 2);
+    const s = createDefaultStats();
+    s.attributes.forca = 40;
+    // Simulate missing perkPoints field (legacy save)
+    (s as unknown as { perkPoints: undefined }).perkPoints = undefined;
+    expect(pickPerk(t2a!.id, s)).toBeNull(); // no points → null
+  });
+
+  it('totalPerkPoints handles undefined perkPoints', () => {
+    const s = createDefaultStats();
+    (s as unknown as { perkPoints: undefined }).perkPoints = undefined;
+    expect(totalPerkPoints(s)).toBe(0);
+  });
+
+  it('totalPerkPoints skips undefined values within perkPoints', () => {
+    // A perkPoints entry may be undefined (Partial<Record<...>>)
+    const s = createDefaultStats();
+    s.perkPoints = { forca: 2, destreza: undefined as unknown as number };
+    expect(totalPerkPoints(s)).toBe(2);
+  });
+
+  it('grantPerkPoints works when attribute already has points', () => {
+    let s = createDefaultStats();
+    s = grantPerkPoints(s, { forca: 1 });
+    s = grantPerkPoints(s, { forca: 2 }); // adds to existing
+    expect(s.perkPoints.forca).toBe(3);
   });
 });

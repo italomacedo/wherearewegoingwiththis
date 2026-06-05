@@ -159,6 +159,20 @@ export class PlayerController {
   }
 
   /**
+   * Pure: effective run speed scaled by the Athletics skill (Phase 19C).
+   * At atletismo=50 the result equals baseRun exactly; at 10 it's 90%; at 100 it's 135%.
+   * Formula: base × (0.85 + atletismo / 200)
+   */
+  static effectiveRunSpeed(baseRun: number, atletismo: number): number {
+    return baseRun * (0.85 + atletismo / 200);
+  }
+
+  /** Update the Athletics skill value (called by the scene when player stats change). */
+  setAtletismo(atletismo: number): void {
+    this.config = { ...this.config, runSpeed: PlayerController.effectiveRunSpeed(DEFAULT_PLAYER_CONFIG.runSpeed, atletismo) };
+  }
+
+  /**
    * Pure movement math: rotate the input axis by the camera yaw so "forward"
    * always points away from the camera, then scale by speed and dt.
    */

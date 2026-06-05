@@ -230,6 +230,7 @@ export class CharacterCreatorScene extends BaseScene {
       attributes: { ...this.stats.attributes },
       skills: { ...this.stats.skills },
       perks: [...this.stats.perks],
+      perkPoints: { ...this.stats.perkPoints },
     };
   }
 
@@ -571,16 +572,57 @@ export class CharacterCreatorScene extends BaseScene {
     gui.addControl(backBtn);
   }
 
-  /** Right-side scrollable panel: starting-skill picker + tier-1 perk picks. */
+  /** Right-side scrollable panel: starting-skill picker + tier-1 perk picks + description strip. */
   /* istanbul ignore next — browser-only GUI */
   private buildRpgPanel(gui: AdvancedDynamicTexture): void {
+    // Description strip — fixed panel at the bottom-right, updated on hover/click.
+    const descPanel = new StackPanel('rpg-desc');
+    descPanel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+    descPanel.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+    descPanel.left = '-20px';
+    descPanel.top = '-80px';
+    descPanel.width = '300px';
+    descPanel.height = '90px';
+    descPanel.background = 'rgba(0,15,25,0.92)';
+    descPanel.paddingLeft = '8px';
+    descPanel.paddingRight = '8px';
+    descPanel.paddingTop = '6px';
+    descPanel.paddingBottom = '6px';
+    gui.addControl(descPanel);
+
+    const descTitle = new TextBlock('rpg-desc-title');
+    descTitle.text = '';
+    descTitle.color = '#00FFCC';
+    descTitle.fontSize = 12;
+    descTitle.fontFamily = 'monospace';
+    descTitle.fontStyle = 'bold';
+    descTitle.height = '20px';
+    descTitle.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+    descPanel.addControl(descTitle);
+
+    const descBody = new TextBlock('rpg-desc-body');
+    descBody.text = t('creator.descHint');
+    descBody.color = '#AABBCC';
+    descBody.fontSize = 11;
+    descBody.fontFamily = 'monospace';
+    descBody.textWrapping = true;
+    descBody.height = '60px';
+    descBody.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+    descBody.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+    descPanel.addControl(descBody);
+
+    const showDesc = (title: string, body: string): void => {
+      descTitle.text = title;
+      descBody.text = body;
+    };
+
     const scroll = new ScrollViewer('rpg-scroll');
     scroll.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
     scroll.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
     scroll.left = '-20px';
     scroll.top = '80px';
     scroll.width = '300px';
-    scroll.height = '58%';
+    scroll.height = '56%';
     scroll.thickness = 1;
     scroll.barColor = '#00FFCC';
     gui.addControl(scroll);
@@ -623,6 +665,7 @@ export class CharacterCreatorScene extends BaseScene {
       btn.onPointerUpObservable.add(() => {
         this.setPrimaryAttribute(a.id);
         refreshAttrs();
+        showDesc(t(`attr.${a.id}`), hasKey(`attr.${a.id}.desc`) ? t(`attr.${a.id}.desc`) : '');
       });
       attrBtns.push({ id: a.id, btn });
       panel.addControl(btn);
@@ -662,6 +705,7 @@ export class CharacterCreatorScene extends BaseScene {
         const st = startingSkillState(pick, s.id);
         if (btn.textBlock) btn.textBlock.text = `${t(`skill.${s.id}`)} — ${tierLabel(st)}`;
         refresh();
+        showDesc(t(`skill.${s.id}`), hasKey(`skill.${s.id}.desc`) ? t(`skill.${s.id}.desc`) : '');
       });
       panel.addControl(btn);
     }
@@ -694,6 +738,10 @@ export class CharacterCreatorScene extends BaseScene {
           btns.forEach((other, i) => {
             other.background = options[i]!.id === p.id ? 'rgba(0,80,60,0.9)' : 'rgba(0,30,40,0.7)';
           });
+          showDesc(
+            hasKey(`perk.${p.id}`) ? t(`perk.${p.id}`) : p.label,
+            hasKey(`perk.${p.id}.desc`) ? t(`perk.${p.id}.desc`) : p.description,
+          );
         });
         btns.push(b);
         panel.addControl(b);

@@ -109,8 +109,8 @@ export const STRINGS: Record<string, Entry> = {
 
   // ─── HUD ──────────────────────────────────────────────────────────────────
   'hud.controls': e(
-    'WASD move · Shift run · Z/C turn cam · E talk · T chat · I inventory · O adjust · F vehicle · Space/Ctrl altitude · ESC pause',
-    'WASD mover · Shift correr · Z/C girar câmera · E falar · T chat · I inventário · O ajustar · F veículo · Espaço/Ctrl altitude · ESC pausar'
+    'WASD move · Shift run · Z/C turn cam · E talk · T chat · I inventory · K sheet · O adjust · F vehicle · Space/Ctrl altitude · ESC pause',
+    'WASD mover · Shift correr · Z/C girar câmera · E falar · T chat · I inventário · K ficha · O ajustar · F veículo · Espaço/Ctrl altitude · ESC pausar'
   ),
   'hud.talk': e('[E] Interact', '[E] Interagir'),
   'hud.talkTo': e('[E] Interact with {name}', '[E] Interagir com {name}'),
@@ -203,6 +203,18 @@ export const STRINGS: Record<string, Entry> = {
   'attr.destreza': e('Dexterity', 'Destreza'),
   'attr.inteligencia': e('Intelligence', 'Inteligência'),
   'attr.carisma': e('Charisma', 'Carisma'),
+  'attr.forca.desc': e(
+    'Raw physical power and toughness. Scales melee damage (+1 per 10 pts). Governs Melee Combat, Athletics, Endurance.',
+    'Força bruta e resistência física. Escala o dano corpo-a-corpo (+1 a cada 10 pts). Rege Combate C-a-C, Atletismo, Resistência.'),
+  'attr.destreza.desc': e(
+    'Speed, reflexes, and precision. Sets combat Action Points; scales ranged damage. Governs Firearms, Stealth, Piloting, Perception.',
+    'Velocidade, reflexos e precisão. Define os Pontos de Ação no combate; escala dano à distância. Rege Armas de Fogo, Furtividade, Pilotagem, Percepção.'),
+  'attr.inteligencia.desc': e(
+    'Analytical capacity and technical knowledge. Governs IT, Engineering, and Medicine checks.',
+    'Capacidade analítica e conhecimento técnico. Rege verificações de TI, Engenharia e Medicina.'),
+  'attr.carisma.desc': e(
+    'Presence, persuasion, and social influence. Governs Persuasion, Intimidation, and Commerce checks.',
+    'Presença, persuasão e influência social. Rege verificações de Persuasão, Intimidação e Comércio.'),
 
   // ─── Skills ────────────────────────────────────────────────────────────────
   'skill.combate_corpo_a_corpo': e('Melee Combat', 'Combate Corpo-a-Corpo'),
@@ -218,6 +230,59 @@ export const STRINGS: Record<string, Entry> = {
   'skill.persuasao': e('Persuasion', 'Persuasão'),
   'skill.intimidacao': e('Intimidation', 'Intimidação'),
   'skill.comercio': e('Commerce', 'Comércio'),
+  'skill.combate_corpo_a_corpo.desc': e(
+    'Unarmed and bladed close-quarters fighting. Determines hit chance in melee combat. Grows by fighting.',
+    'Combate desarmado e com lâminas. Determina a chance de acerto no combate melee. Cresce lutando.'),
+  'skill.atletismo.desc': e(
+    'Physical prowess: running, jumping, climbing. Increases sprint speed.',
+    'Proeza física: correr, saltar, escalar. Aumenta a velocidade de corrida.'),
+  'skill.resistencia.desc': e(
+    'Stamina and tolerance to pain and toxins. Affects endurance and survival checks.',
+    'Resistência a esforço, dor e toxinas. Afeta verificações de sobrevivência.'),
+  'skill.armas_de_fogo.desc': e(
+    'Proficiency with ranged weapons. Determines hit chance in ranged combat.',
+    'Proficiência com armas de fogo. Determina a chance de acerto no combate à distância.'),
+  'skill.furtividade.desc': e(
+    'Moving unseen and unheard through hostile territory. Used in stealth checks.',
+    'Mover-se sem ser visto ou ouvido. Usado em verificações de furtividade.'),
+  'skill.pilotagem.desc': e(
+    'Operating vehicles safely and at high speed. Increases vehicle max speed.',
+    'Operar veículos com segurança e em alta velocidade. Aumenta a velocidade máxima do veículo.'),
+  'skill.percepcao.desc': e(
+    'Awareness of surroundings and threat detection. Sets defense value against attacks.',
+    'Consciência situacional e detecção de ameaças. Define o valor de defesa contra ataques.'),
+  'skill.tecnologia_informacao.desc': e(
+    'Hacking networks and cracking security systems. Used in digital intrusion checks.',
+    'Hackear redes e sistemas de segurança. Usado em verificações de intrusão digital.'),
+  'skill.engenharia.desc': e(
+    'Building, repairing, and modifying gear. Used in crafting and repair checks.',
+    'Construir, reparar e modificar equipamentos. Usado em verificações de criação e reparo.'),
+  'skill.medicina.desc': e(
+    'First aid, diagnosis, and emergency treatment. Used in self-diagnosis and healing checks.',
+    'Primeiros socorros, diagnóstico e tratamento de emergência. Usado em diagnóstico e cura.'),
+  'skill.persuasao.desc': e(
+    'Convincing others through argument or charm. Used in negotiation and diplomacy.',
+    'Convencer com argumentos ou charme. Usado em negociação e diplomacia.'),
+  'skill.intimidacao.desc': e(
+    'Making others comply through fear or authority. Used in coercion checks.',
+    'Fazer outros obedecerem por medo ou autoridade. Usado em verificações de coerção.'),
+  'skill.comercio.desc': e(
+    'Buying, selling, and reading markets. Affects trade and commerce interactions.',
+    'Comprar, vender e analisar mercados. Afeta interações de comércio.'),
+
+  // ─── Character sheet (Phase 19) ────────────────────────────────────────────
+  'sheet.title': e('CHARACTER SHEET', 'FICHA DO PERSONAGEM'),
+  'sheet.attributes': e('ATTRIBUTES', 'ATRIBUTOS'),
+  'sheet.skills': e('SKILLS', 'SKILLS'),
+  'sheet.perks': e('PERKS', 'PERKS'),
+  'sheet.close': e('Close [K]', 'Fechar [K]'),
+  'sheet.perkPoints': e('Available points: {n}', 'Pontos disponíveis: {n}'),
+  'sheet.locked': e('Locked (need {pct}% {attr})', 'Bloqueado (requer {pct}% em {attr})'),
+  'sheet.pick': e('Pick', 'Escolher'),
+  'sheet.chosen': e('Chosen', 'Escolhido'),
+  'sheet.tierN': e('Tier {n}', 'Tier {n}'),
+  'sheet.perkPointHint': e('⬆ K — perk point available', '⬆ K — ponto de perk disponível'),
+  'creator.descHint': e('Select a skill, attribute, or perk to see its description.', 'Selecione uma skill, atributo ou perk para ver a descrição.'),
 
   // ─── Perks (id → name) ─────────────────────────────────────────────────────
   'perk.forca_t1_punho_calejado': e('Calloused Fist', 'Punho Calejado'),
@@ -260,6 +325,48 @@ export const STRINGS: Record<string, Entry> = {
   'perk.carisma_t4_carisma_magnetico': e('Magnetic Charm', 'Carisma Magnético'),
   'perk.carisma_t5_mente_mestra': e('Mastermind', 'Mente-Mestra'),
   'perk.carisma_t5_idolo_da_rua': e('Street Idol', 'Ídolo da Rua'),
+
+  // ─── Perk descriptions (id.desc → flavor + effect) ────────────────────────
+  'perk.forca_t1_punho_calejado.desc': e('Unarmed strikes deal slightly more damage.', 'Golpes desarmados doem um pouco mais.'),
+  'perk.forca_t1_folego_de_rua.desc': e('Run and carry loads for longer without tiring.', 'Corre e carrega por mais tempo sem cansar.'),
+  'perk.forca_t2_pancada_firme.desc': e('Heavy blows have a chance to stun the target.', 'Golpes pesados têm chance de atordoar o alvo.'),
+  'perk.forca_t2_equilibrio_felino.desc': e('Harder to knock down or push back.', 'Mais difícil de derrubar ou empurrar.'),
+  'perk.forca_t3_quebra_guarda.desc': e('Ignores part of the target\'s melee defense.', 'Ignora parte da defesa corpo-a-corpo do alvo.'),
+  'perk.forca_t3_limiar_de_dor.desc': e('Keep fighting effectively even when badly hurt.', 'Continua lutando bem mesmo gravemente ferido.'),
+  'perk.forca_t4_investida_brutal.desc': e('Charge forward, hurling nearby enemies aside.', 'Avança e arremessa inimigos próximos.'),
+  'perk.forca_t4_pele_de_couro.desc': e('Reduce incoming physical damage.', 'Reduz o dano físico recebido.'),
+  'perk.forca_t5_furia_cibernetica.desc': e('Burst of strength that briefly multiplies damage.', 'Surto de força que multiplica o dano por instantes.'),
+  'perk.forca_t5_tanque_de_carne.desc': e('Greatly increased max HP and toughness.', 'Vida máxima e resistência muito ampliadas.'),
+  'perk.destreza_t1_dedos_leves.desc': e('Small bonus to pickpocketing and lockpicking.', 'Pequeno bônus ao furtar e arrombar.'),
+  'perk.destreza_t1_passo_macio.desc': e('Make less noise while moving.', 'Faz menos ruído ao se mover.'),
+  'perk.destreza_t2_mira_estavel.desc': e('Less spread when firing from a standstill.', 'Menos dispersão ao atirar parado.'),
+  'perk.destreza_t2_reflexo_rapido.desc': e('Improved initiative and dodge in combat.', 'Melhora a iniciativa e a esquiva no combate.'),
+  'perk.destreza_t3_saque_veloz.desc': e('Draw and reload weapons faster.', 'Saca e recarrega armas mais rápido.'),
+  'perk.destreza_t3_sombra.desc': e('Stay hidden for longer while moving.', 'Permanece oculto por mais tempo em movimento.'),
+  'perk.destreza_t4_tiro_certeiro.desc': e('Increased critical hit chance at range.', 'Chance ampliada de acerto crítico à distância.'),
+  'perk.destreza_t4_piloto_nato.desc': e('Vehicles handle better and take less damage.', 'Veículos respondem melhor e sofrem menos dano.'),
+  'perk.destreza_t5_bullet_time.desc': e('Time seems to slow while aiming.', 'O tempo parece desacelerar ao mirar.'),
+  'perk.destreza_t5_fantasma.desc': e('Almost undetectable while crouching.', 'Quase indetectável enquanto agachado.'),
+  'perk.inteligencia_t1_olho_clinico.desc': e('Read vitals and statuses with greater clarity.', 'Lê sinais vitais e estados com mais clareza.'),
+  'perk.inteligencia_t1_bricolagem.desc': e('Repair simple items using scrap.', 'Conserta itens simples com sucata.'),
+  'perk.inteligencia_t2_leitura_de_rede.desc': e('Detect hackable nodes and cameras nearby.', 'Detecta nós e câmeras hackeáveis por perto.'),
+  'perk.inteligencia_t2_improviso_tecnico.desc': e('Craft useful improvised tools in the field.', 'Fabrica gambiarras úteis em campo.'),
+  'perk.inteligencia_t3_intrusao.desc': e('Breach systems with less resistance.', 'Invade sistemas com menos resistência.'),
+  'perk.inteligencia_t3_cirurgiao_de_campo.desc': e('Stabilize and heal serious wounds.', 'Estabiliza e cura ferimentos graves.'),
+  'perk.inteligencia_t4_daemon.desc': e('Plant routines that weaken networked targets.', 'Implanta rotinas que enfraquecem alvos em rede.'),
+  'perk.inteligencia_t4_engenheiro_chefe.desc': e('Create and upgrade advanced equipment.', 'Cria e melhora equipamentos avançados.'),
+  'perk.inteligencia_t5_netrunner.desc': e('Master of cyberspace; intrusions nearly trivial.', 'Domina o ciberespaço; intrusões quase triviais.'),
+  'perk.inteligencia_t5_tecnomante.desc': e('Control multiple systems simultaneously.', 'Controla múltiplos sistemas ao mesmo tempo.'),
+  'perk.carisma_t1_labia.desc': e('Small bonus when persuading others.', 'Pequeno bônus ao persuadir.'),
+  'perk.carisma_t1_cara_de_pau.desc': e('Lie with greater conviction.', 'Mente com mais convicção.'),
+  'perk.carisma_t2_pechincha.desc': e('Better prices when buying and selling.', 'Melhores preços ao comprar e vender.'),
+  'perk.carisma_t2_presenca.desc': e('Make yourself noticed and respected in a room.', 'Faz-se notar e respeitar numa sala.'),
+  'perk.carisma_t3_manipulador.desc': e('Sway others\' attitudes in your favour.', 'Inclina atitudes alheias a seu favor.'),
+  'perk.carisma_t3_intimidador.desc': e('Make enemies hesitate or back down.', 'Faz inimigos hesitarem ou recuarem.'),
+  'perk.carisma_t4_negociador_frio.desc': e('Close deals even under pressure.', 'Fecha acordos mesmo sob pressão.'),
+  'perk.carisma_t4_carisma_magnetico.desc': e('Attract allies and goodwill easily.', 'Atrai aliados e simpatia com facilidade.'),
+  'perk.carisma_t5_mente_mestra.desc': e('Orchestrate people like pieces of a plan.', 'Orquestra pessoas como peças de um plano.'),
+  'perk.carisma_t5_idolo_da_rua.desc': e('Your reputation opens doors across the city.', 'Sua reputação abre portas em toda a cidade.'),
 };
 
 /** True when the catalog has an entry for the key (graceful fallbacks). */

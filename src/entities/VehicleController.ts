@@ -224,6 +224,20 @@ export class VehicleController {
     return { position, velocity, landed, impactSpeed };
   }
 
+  /**
+   * Pure: effective max speed scaled by the Piloting skill (Phase 19C).
+   * At pilotagem=50 the result equals baseMax exactly; at 10 it's 80%; at 100 it's 125%.
+   * Formula: base × (0.75 + pilotagem / 200)
+   */
+  static effectiveMaxSpeed(baseMax: number, pilotagem: number): number {
+    return baseMax * (0.75 + pilotagem / 200);
+  }
+
+  /** Update the Piloting skill value (called by the scene when player stats change). */
+  setPilotagem(pilotagem: number): void {
+    this.config = { ...this.config, maxSpeed: VehicleController.effectiveMaxSpeed(DEFAULT_VEHICLE_CONFIG.maxSpeed, pilotagem) };
+  }
+
   /** Toggle real-GLB loading. Default true; tests/headless stay on placeholder. */
   static useGltf = true;
   static setUseGltf(enabled: boolean): void { VehicleController.useGltf = enabled; }

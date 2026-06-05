@@ -269,3 +269,15 @@ describe('PlayerController', () => {
     expect(player.isGrounded()).toBe(true);
   });
 });
+
+describe('PlayerController.effectiveRunSpeed (Phase 19C)', () => {
+  it('at atletismo=30 (neutral) returns the base run speed unchanged', () => {
+    expect(PlayerController.effectiveRunSpeed(8, 30)).toBeCloseTo(8);
+  });
+  it('at atletismo=10 (untrained default) returns 90% of base', () => {
+    expect(PlayerController.effectiveRunSpeed(8, 10)).toBeCloseTo(8 * 0.9);
+  });
+  it('at atletismo=100 (mastery) returns 135% of base', () => {
+    expect(PlayerController.effectiveRunSpeed(8, 100)).toBeCloseTo(8 * 1.35);
+  });
+});

@@ -59,7 +59,9 @@ import { resolveAddressee, AddressCandidate, stripShout } from '@systems/npc/Add
 import { hasEmote, isCheckTimeEmote, isSelfExamEmote, narrateTime, ActionClassification } from '@systems/npc/EmoteIntent';
 import {
   CharacterStats, AttributeId, createDefaultStats, checkValue, applySkillUse,
+  detectPerkPointGrants, grantPerkPoints,
 } from '@entities/CharacterStats';
+import { CharacterSheetOverlay } from '@systems/CharacterSheetOverlay';
 import { resolveCheck } from '@systems/SkillCheck';
 import { t, getLocale, languageName } from '@systems/I18n';
 import { SettingsService } from '@systems/SettingsService';
@@ -169,6 +171,7 @@ export class GameWorldScene extends BaseScene {
   private chatMode: 'npc' | 'global' = 'npc';
   private pauseMenu: PauseMenu | null = null;
   private inventoryOverlay: InventoryOverlay | null = null;
+  private characterSheetOverlay: CharacterSheetOverlay | null = null;
   /** Items dropped into the world (Fase 18), persisted in SaveGame.groundItems. */
   private groundItems: GroundItem[] = [];
   /** Live pickup markers, keyed by their GroundItem (browser-only). */
@@ -328,6 +331,8 @@ export class GameWorldScene extends BaseScene {
     this.appearance = session.character.appearance;
     this.playerName = session.character.name;
     this.playerStats = session.character.stats ?? createDefaultStats();
+    // Apply skill-driven stat modifiers (Phase 19C).
+    this.player?.setAtletismo(this.playerStats.skills['atletismo'] ?? 10);
     this.playerInventory = Inventory.fromState(session.inventory ?? defaultInventoryState());
     this.heldAttach = session.heldAttach ?? {};
     this.npcMemory = session.npcMemory ?? {};
@@ -459,6 +464,8 @@ export class GameWorldScene extends BaseScene {
 
     this.player = new PlayerController(this.babylonScene, this.inputSystem);
     await this.player.spawn(this.spawnOverride ?? zone.getSpawnPoint(), this.appearance);
+    // Apply skill-driven movement speed (Phase 19C).
+    this.player.setAtletismo(this.playerStats.skills['atletismo'] ?? 10);
     ServiceLocator.register('player', this.player);
     this.cameraSystem.setTarget(this.player.getRoot());
 
@@ -510,6 +517,16 @@ export class GameWorldScene extends BaseScene {
       onEquipArmor: () => { void this.rebuildPlayerArmor(); },
       // Dropped item → drop a pickup pile at the player's feet (Fase 18).
       onDrop: (itemId) => this.dropToGround(itemId),
+    });
+
+    // Character sheet overlay (K) — attributes, skills, perk tree.
+    this.characterSheetOverlay = new CharacterSheetOverlay(this.babylonScene);
+    this.characterSheetOverlay.setHandlers({
+      onPerkPick: (updated) => {
+        this.playerStats = updated;
+        this.persistSession();
+      },
+      onClose: () => { /* nothing to restore — no camera change */ },
     });
 
     // Adjust tool (Phase 10.4b): live-calibrate a held prop's attach transform.
@@ -891,6 +908,8 @@ export class GameWorldScene extends BaseScene {
     this.dialog?.dispose();
     this.pauseMenu?.dispose();
     this.inventoryOverlay?.dispose();
+    this.characterSheetOverlay?.hide();
+    this.characterSheetOverlay = null;
     this.adjustOverlay?.dispose();
     this.adjustOverlay = null;
     this.actionRibbon?.dispose();
@@ -938,6 +957,7 @@ export class GameWorldScene extends BaseScene {
     this.dialog = null;
     this.pauseMenu = null;
     this.inventoryOverlay = null;
+    this.characterSheetOverlay = null;
     this.hud = null;
     this.detachInput = null;
     ['physics', 'cameraSystem', 'inputSystem', 'zoneManager', 'player', 'vehicle', 'npcManager'].forEach((k) =>
@@ -997,6 +1017,14 @@ export class GameWorldScene extends BaseScene {
     // Inventory overlay (I) — freezes the world like pause; ESC/I closes it.
     this.handleInventoryInput();
     if (this.inventoryOverlay?.isOpen()) {
+      this.cameraSystem?.update();
+      this.inputSystem?.endFrame();
+      return;
+    }
+
+    // Character sheet overlay (K) — attributes, skills, perk tree.
+    this.handleCharacterSheetInput();
+    if (this.characterSheetOverlay?.isOpen()) {
       this.cameraSystem?.update();
       this.inputSystem?.endFrame();
       return;
@@ -2497,7 +2525,9 @@ export class GameWorldScene extends BaseScene {
       const value = checkValue(this.playerStats, 'medicina', 'inteligencia');
       const result = resolveCheck({ value });
       if (result.success) {
+        const before = this.playerStats;
         this.playerStats = applySkillUse(this.playerStats, 'medicina', SettingsService.get('skillGainMultiplier'));
+        this.applyPerkPointGrants(before, this.playerStats);
       }
       const condLine = describeCondition(this.player.getHealth().fraction(), result.success);
       this.dialog.addNarrationLine(condLine);
@@ -2525,7 +2555,9 @@ export class GameWorldScene extends BaseScene {
 
     // Learning by doing — only on success (owner's rule), × the Options multiplier.
     if (result.success && cls.skillId) {
+      const before = this.playerStats;
       this.playerStats = applySkillUse(this.playerStats, cls.skillId, SettingsService.get('skillGainMultiplier'));
+      this.applyPerkPointGrants(before, this.playerStats);
     }
 
     const narration = await this.npcManager.narrateOutcome(message, result.success, languageName(getLocale()));
@@ -2553,7 +2585,9 @@ export class GameWorldScene extends BaseScene {
     const value = checkValue(this.playerStats, cls.skillId ?? 'combate_corpo_a_corpo', cls.attribute ?? 'forca');
     const result = resolveCheck({ value, opponent: cls.difficulty });
     if (result.success && cls.skillId) {
+      const before = this.playerStats;
       this.playerStats = applySkillUse(this.playerStats, cls.skillId, SettingsService.get('skillGainMultiplier'));
+      this.applyPerkPointGrants(before, this.playerStats);
     }
     agent.onHostilePlayerAction();
     const narration = await this.npcManager.narrateOutcome(message, result.success, languageName(getLocale()));
@@ -2690,6 +2724,8 @@ export class GameWorldScene extends BaseScene {
       this.cameraSystem.exitVehicleMode();
     } else if (this.vehicle.canEnter(this.player.getPosition())) {
       this.vehicle.enter();
+      // Apply the player's Piloting skill to vehicle max speed (Phase 19C).
+      this.vehicle.setPilotagem(this.playerStats.skills['pilotagem'] ?? 10);
       this.player.getRoot().setEnabled(false);
       this.cameraSystem.setTarget(this.vehicle.getRoot());
       this.cameraSystem.enterVehicleMode();
@@ -2718,6 +2754,11 @@ export class GameWorldScene extends BaseScene {
       this.inventoryOverlay.close();
       return;
     }
+    if (this.characterSheetOverlay?.isOpen()) {
+      // ESC closes the character sheet rather than pausing.
+      this.characterSheetOverlay.hide();
+      return;
+    }
     if (this.dialog?.isOpen()) {
       // ESC closes the dialog rather than pausing.
       if (!this.dialog.isInputFocused()) this.closeDialog();
@@ -2740,6 +2781,30 @@ export class GameWorldScene extends BaseScene {
     if (this.inputSystem.wasJustPressed('inventory.open')) {
       overlay.openManage(this.playerInventory);
       this.sfx('ui_open');
+    }
+  }
+
+  /** `K` opens the character sheet; while open, `K`/ESC closes it. */
+  private handleCharacterSheetInput(): void {
+    if (!this.inputSystem || !this.characterSheetOverlay) return;
+    const overlay = this.characterSheetOverlay;
+    if (overlay.isOpen()) {
+      if (this.inputSystem.wasJustPressed('character.sheet.open')) overlay.hide();
+      return;
+    }
+    if (this.dialog?.isOpen() || this.pauseMenu?.isOpen() || this.gameOverMenu?.isOpen()
+      || this.inventoryOverlay?.isOpen()) return;
+    if (this.inputSystem.wasJustPressed('character.sheet.open')) {
+      overlay.show(this.playerStats);
+      this.sfx('ui_open');
+    }
+  }
+
+  /** Check if any perk points were earned after a skill-use; update stats. */
+  private applyPerkPointGrants(before: CharacterStats, after: CharacterStats): void {
+    const grants = detectPerkPointGrants(before, after);
+    if (Object.keys(grants).length > 0) {
+      this.playerStats = grantPerkPoints(after, grants);
     }
   }
 
@@ -2809,6 +2874,7 @@ export class GameWorldScene extends BaseScene {
     const busy = (this.combat?.isOpen() ?? false)
       || (this.dialog?.isOpen() ?? false)
       || (this.inventoryOverlay?.isOpen() ?? false)
+      || (this.characterSheetOverlay?.isOpen() ?? false)
       || (this.adjustOverlay?.isOpen() ?? false)
       || (this.pauseMenu?.isOpen() ?? false)
       || (this.gameOverMenu?.isOpen() ?? false)

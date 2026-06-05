@@ -323,6 +323,10 @@ export class SaveService {
       if (typeof save.world.worldSeed !== 'number') save.world.worldSeed = SaveService.seedFrom(save.saveId);
       if (!save.world.currentTile) save.world.currentTile = [0, 0];
     }
+    // Fase 19: backfill perkPoints for saves without it.
+    if (save.character?.stats && !save.character.stats.perkPoints) {
+      save.character.stats.perkPoints = {};
+    }
     return save;
   }
 

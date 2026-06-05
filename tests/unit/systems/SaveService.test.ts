@@ -154,6 +154,7 @@ describe('SaveService', () => {
       attributes: { forca: 30, destreza: 20, inteligencia: 20, carisma: 20 },
       skills: { armas_de_fogo: 40 },
       perks: ['forca_t1_punho_calejado'],
+      perkPoints: {},
     };
     SaveService.save(save);
     const loaded = SaveService.load(save.saveId)!;
