@@ -1,5 +1,5 @@
 import { Engine, Color4, FreeCamera, Vector3 } from '@babylonjs/core';
-import { AdvancedDynamicTexture, TextBlock, Button, StackPanel, Rectangle } from '@babylonjs/gui';
+import { AdvancedDynamicTexture, TextBlock, Button, StackPanel, ScrollViewer, Rectangle, Control } from '@babylonjs/gui';
 import { BaseScene } from './BaseScene';
 import { SceneManager } from '@core/SceneManager';
 import { ServiceLocator } from '@core/ServiceLocator';
@@ -94,89 +94,167 @@ export class LoadGameScene extends BaseScene {
     const gui = AdvancedDynamicTexture.CreateFullscreenUI('load-ui', true, this.babylonScene);
     this.gui = gui;
 
+    // Full-screen dim scrim behind the panel (same shell as Character Sheet / PDA).
+    const scrim = new Rectangle('load-scrim');
+    scrim.width = '100%'; scrim.height = '100%';
+    scrim.background = 'rgba(2,5,11,0.86)';
+    scrim.thickness = 0;
+    gui.addControl(scrim);
+
+    // Centred panel frame (responsive: % of the screen).
+    const frame = new Rectangle('load-frame');
+    frame.width = '78%'; frame.height = '86%';
+    frame.background = 'rgba(7,14,24,0.98)';
+    frame.color = '#0c4d57';
+    frame.thickness = 2;
+    frame.cornerRadius = 12;
+    scrim.addControl(frame);
+
+    // ── Header bar ──
+    const header = new Rectangle('load-header');
+    header.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+    header.height = '56px';
+    header.background = 'rgba(0,28,38,0.95)';
+    header.thickness = 0;
+    frame.addControl(header);
+
+    const accent = new Rectangle('load-accent');
+    accent.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+    accent.height = '2px'; accent.background = '#00FFCC'; accent.thickness = 0;
+    header.addControl(accent);
+
     const title = new TextBlock('title');
     title.text = t('load.title');
     title.color = '#00FFCC';
-    title.fontSize = 32;
+    title.fontSize = 22;
     title.fontFamily = '"Courier New", monospace';
     title.fontStyle = 'bold';
-    title.verticalAlignment = 0;
-    title.top = '30px';
-    title.height = '50px';
-    gui.addControl(title);
+    title.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+    title.left = '24px';
+    header.addControl(title);
 
-    const saveList = new StackPanel('save-list');
-    saveList.verticalAlignment = 0;
-    saveList.horizontalAlignment = 1; // center
-    saveList.top = '100px';
-    saveList.width = '600px';
-    saveList.spacing = 8;
-    gui.addControl(saveList);
+    const backBtn = Button.CreateSimpleButton('back', t('common.back'));
+    backBtn.width = '116px'; backBtn.height = '34px';
+    backBtn.color = '#00FFCC'; backBtn.background = 'rgba(0,40,50,0.9)';
+    backBtn.cornerRadius = 6;
+    backBtn.fontSize = 13; backBtn.fontFamily = 'monospace';
+    backBtn.thickness = 1;
+    backBtn.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+    backBtn.left = '-16px';
+    backBtn.onPointerUpObservable.add(() => this.onBack());
+    header.addControl(backBtn);
+
+    // ── Body: scrollable save list (or an empty note) ──
+    // (No calc() — Lesson 48; top offset + percentage height.)
+    const scroll = new ScrollViewer('load-scroll');
+    scroll.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+    scroll.top = '64px';
+    scroll.width = '94%';
+    scroll.height = '82%';
+    scroll.thickness = 0;
+    scroll.barColor = '#00FFCC55';
+    scroll.barBackground = 'rgba(255,255,255,0.05)';
+    frame.addControl(scroll);
+
+    const list = new StackPanel('load-list');
+    list.width = '100%';
+    list.spacing = 10;
+    list.paddingTop = '8px';
+    list.paddingBottom = '12px';
+    scroll.addControl(list);
 
     if (this.saves.length === 0) {
       const empty = new TextBlock('empty');
       empty.text = t('load.empty');
-      empty.color = '#667788';
-      empty.fontSize = 18;
-      empty.height = '40px';
-      saveList.addControl(empty);
+      empty.color = '#6f879b';
+      empty.fontSize = 14;
+      empty.fontFamily = 'monospace';
+      empty.textWrapping = true;
+      empty.height = '60px';
+      list.addControl(empty);
     } else {
-      this.saves.forEach((meta) => {
-        const row = new Rectangle(`save-${meta.saveId}`);
-        row.height = '60px';
-        row.thickness = 1;
-        row.color = '#004455';
-        row.background = 'rgba(0,20,30,0.7)';
-        saveList.addControl(row);
-
-        const nameText = new TextBlock(`name-${meta.saveId}`);
-        nameText.text = `${meta.saveName}  |  ${SaveService.formatGameTime(meta.gameTimeSeconds)}`;
-        nameText.color = '#CCDDEE';
-        nameText.fontSize = 15;
-        nameText.textHorizontalAlignment = 0;
-        nameText.horizontalAlignment = 0;
-        nameText.left = '12px';
-        row.addControl(nameText);
-
-        const loadBtn = Button.CreateSimpleButton(`load-${meta.saveId}`, t('load.load'));
-        loadBtn.width = '80px';
-        loadBtn.height = '36px';
-        loadBtn.color = '#00FFCC';
-        loadBtn.background = 'transparent';
-        loadBtn.fontSize = 13;
-        loadBtn.horizontalAlignment = 2;
-        loadBtn.left = '-100px';
-        loadBtn.onPointerUpObservable.add(() => void this.onLoadSave(meta.saveId));
-        row.addControl(loadBtn);
-
-        const delBtn = Button.CreateSimpleButton(`del-${meta.saveId}`, '✕');
-        delBtn.width = '40px';
-        delBtn.height = '36px';
-        delBtn.color = '#FF4466';
-        delBtn.background = 'transparent';
-        delBtn.fontSize = 16;
-        delBtn.horizontalAlignment = 2;
-        delBtn.left = '-16px';
-        delBtn.onPointerUpObservable.add(() => {
-          this.requestDelete(meta.saveId);
-          this.confirmDelete();
-        });
-        row.addControl(delBtn);
-      });
+      this.saves.forEach((meta) => this.buildSaveCard(meta, list));
     }
+  }
 
-    const backBtn = Button.CreateSimpleButton('back', t('common.back'));
-    backBtn.width = '120px';
-    backBtn.height = '40px';
-    backBtn.color = '#888888';
-    backBtn.background = 'rgba(0,20,30,0.8)';
-    backBtn.fontSize = 14;
-    backBtn.fontFamily = 'monospace';
-    backBtn.verticalAlignment = 2;
-    backBtn.horizontalAlignment = 0;
-    backBtn.paddingBottom = '30px';
-    backBtn.paddingLeft = '30px';
-    backBtn.onPointerUpObservable.add(() => this.onBack());
-    gui.addControl(backBtn);
+  /** One save card: name + meta + Load + delete. Hover lifts the border. */
+  /* istanbul ignore next — browser GUI only */
+  private buildSaveCard(meta: SaveMeta, parent: StackPanel): void {
+    const card = new Rectangle(`save-${meta.saveId}`);
+    card.width = '96%';
+    card.height = '72px';
+    card.thickness = 1;
+    card.color = '#1d3b46';
+    card.background = 'rgba(0,18,28,0.7)';
+    card.cornerRadius = 8;
+    parent.addControl(card);
+
+    card.onPointerEnterObservable.add(() => { card.color = '#00FFCC'; card.background = 'rgba(0,28,40,0.9)'; });
+    card.onPointerOutObservable.add(() => { card.color = '#1d3b46'; card.background = 'rgba(0,18,28,0.7)'; });
+
+    // Save name (top line, neon)
+    const name = new TextBlock(`name-${meta.saveId}`);
+    name.text = `▸ ${meta.saveName}`;
+    name.color = '#00FFCC';
+    name.fontSize = 15;
+    name.fontFamily = '"Courier New", monospace';
+    name.fontStyle = 'bold';
+    name.height = '22px';
+    name.top = '10px';
+    name.left = '18px';
+    name.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+    name.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+    card.addControl(name);
+
+    // Meta (bottom line: in-game time · last save date)
+    const date = (() => {
+      try { return new Date(meta.updatedAt).toLocaleString(); } catch { return meta.updatedAt; }
+    })();
+    const sub = new TextBlock(`meta-${meta.saveId}`);
+    sub.text = `${SaveService.formatGameTime(meta.gameTimeSeconds)}  ·  ${date}`;
+    sub.color = '#7d93a6';
+    sub.fontSize = 11;
+    sub.fontFamily = 'monospace';
+    sub.height = '18px';
+    sub.top = '36px';
+    sub.left = '18px';
+    sub.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+    sub.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+    card.addControl(sub);
+
+    const loadBtn = Button.CreateSimpleButton(`load-${meta.saveId}`, t('load.load'));
+    loadBtn.width = '96px';
+    loadBtn.height = '34px';
+    loadBtn.color = '#00FFCC';
+    loadBtn.background = 'rgba(0,40,50,0.9)';
+    loadBtn.cornerRadius = 6;
+    loadBtn.thickness = 1;
+    loadBtn.fontSize = 12;
+    loadBtn.fontFamily = 'monospace';
+    loadBtn.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+    loadBtn.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+    loadBtn.left = '-66px';
+    loadBtn.onPointerUpObservable.add(() => void this.onLoadSave(meta.saveId));
+    card.addControl(loadBtn);
+
+    const delBtn = Button.CreateSimpleButton(`del-${meta.saveId}`, '✕');
+    delBtn.width = '40px';
+    delBtn.height = '34px';
+    delBtn.color = '#ff6680';
+    delBtn.background = 'rgba(40,0,10,0.7)';
+    delBtn.cornerRadius = 6;
+    delBtn.thickness = 1;
+    delBtn.fontSize = 16;
+    delBtn.fontFamily = 'monospace';
+    delBtn.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+    delBtn.verticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
+    delBtn.left = '-18px';
+    delBtn.onPointerEnterObservable.add(() => { delBtn.background = 'rgba(120,0,20,0.95)'; delBtn.color = '#ffaabb'; });
+    delBtn.onPointerOutObservable.add(() => { delBtn.background = 'rgba(40,0,10,0.7)'; delBtn.color = '#ff6680'; });
+    delBtn.onPointerUpObservable.add(() => {
+      this.requestDelete(meta.saveId);
+      this.confirmDelete();
+    });
+    card.addControl(delBtn);
   }
 }
