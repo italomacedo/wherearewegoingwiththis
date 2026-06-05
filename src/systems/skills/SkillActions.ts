@@ -18,6 +18,9 @@ import { SkillEffect } from '@systems/npc/EmoteIntent';
 
 /** Radius (m) within which a non-combat skill action can reach an NPC ("same quadrant"). */
 export const SKILL_ACTION_RADIUS = 30;
+/** Tighter radius (m) for actions that require PHYSICAL CONTACT — pickpocket, sabotage gear,
+ *  apply a medkit on another. Same value as PICKUP_RADIUS so the in-game feel is consistent. */
+export const SKILL_CONTACT_RADIUS = 2;
 
 /** A natural d100 below this on a successful check is a CRITICAL (double-step social effects). */
 export const SKILL_CRITICAL_ROLL = 5;
@@ -46,6 +49,22 @@ const EFFECT_POLICY: Record<SkillEffect, AwarenessPolicy> = {
 const TARGET_REQUIRED: ReadonlySet<SkillEffect> = new Set<SkillEffect>([
   'attack', 'steal', 'info', 'relationship', 'disposition', 'coerce', 'sabotage',
 ]);
+
+/**
+ * Reach radius for each effect. Actions that require PHYSICAL CONTACT
+ * (pickpocket, gear sabotage, treating another's wounds) use SKILL_CONTACT_RADIUS
+ * (2 m); everything else (remote hacks, social pressure, conversation tricks)
+ * uses the larger same-quadrant SKILL_ACTION_RADIUS (30 m).
+ */
+export function reachFor(effect: SkillEffect, skillId: string | null): number {
+  // Stealth pickpocket = literally lifting from a pocket → physical contact.
+  if (effect === 'steal' && skillId !== 'tecnologia_informacao') return SKILL_CONTACT_RADIUS;
+  // Sabotage = rigging the target's gear in person.
+  if (effect === 'sabotage') return SKILL_CONTACT_RADIUS;
+  // Healing ANOTHER person needs hands on them (self-heal is unresisted, no target).
+  if (effect === 'heal') return SKILL_CONTACT_RADIUS;
+  return SKILL_ACTION_RADIUS;
+}
 
 export interface SkillTargetInfo {
   id: string;
@@ -151,8 +170,12 @@ export function resolveSkillAction(input: SkillActionInput, rng: RollFn = defaul
   if (TARGET_REQUIRED.has(input.effect)) {
     if (!t) return blocked('no_target');
     if (!t.alive) return blocked('dead_target');
-    if (t.distance > SKILL_ACTION_RADIUS) return blocked('out_of_range');
+    if (t.distance > reachFor(input.effect, input.skillId)) return blocked('out_of_range');
     if (input.effect === 'relationship' && !t.otherId) return blocked('no_target');
+  }
+  // Heal another person needs physical contact too (self-heal = no target, no check).
+  if (input.effect === 'heal' && t && t.distance > reachFor('heal', input.skillId)) {
+    return blocked('out_of_range');
   }
 
   // ── attack: no pre-check here — it begins combat (ambush when the target is unaware).

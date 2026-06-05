@@ -1,5 +1,6 @@
 import {
-  resolveSkillAction, SkillActionInput, SkillTargetInfo, SKILL_ACTION_RADIUS,
+  resolveSkillAction, SkillActionInput, SkillTargetInfo, SKILL_ACTION_RADIUS, SKILL_CONTACT_RADIUS,
+  reachFor,
 } from '../../../../src/systems/skills/SkillActions';
 import { SkillEffect } from '../../../../src/systems/npc/EmoteIntent';
 
@@ -43,9 +44,73 @@ describe('SkillActions — gating', () => {
     expect(resolveSkillAction(input({ target: target({ alive: false }) }), rollLow).blockedReason).toBe('dead_target');
   });
 
-  it('blocks an out-of-range target', () => {
+  it('blocks an out-of-range target (default: 30m for IT info)', () => {
     const r = resolveSkillAction(input({ target: target({ distance: SKILL_ACTION_RADIUS + 1 }) }), rollLow);
     expect(r.blockedReason).toBe('out_of_range');
+  });
+
+  it('pickpocket (stealth steal) requires physical contact (2m), not 30m', () => {
+    // Just past 2m → blocked by the tighter contact radius.
+    const beyond = resolveSkillAction(input({
+      effect: 'steal', skillId: 'furtividade', hasCyberdeck: false,
+      target: target({ distance: SKILL_CONTACT_RADIUS + 0.5 }),
+    }), rollLow);
+    expect(beyond.blockedReason).toBe('out_of_range');
+    // Within 2m → allowed and a thief who beats a sleeping mark steals an item.
+    const close = resolveSkillAction(input({
+      effect: 'steal', skillId: 'furtividade', hasCyberdeck: false,
+      target: target({ distance: 1.5 }),
+    }), rollLow);
+    expect(close.allowed).toBe(true);
+    expect(close.mutations).toEqual([{ kind: 'steal_item', targetId: 'npc1' }]);
+  });
+
+  it('IT wire-transfer steal still reaches 30m (remote)', () => {
+    const r = resolveSkillAction(input({
+      effect: 'steal', skillId: 'tecnologia_informacao',
+      target: target({ distance: 20 }),
+    }), rollLow);
+    expect(r.allowed).toBe(true);
+    expect(r.mutations).toEqual([{ kind: 'steal_credits', targetId: 'npc1' }]);
+  });
+
+  it('sabotage requires physical contact (2m)', () => {
+    const beyond = resolveSkillAction(input({
+      effect: 'sabotage', skillId: 'engenharia', hasCyberdeck: false,
+      target: target({ distance: 3 }),
+    }), rollLow);
+    expect(beyond.blockedReason).toBe('out_of_range');
+    const close = resolveSkillAction(input({
+      effect: 'sabotage', skillId: 'engenharia', hasCyberdeck: false,
+      target: target({ distance: 1 }),
+    }), rollLow);
+    expect(close.allowed).toBe(true);
+  });
+
+  it('heal on another NPC requires physical contact (2m); self-heal has no target check', () => {
+    const farHeal = resolveSkillAction(input({
+      effect: 'heal', skillId: 'medicina', hasCyberdeck: false,
+      target: target({ distance: 5 }),
+    }), rollLow);
+    expect(farHeal.blockedReason).toBe('out_of_range');
+    const closeHeal = resolveSkillAction(input({
+      effect: 'heal', skillId: 'medicina', hasCyberdeck: false,
+      target: target({ distance: 1.5 }),
+    }), rollLow);
+    expect(closeHeal.allowed).toBe(true);
+    const self = resolveSkillAction(input({
+      effect: 'heal', skillId: 'medicina', hasCyberdeck: false, target: null,
+    }), rollLow);
+    expect(self.allowed).toBe(true);
+  });
+
+  it('reachFor returns 2m for physical-contact effects and 30m otherwise', () => {
+    expect(reachFor('steal', 'furtividade')).toBe(SKILL_CONTACT_RADIUS);
+    expect(reachFor('steal', 'tecnologia_informacao')).toBe(SKILL_ACTION_RADIUS); // wire = remote
+    expect(reachFor('sabotage', 'engenharia')).toBe(SKILL_CONTACT_RADIUS);
+    expect(reachFor('heal', 'medicina')).toBe(SKILL_CONTACT_RADIUS);
+    expect(reachFor('info', 'tecnologia_informacao')).toBe(SKILL_ACTION_RADIUS);
+    expect(reachFor('disposition', 'persuasao')).toBe(SKILL_ACTION_RADIUS);
   });
 
   it('blocks a relationship effect without a second target', () => {
@@ -98,7 +163,8 @@ describe('SkillActions — resisted vs surprise', () => {
   });
 
   it('theft on an unaware target = surprise', () => {
-    const r = resolveSkillAction(input({ effect: 'steal', skillId: 'furtividade', hasCyberdeck: false, target: target({ aware: false }) }), rollLow);
+    // Pickpocket needs physical contact (2m), so use a close distance here.
+    const r = resolveSkillAction(input({ effect: 'steal', skillId: 'furtividade', hasCyberdeck: false, target: target({ aware: false, distance: 1.5 }) }), rollLow);
     expect(r.surprise).toBe(true);
     expect(r.mutations).toEqual([{ kind: 'steal_item', targetId: 'npc1' }]);
   });
@@ -127,7 +193,7 @@ describe('SkillActions — steal variants', () => {
     expect(r.mutations).toEqual([{ kind: 'steal_credits', targetId: 'npc1' }]);
   });
   it('stealth steal = pickpocket item', () => {
-    const r = resolveSkillAction(input({ effect: 'steal', skillId: 'furtividade', hasCyberdeck: false }), rollLow);
+    const r = resolveSkillAction(input({ effect: 'steal', skillId: 'furtividade', hasCyberdeck: false, target: target({ distance: 1.5 }) }), rollLow);
     expect(r.mutations).toEqual([{ kind: 'steal_item', targetId: 'npc1' }]);
   });
 });
@@ -166,14 +232,14 @@ describe('SkillActions — direction + critical steps', () => {
 
 describe('SkillActions — self / misc effects', () => {
   it('heal with a target heals that NPC; without a target heals self', () => {
-    const withT = resolveSkillAction(input({ effect: 'heal', skillId: 'medicina', hasCyberdeck: false }), rollLow);
+    const withT = resolveSkillAction(input({ effect: 'heal', skillId: 'medicina', hasCyberdeck: false, target: target({ distance: 1.5 }) }), rollLow);
     expect(withT.mutations).toEqual([{ kind: 'heal', targetId: 'npc1' }]);
     const self = resolveSkillAction(input({ effect: 'heal', skillId: 'medicina', hasCyberdeck: false, target: null }), rollLow);
     expect(self.mutations).toEqual([{ kind: 'heal', targetId: null }]);
   });
 
   it('sabotage marks the target gear', () => {
-    const r = resolveSkillAction(input({ effect: 'sabotage', skillId: 'engenharia', hasCyberdeck: false }), rollLow);
+    const r = resolveSkillAction(input({ effect: 'sabotage', skillId: 'engenharia', hasCyberdeck: false, target: target({ distance: 1.5 }) }), rollLow);
     expect(r.mutations).toEqual([{ kind: 'mark_sabotage', targetId: 'npc1' }]);
   });
 
