@@ -16,7 +16,8 @@ import {
   createDefaultStats,
   setPrimaryAndSecondaryAttributes as applyPrimaryAndSecondaryAttributes,
   allocateStartingSkills, isValidStartingSkills, choosePerk as applyChoosePerk,
-  choosePerkReplacing, perksForTier, pendingPerkSlots, toggleStartingSkill, startingSkillState,
+  choosePerkReplacing, perksForTier, pendingPerkSlots, unlockedTierCount, chosenPerkAt,
+  toggleStartingSkill, startingSkillState,
 } from '@entities/CharacterStats';
 import { type Gender, outfitsForGender, genderOfOutfit, outfitProvidesPart } from '@assets/AvatarMeshCatalog';
 import { ARMOR_OUTFIT_KEYS } from '@entities/items/ItemCatalog';
@@ -131,6 +132,11 @@ export class CharacterCreatorScene extends BaseScene {
   private startingSkillsComplete = false;
   /** The BEGIN button, disabled until the allocation is complete (browser only). */
   private beginButton: import('@babylonjs/gui').Button | null = null;
+  /** Perk picker container — re-rendered whenever attribute allocation changes
+   *  (the 40% primary unlocks tier-2 of that attribute, so the slot set is dynamic). */
+  private perksContainer: StackPanel | null = null;
+  /** Callback to push a description into the bottom strip (re-bindable per build). */
+  private perksShowDesc: ((title: string, body: string) => void) | null = null;
 
   // RPG sheet — defaults: 'forca' primary (40%), 'destreza' secondary (30%), others 20%, skills 10%.
   private primaryAttribute: AttributeId = 'forca';
@@ -216,6 +222,13 @@ export class CharacterCreatorScene extends BaseScene {
       && !!this.primaryAttribute && !!this.secondaryAttribute; // 1×40% + 1×30% required
   }
 
+  /** Re-render the perk picker — called whenever attribute allocation changes
+   *  (the 40% primary unlocks tier-2 of that attribute, changing the slot set). */
+  /* istanbul ignore next — browser GUI only */
+  private refreshPerksUI(): void {
+    if (this.perksContainer) this.renderPerksInto(this.perksContainer);
+  }
+
   /** Reflect `canBegin()` on the BEGIN button (enabled + dimmed). Browser-only. */
   /* istanbul ignore next — browser GUI only */
   private refreshBeginButton(): void {
@@ -281,6 +294,7 @@ export class CharacterCreatorScene extends BaseScene {
     this.primaryAttribute = attr;
     if (this.secondaryAttribute === attr) this.secondaryAttribute = null as unknown as AttributeId; // cleared
     this.stats = applyPrimaryAndSecondaryAttributes(this.stats, attr, this.secondaryAttribute);
+    this.refreshPerksUI();
   }
 
   /** Set BOTH the primary (40%) and secondary (30%); the other two go to 20%. */
@@ -289,6 +303,7 @@ export class CharacterCreatorScene extends BaseScene {
     this.primaryAttribute = primary;
     this.secondaryAttribute = secondary as AttributeId;
     this.stats = applyPrimaryAndSecondaryAttributes(this.stats, primary, secondary);
+    this.refreshPerksUI();
   }
 
   /**
@@ -310,6 +325,7 @@ export class CharacterCreatorScene extends BaseScene {
       this.primaryAttribute = (null as unknown) as AttributeId;
       this.stats = applyPrimaryAndSecondaryAttributes(this.stats, this.primaryAttribute, this.secondaryAttribute);
       this.refreshBeginButton();
+      this.refreshPerksUI();
       return 'secondary';
     }
     if (isSecondary) {
@@ -317,6 +333,7 @@ export class CharacterCreatorScene extends BaseScene {
       this.secondaryAttribute = (null as unknown) as AttributeId;
       this.stats = applyPrimaryAndSecondaryAttributes(this.stats, this.primaryAttribute, null);
       this.refreshBeginButton();
+      this.refreshPerksUI();
       return 'base';
     }
     // 20% → 40%: becomes the primary. If there was already a primary, demote it to
@@ -327,6 +344,7 @@ export class CharacterCreatorScene extends BaseScene {
     this.secondaryAttribute = (oldPrimary as AttributeId | null) ?? this.secondaryAttribute;
     this.stats = applyPrimaryAndSecondaryAttributes(this.stats, attr, this.secondaryAttribute);
     this.refreshBeginButton();
+    this.refreshPerksUI();
     return 'primary';
   }
 
@@ -815,41 +833,66 @@ export class CharacterCreatorScene extends BaseScene {
     }
     refresh();
 
-    // ── Tier-1 perks (one choice per attribute, unlocked at creation) ──
-    addHeader(t('creator.tier1Perks'));
-    for (const a of ATTRIBUTES) {
-      const lbl = new TextBlock(`rpg-pk-${a.id}`);
-      lbl.text = t(`attr.${a.id}`);
-      lbl.color = '#9FD8FF';
-      lbl.fontSize = 11;
-      lbl.fontFamily = 'monospace';
-      lbl.height = '18px';
-      panel.addControl(lbl);
+    // ── Perks (one choice per UNLOCKED tier — dynamic, depends on attribute %) ──
+    addHeader(t('creator.perks'));
+    const perksContainer = new StackPanel('rpg-perks');
+    perksContainer.spacing = 4;
+    panel.addControl(perksContainer);
+    this.perksContainer = perksContainer;
+    this.perksShowDesc = showDesc;
+    this.renderPerksInto(perksContainer);
+  }
 
-      const options = perksForTier(a.id, 1);
-      const btns: Button[] = [];
-      options.forEach((p) => {
-        const b = Button.CreateSimpleButton(`pk-${p.id}`, hasKey(`perk.${p.id}`) ? t(`perk.${p.id}`) : p.label);
-        b.width = '270px';
-        b.height = '26px';
-        b.color = '#CFE';
-        b.background = 'rgba(0,30,40,0.7)';
-        b.fontSize = 11;
-        b.fontFamily = 'monospace';
-        b.thickness = 1;
-        b.onPointerUpObservable.add(() => {
-          this.setSlotPerk(p.id);
-          btns.forEach((other, i) => {
-            other.background = options[i]!.id === p.id ? 'rgba(0,80,60,0.9)' : 'rgba(0,30,40,0.7)';
+  /**
+   * (Re-)render the perk picker into `container`. One row per attribute, then one
+   * sub-section per UNLOCKED tier of that attribute (tier 1 always; tier 2 only
+   * when that attribute is at 40% — i.e. the primary). The chosen perk in each
+   * slot is highlighted; clicking another perk in the same slot swaps it.
+   *
+   * Called on first build AND on every attribute cycle (the 40% primary may have
+   * moved, changing which tier-2 slot is open). Pure read of `this.stats`.
+   */
+  /* istanbul ignore next — browser-only GUI */
+  private renderPerksInto(container: StackPanel): void {
+    container.clearControls();
+    for (const a of ATTRIBUTES) {
+      const tiers = unlockedTierCount(this.stats.attributes[a.id]); // 1 or 2 at creation
+      for (let tier = 1; tier <= tiers; tier++) {
+        const hdr = new TextBlock(`rpg-pk-${a.id}-t${tier}`);
+        hdr.text = t('creator.perkTierHeader', { attr: t(`attr.${a.id}`), tier });
+        hdr.color = tier === 2 ? '#FFD700' /* gold = unlocked by 40% primary */ : '#9FD8FF';
+        hdr.fontSize = 11;
+        hdr.fontFamily = 'monospace';
+        hdr.fontStyle = tier === 2 ? 'bold' : 'normal';
+        hdr.height = '18px';
+        container.addControl(hdr);
+
+        const chosen = chosenPerkAt(this.stats, a.id, tier);
+        const options = perksForTier(a.id, tier);
+        const btns: Button[] = [];
+        options.forEach((p) => {
+          const b = Button.CreateSimpleButton(`pk-${p.id}`, hasKey(`perk.${p.id}`) ? t(`perk.${p.id}`) : p.label);
+          b.width = '270px';
+          b.height = '26px';
+          b.color = '#CFE';
+          b.background = chosen === p.id ? 'rgba(0,80,60,0.9)' : 'rgba(0,30,40,0.7)';
+          b.fontSize = 11;
+          b.fontFamily = 'monospace';
+          b.thickness = 1;
+          b.onPointerUpObservable.add(() => {
+            this.setSlotPerk(p.id);
+            btns.forEach((other, i) => {
+              other.background = options[i]!.id === p.id ? 'rgba(0,80,60,0.9)' : 'rgba(0,30,40,0.7)';
+            });
+            this.perksShowDesc?.(
+              hasKey(`perk.${p.id}`) ? t(`perk.${p.id}`) : p.label,
+              hasKey(`perk.${p.id}.desc`) ? t(`perk.${p.id}.desc`) : p.description,
+            );
           });
-          showDesc(
-            hasKey(`perk.${p.id}`) ? t(`perk.${p.id}`) : p.label,
-            hasKey(`perk.${p.id}.desc`) ? t(`perk.${p.id}.desc`) : p.description,
-          );
+          btns.push(b);
+          container.addControl(b);
         });
-        btns.push(b);
-        panel.addControl(b);
-      });
+      }
     }
   }
 

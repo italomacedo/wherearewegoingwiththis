@@ -226,6 +226,8 @@ export const STRINGS: Record<string, Entry> = {
   'creator.startingSkills': e('STARTING SKILLS', 'SKILLS INICIAIS'),
   'creator.skillCounter': e('Majors {majors}/2 · Minors {minors}/3', 'Maiores {majors}/2 · Menores {minors}/3'),
   'creator.tier1Perks': e('TIER-1 PERKS', 'PERKS DE TIER 1'),
+  'creator.perks': e('PERKS — choose one per unlocked tier', 'PERKS — escolha um por tier desbloqueado'),
+  'creator.perkTierHeader': e('{attr} — Tier {tier}', '{attr} — Tier {tier}'),
 
   // ─── Attributes ────────────────────────────────────────────────────────────
   'attr.forca': e('Strength', 'Força'),
