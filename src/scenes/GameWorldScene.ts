@@ -99,6 +99,24 @@ export function clampFrameDelta(deltaMs: number, maxSeconds = MAX_FRAME_DELTA): 
   return s > maxSeconds ? maxSeconds : s;
 }
 
+/**
+ * Capsule dimensions from a holder's bbox extents (x,y,z), GUARDED. A skinned
+ * mesh can report NaN/Infinity bounds for a frame mid modular-rebind; feeding that
+ * to a Havok capsule makes `{height:NaN, radius:NaN}`, and Havok's WASM `abort()`s
+ * the WHOLE process with no JS stack (the "main PID gone, no crash handler" deaths).
+ * `Math.max(0.8, NaN)` is itself NaN, so the old floor did NOT protect us. Fall back
+ * to a human-sized default on bad bounds and clamp to sane limits. Pure + tested.
+ */
+export function safeCapsuleDims(sx: number, sy: number, sz: number): { height: number; radius: number } {
+  if (!(Number.isFinite(sx) && Number.isFinite(sy) && Number.isFinite(sz))) {
+    return { height: 1.8, radius: 0.3 }; // degenerate/NaN bbox → safe human default
+  }
+  return {
+    height: Math.min(5, Math.max(0.8, sy)),
+    radius: Math.min(2, Math.max(0.2, Math.min(sx, sz) * 0.5)),
+  };
+}
+
 export class GameWorldScene extends BaseScene {
   /** Setting used for the ambient "react to surroundings" narration (global chat). */
   private static readonly SURROUNDINGS =
@@ -731,10 +749,11 @@ export class GameWorldScene extends BaseScene {
   /* istanbul ignore next — physics colliders are browser/Electron only */
   private buildNpcCapsule(id: string, holder: TransformNode): void {
     holder.computeWorldMatrix(true);
+    // Bake the (skinned) child world matrices so the bbox is valid — a stale/NaN one
+    // would make a NaN capsule that ABORTS Havok natively (kills the process).
+    for (const m of holder.getChildMeshes()) m.computeWorldMatrix(true);
     const { min, max } = holder.getHierarchyBoundingVectors(true);
-    const size = max.subtract(min);
-    const height = Math.max(0.8, size.y);
-    const radius = Math.max(0.2, Math.min(size.x, size.z) * 0.5);
+    const { height, radius } = safeCapsuleDims(max.x - min.x, max.y - min.y, max.z - min.z);
     const mesh = MeshBuilder.CreateCapsule(`cap-npc-${id}`, { height, radius }, this.babylonScene);
     mesh.isVisible = false;
     mesh.parent = holder;
