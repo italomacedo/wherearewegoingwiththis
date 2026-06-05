@@ -2119,6 +2119,7 @@ export class GameWorldScene extends BaseScene {
     const out: IntentCandidate[] = [];
     this.npcManager?.getAgents().forEach((other) => {
       if (other.definition.id === agent.definition.id) return;
+      if (other.isDefeated()) return; // the dead aren't deliberation candidates (Fase 20)
       if (agent.distanceTo(other.getPosition()) > 20) return;
       out.push({ id: other.definition.id, name: other.getDisplayName() });
     });
@@ -2991,10 +2992,12 @@ export class GameWorldScene extends BaseScene {
 
   /** All spawned NPCs as addressing candidates (name known only after introduction). */
   private buildAddressCandidates(): AddressCandidate[] {
-    return (this.npcManager?.getAgents() ?? []).map((a) => {
-      const pos = a.getPosition();
-      return { id: a.definition.id, name: a.definition.name, nameKnown: a.isNameKnown(), position: { x: pos.x, z: pos.z } };
-    });
+    return (this.npcManager?.getAgents() ?? [])
+      .filter((a) => !a.isDefeated()) // the dead are not addressable in chat (Fase 20)
+      .map((a) => {
+        const pos = a.getPosition();
+        return { id: a.definition.id, name: a.definition.name, nameKnown: a.isNameKnown(), position: { x: pos.x, z: pos.z } };
+      });
   }
 
   /** In-world time for the NPC prompt: "HH:MM (period)" from the GameClock. */
