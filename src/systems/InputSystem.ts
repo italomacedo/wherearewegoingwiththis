@@ -11,6 +11,7 @@ export type GameAction =
   | 'inventory.open'
   | 'adjust.toggle'
   | 'character.sheet.open'
+  | 'pda.open'
   | 'vehicle.enter'
   | 'camera.rotateLeft'
   | 'camera.rotateRight'
@@ -36,6 +37,7 @@ export const DEFAULT_BINDINGS: Record<string, GameAction> = {
   KeyI: 'inventory.open',          // open the inventory overlay
   KeyO: 'adjust.toggle',           // open the held-prop Adjust tool (calibrate attach)
   KeyK: 'character.sheet.open',    // open the character sheet (attributes/skills/perks)
+  KeyP: 'pda.open',                // open the PDA (intel dossiers)
   KeyF: 'vehicle.enter',
   Escape: 'pause',
   // Camera orbit: hold Z / C to rotate left / right (also middle-mouse drag).

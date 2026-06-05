@@ -20,9 +20,10 @@ export interface ActionRibbonHandlers {
   onTalk?: () => void;
   onInventory?: () => void;
   onCharacterSheet?: () => void;
+  onPda?: () => void;
 }
 
-export type RibbonKey = 'attackRanged' | 'attackMelee' | 'talk' | 'inventory' | 'characterSheet';
+export type RibbonKey = 'attackRanged' | 'attackMelee' | 'talk' | 'inventory' | 'characterSheet' | 'pda';
 
 export interface RibbonButton {
   key: RibbonKey;
@@ -41,6 +42,7 @@ export function ribbonButtons(hasFirearm: boolean): RibbonButton[] {
     { key: 'talk', labelKey: 'ribbon.talk', enabled: true },
     { key: 'inventory', labelKey: 'ribbon.inventory', enabled: true },
     { key: 'characterSheet', labelKey: 'ribbon.characterSheet', enabled: true },
+    { key: 'pda', labelKey: 'ribbon.pda', enabled: true },
   ];
 }
 
@@ -90,6 +92,7 @@ export class ActionRibbon {
     else if (key === 'talk') this.handlers.onTalk?.();
     else if (key === 'inventory') this.handlers.onInventory?.();
     else if (key === 'characterSheet') this.handlers.onCharacterSheet?.();
+    else if (key === 'pda') this.handlers.onPda?.();
   }
 
   private buildUI(): void {

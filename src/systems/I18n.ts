@@ -128,6 +128,17 @@ export const STRINGS: Record<string, Entry> = {
   'ribbon.talk': e('Talk', 'Falar'),
   'ribbon.inventory': e('Inventory', 'Inventário'),
   'ribbon.characterSheet': e('Character', 'Ficha'),
+  'ribbon.pda': e('PDA', 'PDA'),
+
+  // ─── PDA (Fase 20) ───────────────────────────────────────────────────────────
+  'pda.title': e('PDA — DOSSIERS', 'PDA — DOSSIÊS'),
+  'pda.close': e('Close [P]', 'Fechar [P]'),
+  'pda.empty': e('No intel yet. Scan or hack someone to build a dossier.', 'Sem informações ainda. Escaneie ou hackeie alguém para montar um dossiê.'),
+  'pda.role': e('Role: {role}', 'Função: {role}'),
+  'pda.disposition': e('Attitude toward you: {value}', 'Atitude com você: {value}'),
+  'pda.credits': e('Credits on hand: {n}', 'Créditos com ele: {n}'),
+  'pda.carrying': e('Carrying: {items}', 'Carrega: {items}'),
+  'pda.carryingNothing': e('Carrying nothing of note.', 'Não carrega nada de relevante.'),
 
   // ─── Inventory (Phase 9) ─────────────────────────────────────────────────────
   'inventory.title': e('Inventory', 'Inventário'),

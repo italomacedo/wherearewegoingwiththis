@@ -65,6 +65,8 @@ import {
   detectPerkPointGrants, grantPerkPoints,
 } from '@entities/CharacterStats';
 import { CharacterSheetOverlay } from '@systems/CharacterSheetOverlay';
+import { PdaOverlay } from '@systems/PdaOverlay';
+import { PdaEntry, upsertPdaEntry } from '@systems/pda/Pda';
 import { resolveCheck } from '@systems/SkillCheck';
 import { t, getLocale, languageName } from '@systems/I18n';
 import { SettingsService } from '@systems/SettingsService';
@@ -175,6 +177,9 @@ export class GameWorldScene extends BaseScene {
   private pauseMenu: PauseMenu | null = null;
   private inventoryOverlay: InventoryOverlay | null = null;
   private characterSheetOverlay: CharacterSheetOverlay | null = null;
+  private pdaOverlay: PdaOverlay | null = null;
+  /** Intel dossiers gathered by scanning/hacking NPCs (Fase 20 PDA), persisted. */
+  private pda: PdaEntry[] = [];
   /** Items dropped into the world (Fase 18), persisted in SaveGame.groundItems. */
   private groundItems: GroundItem[] = [];
   /** Live pickup markers, keyed by their GroundItem (browser-only). */
@@ -344,6 +349,7 @@ export class GameWorldScene extends BaseScene {
     this.playerHunger = Hunger.fromState(session.playerHunger);
     this.missions = session.missions ?? [];
     this.groundItems = session.groundItems ?? [];
+    this.pda = session.pda ?? [];
     this.vehicleState = session.vehicle ?? {
       health: { ...DEFAULT_VEHICLE_STATE.health }, destroyed: false,
     };
@@ -386,7 +392,7 @@ export class GameWorldScene extends BaseScene {
     const playerHunger = this.playerHunger.toState();
     SaveService.save({
       ...save, character, world, gameTimeSeconds: this.gameTimeSeconds, npcMemory: memory, playerHealth, vehicle, inventory,
-      heldAttach: this.heldAttach, playerHunger, missions: this.missions, groundItems: this.groundItems,
+      heldAttach: this.heldAttach, playerHunger, missions: this.missions, groundItems: this.groundItems, pda: this.pda,
     });
 
     const session = ServiceLocator.tryGet<GameSession>('gameSession');
@@ -402,6 +408,7 @@ export class GameWorldScene extends BaseScene {
       session.playerHunger = playerHunger;
       session.missions = this.missions;
       session.groundItems = this.groundItems;
+      session.pda = this.pda;
     }
   }
 
@@ -532,6 +539,10 @@ export class GameWorldScene extends BaseScene {
       onClose: () => { /* nothing to restore — no camera change */ },
     });
 
+    // PDA overlay (Fase 20): intel dossiers gathered by scanning/hacking NPCs.
+    this.pdaOverlay = new PdaOverlay(this.babylonScene);
+    this.pdaOverlay.setHandlers({ onClose: () => { /* no camera change */ } });
+
     // Adjust tool (Phase 10.4b): live-calibrate a held prop's attach transform.
     this.adjustOverlay = new AdjustOverlay(this.babylonScene);
     this.adjustOverlay.setHandlers({
@@ -548,6 +559,7 @@ export class GameWorldScene extends BaseScene {
       onTalk: () => { this.sfx('ui_click'); this.openTalkFromRibbon(); },
       onInventory: () => { this.sfx('ui_click'); this.inventoryOverlay?.openManage(this.playerInventory); },
       onCharacterSheet: () => { this.sfx('ui_open'); this.characterSheetOverlay?.show(this.playerStats); },
+      onPda: () => { this.sfx('ui_open'); this.pdaOverlay?.show(this.pda); },
     });
 
     // Turn-based combat overlay (triggered by a hostile NPC's attack intent).
@@ -914,6 +926,8 @@ export class GameWorldScene extends BaseScene {
     this.inventoryOverlay?.dispose();
     this.characterSheetOverlay?.hide();
     this.characterSheetOverlay = null;
+    this.pdaOverlay?.dispose();
+    this.pdaOverlay = null;
     this.adjustOverlay?.dispose();
     this.adjustOverlay = null;
     this.actionRibbon?.dispose();
@@ -962,6 +976,7 @@ export class GameWorldScene extends BaseScene {
     this.pauseMenu = null;
     this.inventoryOverlay = null;
     this.characterSheetOverlay = null;
+    this.pdaOverlay = null;
     this.hud = null;
     this.detachInput = null;
     ['physics', 'cameraSystem', 'inputSystem', 'zoneManager', 'player', 'vehicle', 'npcManager'].forEach((k) =>
@@ -1029,6 +1044,14 @@ export class GameWorldScene extends BaseScene {
     // Character sheet overlay (K) — attributes, skills, perk tree.
     this.handleCharacterSheetInput();
     if (this.characterSheetOverlay?.isOpen()) {
+      this.cameraSystem?.update();
+      this.inputSystem?.endFrame();
+      return;
+    }
+
+    // PDA overlay (P) — intel dossiers.
+    this.handlePdaInput();
+    if (this.pdaOverlay?.isOpen()) {
       this.cameraSystem?.update();
       this.inputSystem?.endFrame();
       return;
@@ -2770,15 +2793,24 @@ export class GameWorldScene extends BaseScene {
   }
 
   /**
-   * Record intel on an NPC into the player's PDA (Fase 20 'info'/scan result).
-   * Builds a short dossier from what the hack reveals and narrates it. Fase 20F
-   * formalizes the persisted PDA store + the ribbon overlay; here it narrates.
+   * Record intel on an NPC into the player's PDA (Fase 20 'info'/scan result): crack
+   * the identity (anti-metagaming break), build a dossier of what the hack reveals
+   * (role, attitude, credits, gear) and upsert it into the persisted PDA, then narrate.
    */
-  /* istanbul ignore next — browser-only */
+  /* istanbul ignore next — browser-only (reads runtime agents; PDA store is tested) */
   private recordPda(subjectId: string): void {
     const a = this.npcManager?.getAgent(subjectId);
     if (!a) return;
-    a.markNameKnown(); // a successful scan cracks their identity (anti-metagaming break)
+    a.markNameKnown(); // a successful scan cracks their identity
+    const items = a.getInventoryState().items.filter((s) => s.id !== 'credstick').map((s) => t(itemDef(s.id)?.nameKey ?? s.id));
+    const credits = creditBalance(a.getInventory());
+    const lines = [
+      t('pda.role', { role: a.definition.role }),
+      t('pda.disposition', { value: a.getDisposition() }),
+      t('pda.credits', { n: credits }),
+      items.length ? t('pda.carrying', { items: items.join(', ') }) : t('pda.carryingNothing'),
+    ];
+    this.pda = upsertPdaEntry(this.pda, { subjectId, subjectName: a.definition.name, lines });
     const line = t('skill.scanned', { name: a.definition.name, role: a.definition.role });
     this.dialog?.addNarrationLine(line);
     this.speakNarration(line);
@@ -2981,6 +3013,10 @@ export class GameWorldScene extends BaseScene {
       this.characterSheetOverlay.hide();
       return;
     }
+    if (this.pdaOverlay?.isOpen()) {
+      this.pdaOverlay.hide();
+      return;
+    }
     if (this.dialog?.isOpen()) {
       // ESC closes the dialog rather than pausing.
       if (!this.dialog.isInputFocused()) this.closeDialog();
@@ -3018,6 +3054,22 @@ export class GameWorldScene extends BaseScene {
       || this.inventoryOverlay?.isOpen()) return;
     if (this.inputSystem.wasJustPressed('character.sheet.open')) {
       overlay.show(this.playerStats);
+      this.sfx('ui_open');
+    }
+  }
+
+  /** `P` opens the PDA (intel dossiers); while open, `P`/ESC closes it. */
+  private handlePdaInput(): void {
+    if (!this.inputSystem || !this.pdaOverlay) return;
+    const overlay = this.pdaOverlay;
+    if (overlay.isOpen()) {
+      if (this.inputSystem.wasJustPressed('pda.open')) overlay.hide();
+      return;
+    }
+    if (this.dialog?.isOpen() || this.pauseMenu?.isOpen() || this.gameOverMenu?.isOpen()
+      || this.inventoryOverlay?.isOpen() || this.characterSheetOverlay?.isOpen()) return;
+    if (this.inputSystem.wasJustPressed('pda.open')) {
+      overlay.show(this.pda);
       this.sfx('ui_open');
     }
   }
@@ -3097,6 +3149,7 @@ export class GameWorldScene extends BaseScene {
       || (this.dialog?.isOpen() ?? false)
       || (this.inventoryOverlay?.isOpen() ?? false)
       || (this.characterSheetOverlay?.isOpen() ?? false)
+      || (this.pdaOverlay?.isOpen() ?? false)
       || (this.adjustOverlay?.isOpen() ?? false)
       || (this.pauseMenu?.isOpen() ?? false)
       || (this.gameOverMenu?.isOpen() ?? false)

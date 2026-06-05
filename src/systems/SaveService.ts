@@ -8,6 +8,7 @@ import { InventoryState, defaultInventoryState } from '@entities/Inventory';
 import type { AttachOverrides } from '@systems/HeldItems';
 import type { Mission } from '@systems/economy/Missions';
 import type { GroundItem } from '@systems/world/GroundItems';
+import type { PdaEntry } from '@systems/pda/Pda';
 
 /**
  * Per-NPC persisted memory: conversation state, the dynamic disposition toward the
@@ -61,6 +62,8 @@ export interface SaveGame {
   missions: Mission[];
   /** Items the player dropped into the world, by tile (Fase 18). */
   groundItems: GroundItem[];
+  /** Intel dossiers gathered by scanning/hacking NPCs (Fase 20 PDA). */
+  pda: PdaEntry[];
   flags: Record<string, boolean | number | string>;
   npcMemory: NPCMemory;
 }
@@ -159,6 +162,7 @@ export class SaveService {
       heldAttach: {},
       missions: [],
       groundItems: [],
+      pda: [],
       flags: {},
       npcMemory: {},
     };
@@ -322,6 +326,7 @@ export class SaveService {
     if (!save.heldAttach) save.heldAttach = {};
     if (!save.missions) save.missions = [];
     if (!save.groundItems) save.groundItems = [];
+    if (!save.pda) save.pda = [];
     // Fase 17: backfill the procedural-world seed (derived stably from the saveId
     // so a legacy save always regenerates the same world) + the current tile.
     if (save.world) {
