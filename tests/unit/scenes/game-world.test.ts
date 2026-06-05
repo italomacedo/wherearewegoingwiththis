@@ -1,5 +1,5 @@
 import { NullEngine, Vector3 } from '@babylonjs/core';
-import { GameWorldScene } from '../../../src/scenes/GameWorldScene';
+import { GameWorldScene, clampFrameDelta, MAX_FRAME_DELTA } from '../../../src/scenes/GameWorldScene';
 import { ServiceLocator } from '../../../src/core/ServiceLocator';
 import { GameSession } from '../../../src/core/GameSession';
 import { EventBus } from '../../../src/core/EventBus';
@@ -819,3 +819,19 @@ function makeInjectedService(reply: string) {
   };
   return { service: new ClaudeNPCService({ claudePath: 'claude', bridge }), prompts };
 }
+
+describe('clampFrameDelta (frame-delta cap — Alt+Tab safety)', () => {
+  it('converts ms to seconds for normal frames', () => {
+    expect(clampFrameDelta(16)).toBeCloseTo(0.016);
+    expect(clampFrameDelta(100)).toBeCloseTo(0.1);
+  });
+  it('caps a huge backgrounded-frame delta to MAX_FRAME_DELTA', () => {
+    expect(clampFrameDelta(5000)).toBe(MAX_FRAME_DELTA);   // 5s Alt+Tab gap → 0.1s
+    expect(clampFrameDelta(60000)).toBe(MAX_FRAME_DELTA);
+  });
+  it('treats zero / negative / NaN as no advance', () => {
+    expect(clampFrameDelta(0)).toBe(0);
+    expect(clampFrameDelta(-10)).toBe(0);
+    expect(clampFrameDelta(NaN)).toBe(0);
+  });
+});

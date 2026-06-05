@@ -81,6 +81,24 @@ import { GroundItem, addGroundItem, removeGroundItemAt, nearestGroundItemIndex }
 import { generateTile } from '@assets/world/ThemeRegistry';
 import { AssetCache, babylonContainerLoader } from '@systems/world/AssetCache';
 
+/** Max seconds a single frame may advance the simulation. */
+export const MAX_FRAME_DELTA = 0.1;
+
+/**
+ * Convert an engine frame delta (ms) to seconds, CAPPED. When the window is
+ * backgrounded (Alt+Tab / minimise) the render loop pauses, and the next
+ * `getDeltaTime()` returns the whole elapsed gap (seconds). Feeding that into the
+ * dt-integrated physics produced a multi-second leap: the abandoned nave's
+ * free-fall velocity (gravity × dt) blew past the crash threshold and it exploded
+ * while parked; the hero could likewise be launched. Capping any single frame
+ * keeps the sim stable on focus loss. Pure + tested.
+ */
+export function clampFrameDelta(deltaMs: number, maxSeconds = MAX_FRAME_DELTA): number {
+  const s = deltaMs / 1000;
+  if (!(s > 0)) return 0;            // NaN / negative / zero → no advance
+  return s > maxSeconds ? maxSeconds : s;
+}
+
 export class GameWorldScene extends BaseScene {
   /** Setting used for the ambient "react to surroundings" narration (global chat). */
   private static readonly SURROUNDINGS =
@@ -909,7 +927,9 @@ export class GameWorldScene extends BaseScene {
   }
 
   update(): void {
-    const dt = this.engine.getDeltaTime() / 1000;
+    // Capped so an Alt+Tab / minimise (which pauses the render loop) can't return a
+    // multi-second delta that explodes the falling nave or launches the hero.
+    const dt = clampFrameDelta(this.engine.getDeltaTime());
 
     // Keep the action ribbon in sync (shown only during free on-foot play; Attack
     // Ranged enabled only with a firearm in hand). Done before the early returns so
