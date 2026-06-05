@@ -1,5 +1,7 @@
 import { Vector3 } from '@babylonjs/core';
-import { NPCAgent, NPCDefinition, PlayerAction } from '@entities/NPCAgent';
+import { NPCAgent, NPCDefinition, PlayerAction, TamperTrace } from '@entities/NPCAgent';
+import { resolveCheck, RollFn, defaultRoll } from '@systems/SkillCheck';
+import { SKILL_BASE } from '@entities/CharacterStats';
 import { ClaudeNPCService } from '@systems/ClaudeNPCService';
 import { WorldSnapshot, PromptBuilder } from '@systems/npc/PromptBuilder';
 import { ConversationContext, ConversationState } from '@systems/npc/ConversationContext';
@@ -28,6 +30,10 @@ export type NPCMemoryEntry = ConversationState & {
   defeated?: boolean;
   /** Pervasive HP (Fase 20): persists wounds across reloads and in/out of combat. */
   health?: HealthState;
+  /** An unnoticed covert action against this NPC (Fase 20G): resolved on deliberation. */
+  tamper?: TamperTrace;
+  /** Rigged gear flag (Fase 20H): explodes on the NPC's first combat use. */
+  sabotaged?: boolean;
 };
 export type NPCMemoryMap = Record<string, NPCMemoryEntry>;
 
@@ -211,6 +217,9 @@ export class NPCManager {
     ctx: AutonomyContext,
   ): Promise<AutonomyResult> {
     const result: AutonomyResult = { attackers: [], enqueued: 0, deliberated: null };
+    // Covert-action detection runs first and is service-free (no Claude): a robbed/
+    // hacked NPC may notice on its next think and turn on the player (Fase 20G).
+    this.detectTampering();
     if (!this.service) return result;
 
     this.agents.forEach((agent) => {
@@ -242,6 +251,60 @@ export class NPCManager {
       if (intent) result.deliberated = { agentId: job.payload.agentId, intent };
     }
     return result;
+  }
+
+  // ─── Covert-action detection (Fase 20G) ─────────────────────────────────────
+
+  /** NPC detection values (uniform stat block, mirrors GameWorldScene.enemyStatsFor). */
+  static readonly TAMPER_PERCEPTION = 20;
+  static readonly TAMPER_INFOTECH_HACKER = 30;
+
+  /**
+   * Pure: does an NPC NOTICE a covert action? Picks the detector skill by kind
+   * (theft → Perception; hack → IT; social → IT if a hacker, else Perception) and
+   * runs ONE power-ratio check of that value vs the player's skill at the time.
+   * A hack is undetectable without a deck (returns false).
+   */
+  static resolveTamperNotice(
+    tamper: TamperTrace,
+    npc: { perception: number; infotech: number; hasDeck: boolean },
+    rng: RollFn = defaultRoll,
+  ): boolean {
+    let detector: number;
+    if (tamper.kind === 'theft') detector = npc.perception;
+    else if (tamper.kind === 'hack') { if (!npc.hasDeck) return false; detector = npc.infotech; }
+    else detector = npc.hasDeck ? npc.infotech : npc.perception; // social
+    return resolveCheck({ value: detector, opponent: tamper.playerSkillValue }, rng).success;
+  }
+
+  /**
+   * Resolve every pending covert action against an awake, living NPC. On a notice:
+   * record the event (feeds the prompt), worsen disposition toward the player, and
+   * clear the trace. Returns the ids that noticed. Service-free + injectable RNG.
+   */
+  detectTampering(rng: RollFn = defaultRoll): string[] {
+    const noticed: string[] = [];
+    this.agents.forEach((agent) => {
+      if (!agent.isAwake() || agent.isDefeated()) return;
+      const tamper = agent.getTamper();
+      if (!tamper) return;
+      const hasDeck = agent.getInventory().has('cyberdeck');
+      const infotech = hasDeck ? NPCManager.TAMPER_INFOTECH_HACKER : SKILL_BASE;
+      if (NPCManager.resolveTamperNotice(tamper, { perception: NPCManager.TAMPER_PERCEPTION, infotech, hasDeck }, rng)) {
+        agent.rememberEvent(NPCManager.tamperEventLine(tamper.kind));
+        agent.worsenDisposition();
+        agent.clearTamper();
+        noticed.push(agent.definition.id);
+      }
+    });
+    return noticed;
+  }
+
+  /** The witnessed-event line an NPC records when it notices a covert action. */
+  static tamperEventLine(kind: TamperTrace['kind']): string {
+    if (kind === 'theft') return 'You realized someone picked your pocket.';
+    if (kind === 'hack') return 'You caught an intruder rifling through your systems.';
+    return 'You realized someone has been turning people against you.';
   }
 
   /** Run one NPC's intent deliberation through Claude and store the result. */
@@ -317,6 +380,8 @@ export class NPCManager {
       events: agent.getKnownEvents(),
       inventory: agent.getInventoryState(),
       health: agent.getHealthState(),
+      tamper: agent.getTamper() ?? undefined,
+      sabotaged: agent.isSabotaged() || undefined,
     };
   }
 
@@ -340,6 +405,8 @@ export class NPCManager {
     agent.restoreInventory(NPCManager.restoreInventory(memory, def.id));
     const savedHp = memory?.[def.id]?.health;
     if (savedHp) agent.setHealthState(savedHp); // pervasive HP restored (Fase 20)
+    agent.restoreTamper(memory?.[def.id]?.tamper);   // pending covert action (Fase 20G)
+    agent.restoreSabotaged(memory?.[def.id]?.sabotaged); // rigged gear (Fase 20H)
     if (memory?.[def.id]?.defeated) agent.markDefeated(); // stays dead across reloads (Fase 18)
     return agent;
   }

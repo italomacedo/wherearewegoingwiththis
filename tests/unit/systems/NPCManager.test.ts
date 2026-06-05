@@ -440,6 +440,81 @@ describe('NPCManager tile streaming (Fase 17)', () => {
   });
 });
 
+describe('NPCManager — covert-action detection (Fase 20G)', () => {
+  const rollLow = () => 0.01;   // NPC check succeeds → notices
+  const rollHigh = () => 0.999; // NPC check fails → oblivious
+
+  it('resolveTamperNotice: theft uses Perception; a low roll notices', () => {
+    const t = { kind: 'theft' as const, playerSkillValue: 20 };
+    expect(NPCManager.resolveTamperNotice(t, { perception: 80, infotech: 10, hasDeck: false }, rollLow)).toBe(true);
+    expect(NPCManager.resolveTamperNotice(t, { perception: 80, infotech: 10, hasDeck: false }, rollHigh)).toBe(false);
+  });
+
+  it('resolveTamperNotice: a hack is undetectable without a deck', () => {
+    const t = { kind: 'hack' as const, playerSkillValue: 10 };
+    expect(NPCManager.resolveTamperNotice(t, { perception: 99, infotech: 99, hasDeck: false }, rollLow)).toBe(false);
+    expect(NPCManager.resolveTamperNotice(t, { perception: 10, infotech: 80, hasDeck: true }, rollLow)).toBe(true);
+  });
+
+  it('resolveTamperNotice: social uses IT for a hacker, else Perception', () => {
+    const t = { kind: 'social' as const, playerSkillValue: 10 };
+    expect(NPCManager.resolveTamperNotice(t, { perception: 80, infotech: 10, hasDeck: false }, rollLow)).toBe(true);
+    expect(NPCManager.resolveTamperNotice(t, { perception: 10, infotech: 80, hasDeck: true }, rollLow)).toBe(true);
+  });
+
+  it('detectTampering: a notice records an event, worsens disposition, and clears the trace', () => {
+    const m = new NPCManager();
+    const agent = m.spawn(def);
+    agent.seedTamper({ kind: 'theft', playerSkillValue: 5 }); // trivial → easy to notice
+    const noticed = m.detectTampering(rollLow);
+    expect(noticed).toEqual(['npc_a']);
+    expect(agent.getTamper()).toBeNull();
+    expect(agent.getDisposition()).toBe('wary'); // neutral → wary
+    expect(agent.getKnownEvents().some((e) => /pocket/i.test(e))).toBe(true);
+    m.dispose();
+  });
+
+  it('detectTampering: an oblivious NPC keeps the trace for next time', () => {
+    const m = new NPCManager();
+    const agent = m.spawn(def);
+    agent.seedTamper({ kind: 'theft', playerSkillValue: 95 }); // very skilled thief
+    expect(m.detectTampering(rollHigh)).toEqual([]);
+    expect(agent.getTamper()).not.toBeNull();
+    m.dispose();
+  });
+
+  it('detectTampering: skips defeated/asleep NPCs', () => {
+    const m = new NPCManager();
+    const dead = m.spawn({ ...def, id: 'dead' }); dead.seedTamper({ kind: 'theft', playerSkillValue: 5 }); dead.markDefeated();
+    const asleep = m.spawn({ ...def, id: 'asleep' }); asleep.seedTamper({ kind: 'theft', playerSkillValue: 5 }); asleep.setAwake(false);
+    expect(m.detectTampering(rollLow)).toEqual([]);
+    m.dispose();
+  });
+
+  it('detectTampering: a hacker NPC (deck) catches a hack via Information Technology', () => {
+    const m = new NPCManager();
+    const hacker = m.spawn({ ...def, id: 'hacker', loadout: [{ id: 'cyberdeck', qty: 1 }] });
+    hacker.seedTamper({ kind: 'hack', playerSkillValue: 5 });
+    expect(m.detectTampering(rollLow)).toEqual(['hacker']);
+    m.dispose();
+  });
+
+  it('serializeMemory persists a pending tamper + sabotage flag, and spawnWithMemory restores them', () => {
+    const m = new NPCManager();
+    const agent = m.spawn(def);
+    agent.seedTamper({ kind: 'hack', playerSkillValue: 42 });
+    agent.markSabotaged();
+    const mem = m.serializeMemory();
+    expect(mem.npc_a!.tamper).toEqual({ kind: 'hack', playerSkillValue: 42 });
+    expect(mem.npc_a!.sabotaged).toBe(true);
+    const m2 = new NPCManager();
+    const restored = m2.spawnWithMemory(def, mem);
+    expect(restored.getTamper()).toEqual({ kind: 'hack', playerSkillValue: 42 });
+    expect(restored.isSabotaged()).toBe(true);
+    m.dispose(); m2.dispose();
+  });
+});
+
 // ─── helpers ──────────────────────────────────────────────────────────────
 
 function makeService(reply: string): { service: ClaudeNPCService } {
