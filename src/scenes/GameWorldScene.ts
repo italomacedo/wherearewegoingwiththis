@@ -36,7 +36,7 @@ import {
   canTrade, canOfferMission, priceFor, sellableItems, creditBalance, payCredits, grantCredits,
 } from '@systems/economy/Economy';
 import {
-  Mission, RewardOffer, validateMissionOffer, completeMission,
+  Mission, RewardOffer, completeMission,
 } from '@systems/economy/Missions';
 import { InventoryOverlay } from '@systems/InventoryOverlay';
 import { HeldItemRig, resolveAttachWith, boneFor, AttachOverrides, flashlightActive, holdsAimPose } from '@systems/HeldItems';
@@ -2053,7 +2053,9 @@ export class GameWorldScene extends BaseScene {
         if (!c.alive) {
           agent.markDefeated();
           this.playCombatClip(c.id, 'death', true); // hold the downed pose
-          this.completeMissionsAgainst(c.id); // Phase 16: pay out any contract on this target
+          // Fase 21: auto-pay-on-kill removed. The player must return to the
+          // giver and verbally claim the contract (job_claim → Resolver →
+          // Applier.claimMissionCompletion). Decision #14 plan.
         } else {
           agent.setHealthState({ current: c.hp.current, max: c.hp.max }); // persist wounds (Fase 20)
           if (outcome !== 'player_lost' && this.combatPlayerSide && c.side !== this.combatPlayerSide) {
@@ -2458,7 +2460,9 @@ export class GameWorldScene extends BaseScene {
         this.dialog.setNpcText(reply);
         if (agent.revealNameIfMentioned(reply)) this.dialog.setNpcName(agent.definition.name);
         this.speakNpc(agent, reply); // voice the NPC's spoken words (TTS, fail-open)
-        void this.maybeHandleCommerce(agent, reply, message); // Phase 16 trade/mission
+        // Fase 21: maybeHandleCommerce removed — pending trade/mission staging
+        // is now handled BEFORE the reply by tryVerbalAction (verbal classifier
+        // + Resolver). The legacy post-hoc classifier is no longer needed.
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -2743,42 +2747,6 @@ export class GameWorldScene extends BaseScene {
     };
   }
 
-  /**
-   * Phase 16 commerce: after a negotiable NPC's reply, classify the exchange for a
-   * trade/mission offer + the player's acceptance, track a pending offer, and
-   * execute on acceptance. Browser-only; the pricing/validation it calls is pure.
-   */
-  /* istanbul ignore next — browser-only chat-commerce wiring (pure core tested) */
-  private async maybeHandleCommerce(agent: NPCAgent, npcReply: string, playerMessage: string): Promise<void> {
-    if (!this.npcManager || !this.dialog) return;
-    const id = agent.definition.id;
-    const disp = agent.getDisposition();
-    if (!canTrade(disp)) { this.pendingTrade = null; this.pendingMission = null; return; }
-
-    const sellable = sellableItems(agent.getInventory());
-    const liveIds = this.npcManager.liveNpcIds();
-    const rivals = liveIds.filter((other) => other !== id && agent.isAntagonisticToward(other));
-    const hasPending = (this.pendingTrade?.npcId === id) || (this.pendingMission?.giverId === id);
-    if (sellable.length === 0 && rivals.length === 0 && !hasPending) return;
-
-    const parse = await this.npcManager.classifyCommerce(id, npcReply, playerMessage, sellable, rivals);
-
-    // Register a freshly-offered deal as pending (priced/validated deterministically).
-    if (parse.offer === 'trade' && parse.itemId) {
-      this.pendingTrade = { npcId: id, itemId: parse.itemId, price: priceFor(parse.itemId, disp) };
-    } else if (parse.offer === 'mission' && parse.targetId && canOfferMission(disp)) {
-      const reward: RewardOffer = parse.rewardItemId
-        ? { kind: 'item', itemId: parse.rewardItemId }
-        : { kind: 'credits', credits: parse.rewardCredits };
-      const m = validateMissionOffer(agent, id, parse.targetId, reward, liveIds);
-      if (m) this.pendingMission = m;
-    }
-
-    if (!parse.accept) return;
-    if (this.pendingTrade && this.pendingTrade.npcId === id) this.executePendingTrade(agent);
-    else if (this.pendingMission && this.pendingMission.giverId === id) this.acceptPendingMission();
-  }
-
   /* istanbul ignore next — browser-only trade execution (Economy core tested) */
   private executePendingTrade(agent: NPCAgent): void {
     const trade = this.pendingTrade;
@@ -2810,26 +2778,6 @@ export class GameWorldScene extends BaseScene {
     const target = this.npcManager?.getAgent(mission.targetId)?.getDisplayName() ?? mission.targetId;
     this.dialog.addSystemLine(t('economy.missionAccepted', { target }));
     this.sfx('ui_click');
-    this.persistSession();
-  }
-
-  /**
-   * On an NPC's defeat, complete any active contract targeting it: transfer the
-   * reward from the giver, improve the giver's disposition, and record the deed so
-   * the giver brings it up. Narrates the payoff.
-   */
-  /* istanbul ignore next — browser-only mission completion (Missions core tested) */
-  private completeMissionsAgainst(defeatedId: string): void {
-    if (!this.npcManager) return;
-    for (const mission of this.missions) {
-      if (mission.status !== 'active' || mission.targetId !== defeatedId) continue;
-      const giver = this.npcManager.getAgent(mission.giverId);
-      if (!giver) { mission.status = 'complete'; continue; }
-      const { mission: done } = completeMission(mission, this.playerInventory, giver);
-      mission.status = done.status;
-      giver.rememberEvent(`paid ${this.playerName} for taking out ${this.npcManager.getAgent(defeatedId)?.getDisplayName() ?? defeatedId}`);
-      this.dialog?.addNarrationLine(t('economy.missionComplete', { giver: giver.getDisplayName() }));
-    }
     this.persistSession();
   }
 
