@@ -439,9 +439,10 @@ function resolveVerbal(
 
     case 'commerce_discovery': {
       if (!target) return blocked('no_target');
-      // No mutation needed — the NPC's reply will list its inventory. Resolver just
-      // confirms the verb fits (NPC must be addressable).
-      return ok();
+      // Index the seller in the PDA — the dossier re-derives a "Sells X for Y cr"
+      // line for every sellable item the next time the PDA opens (recomputed live
+      // from the NPC's current disposition).
+      return { ...ok(), mutations: [{ kind: 'add_pda', subject: target.id, source: 'asked' }] };
     }
 
     case 'commerce_pricing': {
@@ -473,7 +474,12 @@ function resolveVerbal(
       const opp = target.getStats().attributes.carisma ?? 30;
       const check = resolveCheck({ value: skillValue, opponent: opp }, rng);
       const critical = check.success && check.roll < RESOLVER_CRITICAL_ROLL;
-      const mutations: Mutation[] = [{ kind: 'apply_skill_use', actor: actor.id, skillId: 'comercio' }];
+      const mutations: Mutation[] = [
+        { kind: 'apply_skill_use', actor: actor.id, skillId: 'comercio' },
+        // Index the negotiation in the PDA on EVERY haggle — the dossier line
+        // will reflect the haggled price via the active pendingTrade.
+        { kind: 'add_pda', subject: target.id, source: 'asked' },
+      ];
       if (check.success) {
         const factor = critical ? HAGGLE_CRIT_FACTOR : HAGGLE_SUCCESS_FACTOR;
         mutations.push({ kind: 'apply_haggle_discount', npc: target.id, factor });

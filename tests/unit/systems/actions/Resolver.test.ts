@@ -154,10 +154,12 @@ describe('Resolver — verbal: job_*', () => {
 describe('Resolver — verbal: commerce_*', () => {
   const zara = makeNpc('npc_zara');
 
-  it('commerce_discovery is a no-mutation acknowledge (NPC reply lists sellable)', () => {
+  it('commerce_discovery acknowledges + indexes the seller in PDA', () => {
     const r = resolveAction(makePlayer(), 'commerce_discovery', zara, {});
     expect(r.allowed).toBe(true);
-    expect(r.mutations).toEqual([]);
+    expect(r.mutations).toEqual([
+      { kind: 'add_pda', subject: 'npc_zara', source: 'asked' },
+    ]);
   });
 
   it('commerce_pricing stages a pending_trade at the disposition-adjusted price AND indexes in PDA', () => {

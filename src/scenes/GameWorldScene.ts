@@ -2549,6 +2549,11 @@ export class GameWorldScene extends BaseScene {
       this.logSkill(`verbal verb=${cls.verb} (no check) · ${result.mutations.length} mutation(s)`);
     }
     applyMutations(this.buildApplierContext(), result.mutations);
+    // Visible failure feedback for haggle — the Resolver emits no discount
+    // mutation on a miss, so the chat would be silent without this hint.
+    if (cls.verb === 'commerce_haggle' && result.rolled && !result.success) {
+      this.dialog?.addSystemLine(t('economy.haggleFailed'));
+    }
     return true;
   }
 
@@ -2685,9 +2690,17 @@ export class GameWorldScene extends BaseScene {
         if (!mission) return;
         const giverAgent = agentById(giver);
         if (giverAgent) {
+          const dispBefore = giverAgent.getDisposition();
           const { mission: done } = completeMission(mission, self.playerInventory, giverAgent);
           mission.status = done.status;
-          self.dialog?.addNarrationLine(t('economy.missionComplete', { giver: giverAgent.getDisplayName() }));
+          const giverName = giverAgent.getDisplayName();
+          self.dialog?.addNarrationLine(t('economy.missionComplete', { giver: giverName }));
+          // Show the disposition improvement explicitly — completeMission calls
+          // improveDisposition under the hood, but the bump is invisible without
+          // a system line (it only affects pricing / future replies / PDA).
+          if (giverAgent.getDisposition() !== dispBefore) {
+            self.dialog?.addSystemLine(t('economy.standingImproved', { giver: giverName }));
+          }
           self.persistSession();
         }
       },
@@ -3157,7 +3170,13 @@ export class GameWorldScene extends BaseScene {
     if (canTrade(disp)) {
       const sellable = sellableItems(inv);
       sellable.forEach((id) => {
-        lines.push(t('pda.sellsFor', { item: t(itemDef(id)?.nameKey ?? id), price: priceFor(id, disp) }));
+        // Prefer the active pendingTrade price for this NPC/item (post-haggle)
+        // over the recomputed base; the player just negotiated this number, so
+        // the PDA should reflect what they were actually quoted.
+        const livePrice = this.pendingTrade?.npcId === a.definition.id && this.pendingTrade.itemId === id
+          ? this.pendingTrade.price
+          : priceFor(id, disp);
+        lines.push(t('pda.sellsFor', { item: t(itemDef(id)?.nameKey ?? id), price: livePrice }));
       });
     }
     return lines;
