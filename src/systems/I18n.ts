@@ -190,6 +190,13 @@ export const STRINGS: Record<string, Entry> = {
   'economy.noCredits': e("You can't afford that.", 'Você não tem créditos suficientes.'),
   'economy.missionAccepted': e('Contract accepted: take out {target}.', 'Contrato aceito: elimine {target}.'),
   'economy.missionComplete': e('Contract paid out by {giver}.', 'Contrato pago por {giver}.'),
+  'economy.missionDeclined': e('Contract declined.', 'Contrato recusado.'),
+  'economy.missionCancelled': e("Contract cancelled. {giver} won't forget this.", 'Contrato cancelado. {giver} não vai esquecer.'),
+  'economy.targetStillAlive': e("{target} is still walking around.", '{target} ainda está por aí.'),
+  'economy.haggled': e('Haggled — {item} now {price} cr.', 'Pechinchou — {item} agora {price} cr.'),
+  'economy.haggleFailed': e("The price stands.", 'O preço está firme.'),
+  'economy.commerceDiscoveryHint': e('They have stock to offer — ask about prices.', 'Eles têm mercadoria — pergunte os preços.'),
+  'economy.deceasedNpc': e("They don't answer. They're dead.", 'Eles não respondem. Estão mortos.'),
 
   // ─── Dialog ────────────────────────────────────────────────────────────────
   'dialog.openChannel': e('Open channel', 'Canal aberto'),

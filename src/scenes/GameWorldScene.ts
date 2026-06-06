@@ -2644,13 +2644,13 @@ export class GameWorldScene extends BaseScene {
         if (a) self.executePendingTrade(a);
       },
       applyHaggleDiscount(npc, factor) {
-        const t = self.pendingTrade;
-        if (!t || t.npcId !== npc) return;
+        const trade = self.pendingTrade;
+        if (!trade || trade.npcId !== npc) return;
         // Floor at 50% of the neutral base price (Fase 21 plan).
-        const base = priceFor(t.itemId, 'neutral');
+        const base = priceFor(trade.itemId, 'neutral');
         const floor = Math.max(1, Math.round(base * 0.5));
-        t.price = Math.max(floor, Math.round(t.price * factor));
-        self.dialog?.addSystemLine(t ? `${self.itemName(t.itemId)} → ${t.price} cr` : '');
+        trade.price = Math.max(floor, Math.round(trade.price * factor));
+        self.dialog?.addSystemLine(t('economy.haggled', { item: self.itemName(trade.itemId), price: trade.price }));
       },
       clearPendingTrade(_npc) { self.pendingTrade = null; },
       // ── Missions ─────────────────────────────────────────────────────
@@ -2666,7 +2666,11 @@ export class GameWorldScene extends BaseScene {
         self.pendingMission = mission;
       },
       acceptPendingMission(_giver) { self.acceptPendingMission(); },
-      declinePendingMission(_giver) { self.pendingMission = null; self.persistSession(); },
+      declinePendingMission(_giver) {
+        self.pendingMission = null;
+        self.dialog?.addSystemLine(t('economy.missionDeclined'));
+        self.persistSession();
+      },
       claimMissionCompletion(giver, targetId) {
         // Find the active mission for this giver/target and pay out.
         const mission = self.missions.find((m) => m.status === 'active' && m.giverId === giver && m.targetId === targetId);
@@ -2683,6 +2687,8 @@ export class GameWorldScene extends BaseScene {
         const mission = self.missions.find((m) => m.status === 'active' && m.giverId === giver);
         if (mission) {
           mission.status = 'cancelled';
+          const giverName = agentById(giver)?.getDisplayName() ?? giver;
+          self.dialog?.addSystemLine(t('economy.missionCancelled', { giver: giverName }));
           self.persistSession();
         }
       },
@@ -2719,7 +2725,7 @@ export class GameWorldScene extends BaseScene {
       },
       narrateTargetAlive(targetId) {
         const name = agentById(targetId)?.getDisplayName() ?? 'they';
-        const line = `${name}'s still walking around.`;
+        const line = t('economy.targetStillAlive', { target: name });
         self.dialog?.addNarrationLine(line);
         self.speakNarration(line);
       },
