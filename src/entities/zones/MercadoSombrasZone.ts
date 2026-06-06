@@ -4,13 +4,15 @@ import {
   PhysicsAggregate, PhysicsShapeType,
 } from '@babylonjs/core';
 import { WorldZone, ZoneBounds } from '@entities/WorldZone';
-import { MERCADO_PROPS, EXIT_WALL, CORRIDOR_COLLIDERS, ZONE_HALF, ANIMAL_MODELS, TRASH_MODELS } from '@assets/WorldAssetCatalog';
+import {
+  MERCADO_PROPS, EXIT_WALL, CORRIDOR_COLLIDERS, ZONE_HALF, TRASH_MODELS,
+  WorldProp, moldScaleFor, doorPlacementForSlot, DOOR_MODELS,
+} from '@assets/WorldAssetCatalog';
 import { borderWallColliders } from '@systems/world/WorldGrid';
 import { framePlanes, crosswalkStripes, manholeSpots, interiorBuildingSlots } from '@assets/world/CityFrame';
 import { mulberry32 } from '@systems/world/SeededRng';
 import { DayPeriod, paletteForPeriod } from '@systems/GameClock';
-import { DOG_SPAWNS, DOG_BOUNDS, BEGGAR_SPOTS, TRASH_SPOTS, stepDog, DogState } from '@entities/AmbientLife';
-import type { Observer } from '@babylonjs/core';
+import { BEGGAR_SPOTS, TRASH_SPOTS } from '@entities/AmbientLife';
 
 /** Prop keys that should block the player (solid). Floor-like props (roads,
  *  sidewalks, food, manhole, drain, decals) are intentionally walkable. */
@@ -30,8 +32,6 @@ export class MercadoSombrasZone extends WorldZone {
   private holders: TransformNode[] = [];
   private colliders: AbstractMesh[] = [];
   private aggregates: PhysicsAggregate[] = [];
-  /** Per-frame stray-dog animation observer (Fase 6); removed on unload. */
-  private dogObserver: Observer<Scene> | null = null;
 
   /**
    * Mosaic mode (Fase 17): when true (default), the +X end of the street is OPEN
@@ -269,52 +269,53 @@ export class MercadoSombrasZone extends WorldZone {
     const { SceneLoader, TransformNode } = await import('@babylonjs/core');
     await import('@babylonjs/loaders/glTF');
     let ok = 0;
-    // Mosaic (Fase 17G): buildings go into the interior block slots (no overlap),
-    // scaled to fit; the central sidewalks/doors are replaced by the sidewalk-ring
-    // frame, and the gap-filler brick walls are gone — only world borders matter.
+    // Load one WorldProp into a holder (position/rotation/scale + reparent). Per-mold
+    // scale rules — there is NO footprint auto-fit (it flattened molds and cancelled the
+    // per-mold scale); overlap is controlled by tuning MOLD_SCALE (target width ≤ ~12 at
+    // the 14u slot spacing). Returns true on success.
+    const loadOne = async (prop: WorldProp): Promise<boolean> => {
+      try {
+        const c = await SceneLoader.LoadAssetContainerAsync('/assets/', prop.model, scene);
+        c.addAllToScene();
+        // Wrap in a holder node and parent every top-level loaded node to it, so
+        // position/rotation/scale apply to the whole model (mirrors VehicleController).
+        const holder = new TransformNode(prop.key, scene);
+        holder.position.set(prop.position[0], prop.position[1], prop.position[2]);
+        holder.rotation.y = prop.rotationY ?? 0;
+        if (Array.isArray(prop.scale)) holder.scaling.set(prop.scale[0], prop.scale[1], prop.scale[2]);
+        else holder.scaling.setAll(prop.scale ?? 1);
+        for (const m of c.meshes) { if (!m.parent) m.parent = holder; }
+        for (const t of c.transformNodes) { if (!t.parent) t.parent = holder; }
+        this.meshes.push(...(c.meshes as AbstractMesh[]));
+        this.holders.push(holder);
+        return true;
+      } catch (err) {
+        console.warn(`[Mercado] prop "${prop.key}" (${prop.model}) failed to load, keeping placeholder:`, err);
+        return false;
+      }
+    };
+    // Mosaic (Fase 17G): buildings go into the interior block slots (no overlap); the
+    // gap-filler brick walls + central sidewalks are replaced by the sidewalk-ring frame.
+    // Each building keeps its hand-tuned door GLB, placed slot-relative at the building's
+    // per-mold scale (the door follows any mold/scale change automatically).
     const slots = this.openEast ? interiorBuildingSlots(0, 0) : [];
     let bldIdx = 0;
     for (const p of MERCADO_PROPS) {
       if (this.openEast && /^(wall-|sidewalk-|door-)/.test(p.key)) continue;
-      let pos = p.position;
-      let rotY = p.rotationY ?? 0;
-      let fit: number | undefined;
       if (this.openEast && p.key.startsWith('bld-')) {
         if (bldIdx >= slots.length) continue; // cap to the interior block slots
         const slot = slots[bldIdx];
+        const scale = moldScaleFor(p.model);
+        if (await loadOne({ key: p.key, model: p.model, position: slot.position, rotationY: slot.rotationY, scale })) ok += 1;
+        // Door mold over this building's opening — slot-relative, same final scale.
+        await loadOne(doorPlacementForSlot({
+          key: `door-${p.key}`, buildingModel: p.model, doorModel: DOOR_MODELS[bldIdx % DOOR_MODELS.length],
+          slotPos: slot.position, slotRotY: slot.rotationY, finalScale: scale,
+        }));
         bldIdx += 1;
-        pos = slot.position;
-        rotY = slot.rotationY;
-        fit = slot.footprint;
+        continue;
       }
-      try {
-        const c = await SceneLoader.LoadAssetContainerAsync('/assets/', p.model, scene);
-        c.addAllToScene();
-        // Wrap in a holder node and parent every top-level loaded node to it, so
-        // position/rotation/scale apply to the whole model (mirrors VehicleController).
-        const holder = new TransformNode(p.key, scene);
-        holder.position.set(pos[0], pos[1], pos[2]);
-        holder.rotation.y = rotY;
-        if (Array.isArray(p.scale)) holder.scaling.set(p.scale[0], p.scale[1], p.scale[2]);
-        else holder.scaling.setAll(p.scale ?? 1);
-        for (const m of c.meshes) {
-          if (!m.parent) m.parent = holder;
-        }
-        for (const t of c.transformNodes) {
-          if (!t.parent) t.parent = holder;
-        }
-        if (fit) {
-          holder.computeWorldMatrix(true);
-          const { min, max } = holder.getHierarchyBoundingVectors(true);
-          const extent = Math.max(max.x - min.x, max.z - min.z);
-          if (extent > 0.001 && extent > fit) holder.scaling.scaleInPlace(fit / extent);
-        }
-        this.meshes.push(...(c.meshes as AbstractMesh[]));
-        this.holders.push(holder);
-        ok += 1;
-      } catch (err) {
-        console.warn(`[Mercado] prop "${p.key}" (${p.model}) failed to load, keeping placeholder:`, err);
-      }
+      if (await loadOne(p)) ok += 1;
     }
     // Manhole covers on the asphalt road ring (mosaic only).
     if (this.openEast) {
@@ -344,8 +345,7 @@ export class MercadoSombrasZone extends WorldZone {
 
   /**
    * Street atmosphere (Fase 6): scattered trash + slumped beggar silhouettes
-   * (procedural) and a few wandering stray dogs (Quaternius CC0 GLBs, animated
-   * via the pure stepDog wander). Browser/Electron only; verified manually.
+   * (procedural). Browser/Electron only; verified manually.
    */
   /* istanbul ignore next — browser/Electron meshes + GLB loading */
   private async buildAmbientLife(scene: Scene): Promise<void> {
@@ -366,9 +366,6 @@ export class MercadoSombrasZone extends WorldZone {
       head.material = beggarMat;
       this.meshes.push(body, head);
     });
-
-    // Stray dogs — load each GLB once, instantiate per spawn, wander + animate.
-    await this.buildStrayDogs(scene);
   }
 
   /* istanbul ignore next — browser/Electron GLB loading */
@@ -391,56 +388,6 @@ export class MercadoSombrasZone extends WorldZone {
         console.warn(`[Mercado] litter "${t.model}" failed to load:`, err);
       }
     }
-  }
-
-  /* istanbul ignore next — browser/Electron GLB loading + animation */
-  private async buildStrayDogs(scene: Scene): Promise<void> {
-    const { SceneLoader, TransformNode } = await import('@babylonjs/core');
-    await import('@babylonjs/loaders/glTF');
-
-    interface Dog { holder: TransformNode; state: DogState; walk: import('@babylonjs/core').AnimationGroup | null; idle: import('@babylonjs/core').AnimationGroup | null; }
-    const dogs: Dog[] = [];
-
-    for (let i = 0; i < DOG_SPAWNS.length; i++) {
-      const spawn = DOG_SPAWNS[i];
-      try {
-        const c = await SceneLoader.LoadAssetContainerAsync('/assets/', ANIMAL_MODELS[spawn.model], scene);
-        const entries = c.instantiateModelsToScene((n) => `dog-${i}-${n}`, false);
-        const holder = new TransformNode(`dog-holder-${i}`, scene);
-        holder.scaling.setAll(0.5); // strays read small on the street
-        entries.rootNodes.forEach((rn) => { if (!rn.parent) rn.parent = holder; });
-        const g = entries.animationGroups;
-        const walk = g.find((a) => a.name.toLowerCase().includes('walk')) ?? null;
-        const idle = g.find((a) => /idle$/i.test(a.name)) ?? g.find((a) => a.name.toLowerCase().includes('idle')) ?? null;
-        g.forEach((a) => a.stop());
-        const state = { ...spawn.state };
-        holder.position.set(state.x, 0, state.z);
-        holder.rotation.y = state.heading;
-        (state.moving ? walk : idle)?.start(true);
-        dogs.push({ holder, state, walk, idle });
-        this.holders.push(holder);
-        c.meshes.forEach((m) => this.meshes.push(m));
-      } catch (err) {
-        console.warn(`[Mercado] stray dog "${spawn.model}" failed to load:`, err);
-      }
-    }
-    if (dogs.length === 0) return;
-
-    // Per-frame wander: step each dog, move/turn the holder, swap walk/idle clip.
-    this.dogObserver = scene.onBeforeRenderObservable.add(() => {
-      const dt = Math.min(0.1, scene.getEngine().getDeltaTime() / 1000);
-      for (const dog of dogs) {
-        const wasMoving = dog.state.moving;
-        dog.state = stepDog(dog.state, dt, DOG_BOUNDS, Math.random);
-        dog.holder.position.set(dog.state.x, 0, dog.state.z);
-        dog.holder.rotation.y = dog.state.heading;
-        if (dog.state.moving !== wasMoving) {
-          (dog.state.moving ? dog.idle : dog.walk)?.stop();
-          (dog.state.moving ? dog.walk : dog.idle)?.start(true);
-        }
-      }
-    });
-    console.warn(`[Mercado] stray dogs: ${dogs.length}`);
   }
 
   /* istanbul ignore next — physics colliders are browser/Electron only */
@@ -532,11 +479,6 @@ export class MercadoSombrasZone extends WorldZone {
     this.lights.forEach((l) => l.dispose());
     this.lights = [];
     this.ambient = null;
-    /* istanbul ignore next — dog animation observer only exists in browser */
-    if (this.dogObserver && this.scene) {
-      this.scene.onBeforeRenderObservable.remove(this.dogObserver);
-      this.dogObserver = null;
-    }
     /* istanbul ignore next — holders only exist after browser GLB load */
     this.holders.forEach((h) => h.dispose());
     this.holders = [];

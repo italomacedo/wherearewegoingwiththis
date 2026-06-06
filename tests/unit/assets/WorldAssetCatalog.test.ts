@@ -1,6 +1,7 @@
 import {
   WorldProp, ZONE_HALF, facingCenter, MERCADO_PROPS, NAVE_MODEL, VENDOR_SPOT,
   EXIT_WALL, CORRIDOR_COLLIDERS, COMBAT_OBSTACLES, COMBAT_BOUNDS,
+  MOLD_SCALE, MOLD_NATIVE_WIDTH, moldBasename, moldScaleFor, scaleWidth, doorPlacementForSlot, DOOR_MODELS,
 } from '../../../src/assets/WorldAssetCatalog';
 
 const within = (p: WorldProp) =>
@@ -114,5 +115,103 @@ describe('WorldAssetCatalog — downtown city block (pure)', () => {
     expect(NAVE_MODEL.path).toMatch(/^vehicles\/.+\.glb$/);
     expect(NAVE_MODEL.scale).toBeGreaterThan(0);
     expect(Number.isFinite(NAVE_MODEL.yaw)).toBe(true);
+  });
+});
+
+describe('WorldAssetCatalog — per-mold scale (pure)', () => {
+  it('moldBasename strips directory and .glb', () => {
+    expect(moldBasename('world/downtown/building_large_2.glb')).toBe('building_large_2');
+    expect(moldBasename('building_small_1.glb')).toBe('building_small_1');
+    expect(moldBasename('plain')).toBe('plain');
+  });
+
+  it('moldScaleFor returns the table value, default 1 for unknown molds', () => {
+    expect(moldScaleFor('world/downtown/building_large_2.glb')).toBe(MOLD_SCALE.building_large_2);
+    expect(moldScaleFor('world/nature/commontree_1.glb')).toBe(1);
+    expect(moldScaleFor('totally_unknown.glb')).toBe(1);
+  });
+
+  it('every lining/dead-end building uses its per-mold scale', () => {
+    // Backdrop buildings (bld-back-*) are a separate kit kept at a literal scale.
+    const slotted = MERCADO_PROPS.filter((p) => /^bld-/.test(p.key) && !/^bld-back-/.test(p.key));
+    expect(slotted.length).toBeGreaterThan(0);
+    for (const b of slotted) expect(b.scale).toBe(moldScaleFor(b.model));
+  });
+
+  it('keeps each mold within the no-overlap width budget (≤14u slot spacing)', () => {
+    // Final world width = X-scale × measured native width. It must stay under the 14u slot
+    // spacing so neighbouring buildings never overlap (per-axis molds use their X only, so a
+    // taller-via-Y building doesn't widen). Targeting ~13-14u leaves a small gap.
+    for (const mold of Object.keys(MOLD_SCALE)) {
+      const nativeWidth = MOLD_NATIVE_WIDTH[mold];
+      expect(nativeWidth).toBeGreaterThan(0); // every scaled mold has a measured native width
+      expect(scaleWidth(MOLD_SCALE[mold]) * nativeWidth).toBeLessThanOrEqual(14);
+    }
+  });
+});
+
+describe('WorldAssetCatalog — doorPlacementForSlot (pure)', () => {
+  const NORTH = Math.PI;
+  const SOUTH = 0;
+
+  it('north slot: door X = slot.x + (openX+0.5)·scale, Z = slot.z + depth, rot π', () => {
+    const d = doorPlacementForSlot({
+      key: 'door-t', buildingModel: 'world/downtown/building_large_2.glb', doorModel: 'door_2',
+      slotPos: [10, 0, 14], slotRotY: NORTH, finalScale: 2,
+    });
+    expect(d.position[0]).toBeCloseTo(10 + 0.5 * 2); // openX 0 + pivot 0.5, ×2
+    expect(d.position[2]).toBeCloseTo(14 + 0.05);    // +DOOR_DEPTH
+    expect(d.rotationY).toBe(NORTH);
+    expect(d.scale).toBe(2);
+    expect(d.model).toBe('world/downtown/door_2.glb');
+  });
+
+  it('south slot mirrors X and Z (− pivot, − depth), rot 0', () => {
+    const d = doorPlacementForSlot({
+      key: 'door-t', buildingModel: 'world/downtown/building_large_2.glb', doorModel: 'door_1',
+      slotPos: [10, 0, -14], slotRotY: SOUTH, finalScale: 2,
+    });
+    expect(d.position[0]).toBeCloseTo(10 - 0.5 * 2);
+    expect(d.position[2]).toBeCloseTo(-14 - 0.05);
+    expect(d.rotationY).toBe(SOUTH);
+  });
+
+  it('building_small_1 raises the door onto its stoop (y = dy·scale)', () => {
+    const d = doorPlacementForSlot({
+      key: 'door-t', buildingModel: 'world/downtown/building_small_1.glb', doorModel: 'door_3',
+      slotPos: [0, 0, 14], slotRotY: NORTH, finalScale: 2,
+    });
+    expect(d.position[1]).toBeCloseTo(1.0 * 2); // stoop dy 1.0 × scale
+  });
+
+  it('unknown building mold → centred door, no stoop', () => {
+    const d = doorPlacementForSlot({
+      key: 'door-t', buildingModel: 'mystery.glb', doorModel: 'door_1',
+      slotPos: [5, 0, 14], slotRotY: NORTH, finalScale: 1,
+    });
+    expect(d.position[0]).toBeCloseTo(5 + 0.5);
+    expect(d.position[1]).toBeCloseTo(0);
+  });
+
+  it('door models cycle through the three molds', () => {
+    expect(DOOR_MODELS).toHaveLength(3);
+    expect(DOOR_MODELS).toEqual(['door_1', 'door_2', 'door_3']);
+  });
+
+  it('per-axis scale: door uses X for the pivot, Y for the stoop, and inherits the scale', () => {
+    const d = doorPlacementForSlot({
+      key: 'door-t', buildingModel: 'world/downtown/building_small_1.glb', doorModel: 'door_1',
+      slotPos: [0, 0, 14], slotRotY: NORTH, finalScale: [0.5, 0.8, 0.5],
+    });
+    expect(d.position[0]).toBeCloseTo(0 + 0.5 * 0.5); // pivot 0.5 × X-scale 0.5
+    expect(d.position[1]).toBeCloseTo(1.0 * 0.8);     // stoop dy 1.0 × Y-scale 0.8
+    expect(d.scale).toEqual([0.5, 0.8, 0.5]);         // door stretches with the building
+  });
+});
+
+describe('WorldAssetCatalog — scaleWidth (pure)', () => {
+  it('returns a uniform scale as-is and the X of a per-axis scale', () => {
+    expect(scaleWidth(0.7)).toBe(0.7);
+    expect(scaleWidth([0.67, 0.85, 0.67])).toBe(0.67);
   });
 });

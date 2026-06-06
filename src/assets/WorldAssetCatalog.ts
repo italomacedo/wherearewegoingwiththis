@@ -57,6 +57,45 @@ const BACKDROP_Z = 20;   // textured-pack backdrops behind the facade
 //     (Lane/crosswalk decals can be laid on top later.) ---
 const ROADS: readonly WorldProp[] = [];
 
+// Buildings come from different kits with VERY different native sizes (measured below
+// with scripts/measure_glb_bbox.mjs), so a single global scale is wrong — each MOLD gets
+// its own multiplier. The scale is `targetWidth / nativeWidth`: choose a target world
+// width per mold, divide by its measured native max-X/Z. Targeting ~13u keeps all three
+// under the 14u slot spacing (no overlap) while staying far bigger than the ~1.7u avatar.
+// NOTE: building origins are at the FRONT face, so scaling expands the body backward
+// (away from the street) without shifting the facade. Tune in Electron; the doors derive
+// automatically (they share the building's final scale via `doorPlacementForSlot`).
+/** Measured native max(X,Z) extent per mold (metres). Update if the GLBs change. */
+export const MOLD_NATIVE_WIDTH: Record<string, number> = {
+  building_large_2: 20.64,
+  building_medium_2_001: 15.06,
+  building_small_1: 14.54,
+};
+// A mold scale may be uniform (number) OR per-axis [x,y,z] — used when a natively wide,
+// short mold needs to be TALLER without growing wider (uniform would overlap neighbours at
+// the 14u slot spacing). Per-axis [s, sy, s] keeps X==Z so the Y-rotation stays shear-free
+// (normals intact). The door shares the scale, so it stretches to fill the taller opening.
+export const MOLD_SCALE: Record<string, number | [number, number, number]> = {
+  building_large_2: [0.67, 0.85, 0.67], // ~13.8u wide, ~23.8u tall, door ~1.9u (wide native → taller via Y)
+  building_medium_2_001: 0.86,          // → ~13.0u wide, ~21.5u tall, door ~1.9u
+  building_small_1: 0.89,               // → ~12.9u wide, ~15.1u tall, door ~2.0u
+};
+
+/** Basename of a GLB path (drops the directory + `.glb`). Pure. */
+export function moldBasename(modelPath: string): string {
+  return (modelPath.split('/').pop() ?? modelPath).replace(/\.glb$/i, '');
+}
+
+/** Per-mold scale (uniform or per-axis) for a building model path; 1 for unknown. Pure. */
+export function moldScaleFor(modelPath: string): number | [number, number, number] {
+  return MOLD_SCALE[moldBasename(modelPath)] ?? 1;
+}
+
+/** The X component of a (uniform or per-axis) scale — its world width multiplier. Pure. */
+export function scaleWidth(s: number | [number, number, number]): number {
+  return Array.isArray(s) ? s[0] : s;
+}
+
 // --- Buildings lining both sides of the street, facades toward the road. ---
 const NORTH_BUILDINGS: ReadonlyArray<[number, string]> = [
   [-22, 'building_medium_2_001'], [-2, 'building_large_2'], [18, 'building_small_1'],
@@ -66,46 +105,75 @@ const SOUTH_BUILDINGS: ReadonlyArray<[number, string]> = [
 ];
 const LINING_BUILDINGS: readonly WorldProp[] = [
   ...NORTH_BUILDINGS.map(([x, m], i) => ({
-    key: `bld-n-${i}`, model: `${DT}${m}.glb`, position: [x, 0, BUILDING_Z] as [number, number, number], rotationY: NORTH_ROT,
+    key: `bld-n-${i}`, model: `${DT}${m}.glb`, position: [x, 0, BUILDING_Z] as [number, number, number], rotationY: NORTH_ROT, scale: moldScaleFor(`${DT}${m}.glb`),
   })),
   ...SOUTH_BUILDINGS.map(([x, m], i) => ({
-    key: `bld-s-${i}`, model: `${DT}${m}.glb`, position: [x, 0, -BUILDING_Z] as [number, number, number], rotationY: SOUTH_ROT,
+    key: `bld-s-${i}`, model: `${DT}${m}.glb`, position: [x, 0, -BUILDING_Z] as [number, number, number], rotationY: SOUTH_ROT, scale: moldScaleFor(`${DT}${m}.glb`),
   })),
 ];
 
 // Dead end: a building walling off the far-left (−X) end of the street.
 const DEAD_END: readonly WorldProp[] = [
-  { key: 'bld-deadend', model: `${DT}building_large_2.glb`, position: [-29, 0, 0], rotationY: DEADEND_ROT },
+  { key: 'bld-deadend', model: `${DT}building_large_2.glb`, position: [-29, 0, 0], rotationY: DEADEND_ROT, scale: moldScaleFor(`${DT}building_large_2.glb`) },
 ];
 
-// Doors (MegaKit Door_1/2/3, 1×2.2). The opening's X is model-specific (measured
-// from each building's interior-floor mesh): large is offset +1, medium/small are
-// centred; small sits on a raised stoop. The door GLB's leaf is hinged off-centre
-// (pivot at local x=0, leaf to x=−1 → leaf centre −0.5), so add a half-leaf pivot.
-// Buildings are placed with rotationY π (north) / 0 (south), which flips local X.
-const DOOR_MODELS = ['door_1', 'door_2', 'door_3'];
-const DOOR_PIVOT = 0.5;   // half the door-leaf width (recentres the hinged leaf)
-const DOOR_DEPTH = 0.05;  // sit in the facade plane (was 0.3 → door sank into the building)
-const DOOR_FIT: Record<string, { openX: number; dy: number }> = {
+// Doors (MegaKit Door_1/2/3, 1×2.2). Separate GLB "molds" placed over each building's
+// opening. Offsets are BASE (model authored at scale 1) and multiplied by the building's
+// FINAL scale at placement, so the door always tracks the (per-mold-scaled) opening. The
+// door GLB's leaf is hinged off-centre (pivot local x=0, leaf to x=−1 → centre −0.5), so a
+// half-leaf pivot recentres it. openX = opening X offset from the building origin (measured
+// from the interior-floor mesh); dy = raised-stoop height. Building rotation π (north) /
+// 0 (south) flips local X, so the pivot sign mirrors.
+export const DOOR_MODELS = ['door_1', 'door_2', 'door_3'] as const;
+const DOOR_PIVOT_BASE = 0.5;   // half the door-leaf width (unscaled)
+const DOOR_DEPTH = 0.05;       // hug the facade plane; world units, NOT scaled
+const DOOR_FIT_BASE: Record<string, { openX: number; dy: number }> = {
   building_large_2: { openX: 0, dy: 0 }, // opening ~centred (tuned in Electron)
   building_medium_2_001: { openX: 0, dy: 0 },
-  building_small_1: { openX: 0, dy: 1.0 }, // raised stoop entrance
+  building_small_1: { openX: 0, dy: 1.0 }, // raised stoop entrance (base; ×finalScale at use)
 };
-const dfit = (m: string) => DOOR_FIT[m]!; // all lining-building models are in DOOR_FIT
+
+/**
+ * Door placement for a building sitting in a slot (or any front-face-origin building).
+ * The door shares the building's `finalScale`; offsets are base × finalScale. North-side
+ * buildings face −Z (rotated ~π → `cos(rotY) < 0`), which flips local X, so the pivot
+ * sign mirrors. One pure place owns the sign-flip — works for the initial scene and any
+ * procedural tile (all slot rows are π / 0). Pure.
+ */
+export function doorPlacementForSlot(args: {
+  key: string; buildingModel: string; doorModel: string;
+  slotPos: [number, number, number]; slotRotY: number;
+  finalScale: number | [number, number, number];
+}): WorldProp {
+  const { key, buildingModel, doorModel, slotPos, slotRotY, finalScale } = args;
+  const f = DOOR_FIT_BASE[moldBasename(buildingModel)] ?? { openX: 0, dy: 0 };
+  const sx = Array.isArray(finalScale) ? finalScale[0] : finalScale; // horizontal opening
+  const sy = Array.isArray(finalScale) ? finalScale[1] : finalScale; // stoop height
+  const off = (f.openX + DOOR_PIVOT_BASE) * sx;
+  const isNorth = Math.cos(slotRotY) < 0; // faces −Z
+  return {
+    key, model: `${DT}${doorModel}.glb`,
+    position: [
+      slotPos[0] + (isNorth ? off : -off),
+      f.dy * sy,
+      slotPos[2] + (isNorth ? DOOR_DEPTH : -DOOR_DEPTH),
+    ],
+    rotationY: slotRotY, scale: finalScale,
+  };
+}
+
+// Standalone (closed-corridor) doors — 1:1 with the lining buildings by index, each at its
+// building's per-mold scale. Mosaic mode skips these and emits slot-relative doors instead.
 const DOORS: readonly WorldProp[] = [
-  // North side. (Empirically the leaf lands on the opening with +openX +pivot.)
-  ...NORTH_BUILDINGS.map(([x, m], i) => ({
-    key: `door-n-${i}`, model: `${DT}${DOOR_MODELS[i % DOOR_MODELS.length]}.glb`,
-    position: [x + dfit(m).openX + DOOR_PIVOT, dfit(m).dy, BUILDING_Z + DOOR_DEPTH] as [number, number, number],
-    rotationY: NORTH_ROT,
+  ...NORTH_BUILDINGS.map(([x, m], i) => doorPlacementForSlot({
+    key: `door-n-${i}`, buildingModel: `${DT}${m}.glb`, doorModel: DOOR_MODELS[i % DOOR_MODELS.length],
+    slotPos: [x, 0, BUILDING_Z], slotRotY: NORTH_ROT, finalScale: moldScaleFor(`${DT}${m}.glb`),
   })),
-  // South side (mirrored).
-  ...SOUTH_BUILDINGS.map(([x, m], i) => ({
-    key: `door-s-${i}`, model: `${DT}${DOOR_MODELS[i % DOOR_MODELS.length]}.glb`,
-    position: [x - dfit(m).openX - DOOR_PIVOT, dfit(m).dy, -(BUILDING_Z + DOOR_DEPTH)] as [number, number, number],
-    rotationY: SOUTH_ROT,
+  ...SOUTH_BUILDINGS.map(([x, m], i) => doorPlacementForSlot({
+    key: `door-s-${i}`, buildingModel: `${DT}${m}.glb`, doorModel: DOOR_MODELS[i % DOOR_MODELS.length],
+    slotPos: [x, 0, -BUILDING_Z], slotRotY: SOUTH_ROT, finalScale: moldScaleFor(`${DT}${m}.glb`),
   })),
-  { key: 'door-deadend', model: `${DT}door_1.glb`, position: [-(ZONE_HALF - 0.5), 0, 0.5], rotationY: DEADEND_ROT },
+  { key: 'door-deadend', model: `${DT}door_1.glb`, position: [-(ZONE_HALF - 0.5), 0, 0.5], rotationY: DEADEND_ROT, scale: moldScaleFor(`${DT}building_large_2.glb`) },
 ];
 
 // Textured-pack buildings (Phase B GLBs, ~2u → scale 4) as skyline depth behind the facade.

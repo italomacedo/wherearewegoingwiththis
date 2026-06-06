@@ -19,7 +19,7 @@ import type { NPCDefinition, NPCMood, NPCDisposition } from '@entities/NPCAgent'
 import type { InventoryStack } from '@entities/Inventory';
 import type { CharacterAppearance } from '@entities/CharacterData';
 import { DEFAULT_COLORS } from '@entities/CharacterData';
-import type { WorldProp } from '@assets/WorldAssetCatalog';
+import { type WorldProp, moldScaleFor, doorPlacementForSlot, DOOR_MODELS } from '@assets/WorldAssetCatalog';
 import { type TileCoord, tileLocalToWorld } from '@systems/world/WorldGrid';
 import { type RollFn } from '@systems/SkillCheck';
 import { tileRng, pick, range, intRange, weightedPick } from '@systems/world/SeededRng';
@@ -367,17 +367,29 @@ export function themeOf(tx: number, tz: number, worldSeed: number): ThemeId {
   return weightedPick(rng, THEME_WEIGHTS).theme;
 }
 
-/** Place urban buildings in the interior slots (two rows, central plaza), scaled
- *  to fit so they never overlap. Some lots stay empty for variety. */
+/** Place urban buildings in the interior slots (two rows, central plaza). Per-mold scale
+ *  rules (no footprint auto-fit — that flattened molds; overlap is controlled by tuning
+ *  MOLD_SCALE to ≤ ~12u width at the 14u slot spacing). Each building gets its door mold
+ *  over the opening (slot-relative, same final scale). Some lots stay empty for variety. */
 function layBuildings(rng: RollFn, arch: Archetype, c: TileCoord): TileProp[] {
   const out: TileProp[] = [];
+  let i = 0;
   for (const slot of interiorBuildingSlots(c.tx, c.tz)) {
-    if (rng() < 0.2) continue; // empty lot
+    if (rng() < 0.2) { i += 1; continue; } // empty lot (still advances the door index)
     const model = pick(rng, arch.buildingPool);
+    const scale = moldScaleFor(model);
     out.push({
       key: `t-bld-${slot.key}`, model, position: slot.position,
-      rotationY: slot.rotationY, solid: true, fit: slot.footprint,
+      rotationY: slot.rotationY, solid: true, scale,
     });
+    out.push({
+      ...doorPlacementForSlot({
+        key: `t-door-${slot.key}`, buildingModel: model, doorModel: DOOR_MODELS[i % DOOR_MODELS.length],
+        slotPos: slot.position, slotRotY: slot.rotationY, finalScale: scale,
+      }),
+      solid: false,
+    });
+    i += 1;
   }
   return out;
 }
