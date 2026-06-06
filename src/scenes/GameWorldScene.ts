@@ -2506,6 +2506,20 @@ export class GameWorldScene extends BaseScene {
     const cls = await this.npcManager.classifyVerbal(npcId, npcName, message, sellable, rivals, pendings);
     if (cls.verb === 'narrative') return false; // pure chitchat → legacy reply path
 
+    // Normalize itemId: classifier sometimes emits the DISPLAY NAME the player
+    // typed ("lead_pipe", "Lead Pipe") instead of the canonical id ("pipe").
+    // Fall back to a fuzzy reverse-match against sellable items by display name.
+    if (cls.itemId && !sellable.includes(cls.itemId)) {
+      const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+      const target = norm(cls.itemId);
+      const match = sellable.find((id) => {
+        const def = itemDef(id);
+        const name = def ? t(def.nameKey) : id;
+        return norm(id) === target || norm(name) === target;
+      });
+      if (match) cls.itemId = match;
+    }
+
     // Build the actor adapters + ResolveOptions, then run the unified pipeline.
     const playerActor = new PlayerActor({
       controller: this.player,
@@ -2537,6 +2551,12 @@ export class GameWorldScene extends BaseScene {
     const result = resolveAction(playerActor, cls.verb, npcActor, opts, undefined, 'verbal');
     if (!result.allowed) {
       this.logSkill(`verbal verb=${cls.verb} BLOCKED: ${result.blockedReason}`);
+      // Surface commerce blocks to the player — otherwise they think the buy
+      // went through (Claude's reply may improvise the sale) but mechanically
+      // nothing happened (no item, no debit).
+      if (result.blockedReason === 'unknown_item' && cls.verb.startsWith('commerce_')) {
+        this.dialog?.addSystemLine(t('economy.itemNotForSale'));
+      }
       return false; // fall through to legacy reply path
     }
     // Diagnostic line per turn: classifier output + check outcome (when rolled).
