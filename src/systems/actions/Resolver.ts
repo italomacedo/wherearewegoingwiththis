@@ -464,9 +464,20 @@ function resolveVerbal(
 
     case 'commerce_haggle': {
       if (!target) return blocked('no_target');
-      // Fallback decision #10: no pending trade → fall through to commerce_discovery.
+      // Implicit-pricing: if the player jumps to "can you do better on X" without
+      // first asking the price, AND X is a valid sellable, stage the trade NOW
+      // so the haggle has a price to operate on. Without this, haggle silently
+      // no-ops while the NPC's reply improvises a price that the engine never
+      // touches — invisible disconnect between roleplay and inventory.
+      const mutations: Mutation[] = [];
       if (!o.pendingTrade) {
-        return ok(); // Applier just lists the NPC's wares (commerce_discovery semantics).
+        if (o.itemId && (!o.npcSellableIds || o.npcSellableIds.includes(o.itemId))) {
+          const stagePrice = o.priceFor ? o.priceFor(o.itemId) : 0;
+          mutations.push({ kind: 'stage_pending_trade', npc: target.id, itemId: o.itemId, price: stagePrice });
+        } else {
+          // No item to haggle on → fall through to discovery silently.
+          return ok();
+        }
       }
       // Skill check: Comércio vs the NPC's Carisma.
       const skillValue = checkValue(actor.getStats(), 'comercio', 'carisma');
@@ -474,12 +485,12 @@ function resolveVerbal(
       const opp = target.getStats().attributes.carisma ?? 30;
       const check = resolveCheck({ value: skillValue, opponent: opp }, rng);
       const critical = check.success && check.roll < RESOLVER_CRITICAL_ROLL;
-      const mutations: Mutation[] = [
+      mutations.push(
         { kind: 'apply_skill_use', actor: actor.id, skillId: 'comercio' },
         // Index the negotiation in the PDA on EVERY haggle — the dossier line
         // will reflect the haggled price via the active pendingTrade.
         { kind: 'add_pda', subject: target.id, source: 'asked', silent: true },
-      ];
+      );
       if (check.success) {
         const factor = critical ? HAGGLE_CRIT_FACTOR : HAGGLE_SUCCESS_FACTOR;
         mutations.push({ kind: 'apply_haggle_discount', npc: target.id, factor });
@@ -494,12 +505,26 @@ function resolveVerbal(
 
     case 'commerce_buy': {
       if (!target) return blocked('no_target');
-      // No pending trade → silently no-op (don't block). The player may have
-      // already bought it in the previous turn (the classifier picks "I want
-      // X" + "Deal" as TWO buys in sequence), and a hard block here would
-      // surface "no_pending_trade" noise. Let the NPC's reply handle it
-      // diegetically ("we're settled" / "what did you want?").
-      if (!o.pendingTrade) return ok();
+      // Implicit-pricing: "I want the lead pipe" / "Deal on the medkit" closes
+      // the sale even if the player skipped asking the price — stage the trade
+      // and execute it in one turn. Without this branch the buy silently no-ops
+      // while the NPC's reply improvises a closed sale that the engine never
+      // touches (player sees a quoted price but inventory/credits don't move).
+      if (!o.pendingTrade) {
+        if (o.itemId && (!o.npcSellableIds || o.npcSellableIds.includes(o.itemId))) {
+          const price = o.priceFor ? o.priceFor(o.itemId) : 0;
+          return {
+            ...ok(),
+            mutations: [
+              { kind: 'stage_pending_trade', npc: target.id, itemId: o.itemId, price },
+              { kind: 'execute_pending_trade', npc: target.id },
+            ],
+          };
+        }
+        // No pending, no item → silent no-op (player may be confirming a prior
+        // sale that already closed; the NPC's reply handles diegetically).
+        return ok();
+      }
       return { ...ok(), mutations: [{ kind: 'execute_pending_trade', npc: target.id }] };
     }
 
