@@ -7,6 +7,7 @@ import { WorldSnapshot, PromptBuilder } from '@systems/npc/PromptBuilder';
 import { ConversationContext, ConversationState } from '@systems/npc/ConversationContext';
 import { ActionClassification } from '@systems/npc/EmoteIntent';
 import { CommerceParse } from '@systems/economy/Commerce';
+import { VerbalClassification } from '@systems/actions/VerbalIntent';
 import { NPCDisposition } from '@entities/NPCAgent';
 import { IntentCandidate, NPCIntent, parseIntent } from '@systems/npc/Intent';
 import { ClaudeCallQueue } from '@systems/ClaudeCallQueue';
@@ -182,6 +183,16 @@ export class NPCManager {
   ): Promise<CommerceParse> {
     if (!this.service) return { offer: 'none', itemId: null, targetId: null, rewardItemId: null, rewardCredits: 0, accept: false };
     return this.service.classifyCommerce(npcId, npcReply, playerMessage, sellableIds, rivalIds);
+  }
+
+  /** Verbal classifier delegate (Fase 21). Fails open to narrative on missing service. */
+  async classifyVerbal(
+    npcId: string, npcName: string, message: string,
+    sellableIds: string[], rivalIds: string[],
+    pendings: { kind: 'trade' | 'mission'; itemId?: string; targetId?: string }[] = [],
+  ): Promise<VerbalClassification> {
+    if (!this.service) return { verb: 'narrative', target: null, itemId: null, proposedPrice: null, dir: null };
+    return this.service.classifyVerbal(npcId, npcName, message, sellableIds, rivalIds, pendings);
   }
 
   /** Ids of live (not-defeated) NPCs — candidate mission targets / rivals. */

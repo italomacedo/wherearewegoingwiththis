@@ -62,6 +62,10 @@ import { CharacterAssembler, AssembledCharacter } from '@systems/CharacterAssemb
 import { WorldSnapshot, PromptBuilder, NearbyNpcSnapshot } from '@systems/npc/PromptBuilder';
 import { resolveAddressee, AddressCandidate, stripShout } from '@systems/npc/Addressing';
 import { hasEmote, isCheckTimeEmote, isSelfExamEmote, narrateTime, ActionClassification } from '@systems/npc/EmoteIntent';
+// Fase 21 unified action pipeline (verbal path wired here; emote + autonomy migration in 21G).
+import { PlayerActor, NpcActor } from '@systems/actions/Actor';
+import { resolveAction, ResolveOptions } from '@systems/actions/Resolver';
+import { applyMutations, ApplierContext } from '@systems/actions/Applier';
 import {
   CharacterStats, AttributeId, createDefaultStats, checkValue, applySkillUse,
   detectPerkPointGrants, grantPerkPoints,
@@ -2391,7 +2395,11 @@ export class GameWorldScene extends BaseScene {
     // Emote pipeline: a deterministic action resolves via a cRPG check + narration
     // (and the NPC reacts); otherwise fall through to a normal NPC reply.
     if (await this.resolvePlayerAction(spoken, agent)) return;
-
+    // Fase 21 verbal pipeline: pure speech to an addressed NPC may classify into
+    // a deterministic verbal verb (job/commerce/persuade/intimidate/manipulate/info).
+    // If so, Resolver+Applier stage the state change BEFORE the NPC replies — the
+    // reply then narrates the just-decided outcome via its extraContext.
+    await this.tryVerbalAction(agent, spoken);
     const world = this.buildWorldSnapshot(agent, agent.distanceTo(this.player.getPosition()));
     await this.streamNpcReply(agent, world, spoken);
   }
@@ -2424,6 +2432,8 @@ export class GameWorldScene extends BaseScene {
 
     if (agent) {
       this.dialog.setNpcName(agent.getDisplayName());
+      // Fase 21 verbal pipeline (see sendToActiveNPC).
+      await this.tryVerbalAction(agent, spoken);
       await this.streamNpcReply(agent, this.buildWorldSnapshot(agent, agent.distanceTo(this.player.getPosition())), spoken);
     } else {
       this.dialog.setThinking(true);
@@ -2460,6 +2470,277 @@ export class GameWorldScene extends BaseScene {
   private itemName(id: string): string {
     const def = itemDef(id);
     return def ? t(def.nameKey) : id;
+  }
+
+  /**
+   * Fase 21 — Verbal action pipeline (additive next to the legacy paths).
+   *
+   * Runs BEFORE streamNpcReply when the player addresses an NPC with PURE
+   * SPEECH (no emote). Calls the verbal classifier, runs the unified
+   * Resolver, applies the resulting Mutations to scene state via the
+   * SceneApplierContext, then RETURNS — the caller still invokes
+   * streamNpcReply for the NPC's in-character reply, now informed via
+   * `extraContext` of what was decided. Returns boolean indicating whether
+   * the message was a deterministic verbal verb (true) or pure chitchat
+   * (false; caller falls through to the legacy NPC reply path).
+   */
+  /* istanbul ignore next — browser-only Fase 21 verbal wiring (Resolver+Applier are pure-tested) */
+  private async tryVerbalAction(agent: NPCAgent, message: string): Promise<boolean> {
+    if (!this.npcManager || !this.player) return false;
+    const npcId = agent.definition.id;
+    const npcName = agent.getDisplayName();
+    const disp = agent.getDisposition();
+    const sellable = canTrade(disp) ? sellableItems(agent.getInventory()) : [];
+    const liveIds = this.npcManager.liveNpcIds();
+    const rivals = liveIds.filter((other) => other !== npcId && agent.isAntagonisticToward(other));
+    // Build a compact `pendings` snapshot for the classifier prompt (helps it
+    // route accept/decline against the right offer on file).
+    const pendings: { kind: 'trade' | 'mission'; itemId?: string; targetId?: string }[] = [];
+    if (this.pendingTrade?.npcId === npcId) pendings.push({ kind: 'trade', itemId: this.pendingTrade.itemId });
+    if (this.pendingMission?.giverId === npcId) pendings.push({ kind: 'mission', targetId: this.pendingMission.targetId });
+
+    const cls = await this.npcManager.classifyVerbal(npcId, npcName, message, sellable, rivals, pendings);
+    if (cls.verb === 'narrative') return false; // pure chitchat → legacy reply path
+
+    // Build the actor adapters + ResolveOptions, then run the unified pipeline.
+    const playerActor = new PlayerActor({
+      controller: this.player,
+      inventory: this.playerInventory,
+      stats: this.playerStats,
+      displayName: this.playerName,
+    });
+    const npcActor = new NpcActor(agent, this.enemyStatsFor(agent));
+    const opts: ResolveOptions = {
+      itemId: cls.itemId,
+      otherTargetId: cls.target,
+      proposedPrice: cls.proposedPrice,
+      dir: cls.dir,
+      npcSellableIds: sellable,
+      pendingTrade: this.pendingTrade?.npcId === npcId
+        ? { itemId: this.pendingTrade.itemId, price: this.pendingTrade.price }
+        : null,
+      pendingMission: this.pendingMission?.giverId === npcId
+        ? { targetId: this.pendingMission.targetId, reward: this.missionRewardOf(this.pendingMission) }
+        : null,
+      priceFor: (id: string) => priceFor(id, disp),
+      rivalIds: rivals,
+      presentNpcIds: liveIds,
+      activeMissions: this.missions.filter((m) => m.status === 'active').map((m) => ({ giverId: m.giverId, targetId: m.targetId })),
+      defeatedNpcIds: this.npcManager.getAgents()
+        .filter((a) => a.isDefeated()).map((a) => a.definition.id),
+      giverCreditBalance: creditBalance(agent.getInventory()),
+    };
+    const result = resolveAction(playerActor, cls.verb, npcActor, opts, undefined, 'verbal');
+    if (!result.allowed) {
+      this.logSkill(`verbal verb=${cls.verb} BLOCKED: ${result.blockedReason}`);
+      return false; // fall through to legacy reply path
+    }
+    this.logSkill(`verbal verb=${cls.verb} → ${result.mutations.length} mutation(s)`);
+    applyMutations(this.buildApplierContext(), result.mutations);
+    return true;
+  }
+
+  /** Extract a RewardOffer from a Mission (for ResolveOptions). */
+  /* istanbul ignore next — trivial accessor */
+  private missionRewardOf(m: Mission): RewardOffer {
+    if (m.rewardKind === 'item' && m.rewardItemId) return { kind: 'item', itemId: m.rewardItemId };
+    return { kind: 'credits', credits: m.rewardCredits ?? 0 };
+  }
+
+  /**
+   * Build a SceneApplierContext that lets the Applier mutate this scene's
+   * live world (inventory, HP, disposition, missions, PDA, narration, …).
+   * This is the seam between the pure action layer and Babylon/save/GUI.
+   */
+  /* istanbul ignore next — browser-only scene-bound applier (each branch wires an existing scene method) */
+  private buildApplierContext(): ApplierContext {
+    const self = this;
+    const agentById = (id: string) => self.npcManager?.getAgent(id) ?? null;
+    return {
+      // ── Inventory & credits ──────────────────────────────────────────
+      transferItem(from, to, itemId, qty) {
+        const fromInv = from === 'player' ? self.playerInventory : agentById(from)?.getInventory();
+        const toInv = to === 'player' ? self.playerInventory : agentById(to)?.getInventory();
+        if (!fromInv || !toInv) return;
+        const id = itemId ?? sellableItems(fromInv)[0] ?? null;
+        if (!id) return;
+        fromInv.transferTo(toInv, id, qty);
+        if (to === 'player') void self.syncPlayerHeldItems();
+        self.persistSession();
+      },
+      transferCredits(from, to, amount) {
+        const fromInv = from === 'player' ? self.playerInventory : agentById(from)?.getInventory();
+        const toInv = to === 'player' ? self.playerInventory : agentById(to)?.getInventory();
+        if (!fromInv || !toInv) return;
+        const amt = amount < 0 ? creditBalance(fromInv) : Math.min(amount, creditBalance(fromInv));
+        if (amt <= 0) return;
+        payCredits(fromInv, amt);
+        grantCredits(toInv, amt);
+        self.persistSession();
+      },
+      // ── HP ───────────────────────────────────────────────────────────
+      heal(target, amount) {
+        if (target === 'player') self.player?.getHealth().heal(amount);
+        else agentById(target)?.getHealth().heal(amount);
+      },
+      damage(target, amount, _source) {
+        if (target === 'player') self.player?.getHealth().applyDamage(amount);
+        else agentById(target)?.getHealth().applyDamage(amount);
+      },
+      // ── Disposition / relationship ───────────────────────────────────
+      shiftDisposition(target, dir, steps) {
+        const a = agentById(target);
+        if (!a) return;
+        for (let i = 0; i < steps; i++) {
+          if (dir === 'up') a.improveDisposition(); else a.worsenDisposition();
+        }
+        self.persistSession();
+      },
+      alterRelationship(actor, otherId, dir, steps) {
+        const a = agentById(actor);
+        if (!a) return;
+        for (let i = 0; i < steps; i++) {
+          if (dir === 'up') a.improveRelationship(otherId); else a.worsenRelationship(otherId);
+        }
+        a.rememberEvent(dir === 'down' ? `Someone turned you against ${otherId}.` : `Someone reconciled you with ${otherId}.`);
+        self.persistSession();
+      },
+      hostileReaction(target) {
+        const a = agentById(target);
+        if (!a) return;
+        const { ultimatum } = a.onHostilePlayerAction();
+        if (ultimatum) self.startCombat(target);
+      },
+      // ── Combat ───────────────────────────────────────────────────────
+      beginCombat(attacker, defender, opts) {
+        // Phase 21 mutation always names attacker+defender explicitly.
+        if (attacker === 'player') {
+          self.beginCombat('player', defender, { ambush: opts.ambush, openingAttack: opts.openingAttack, noLunge: opts.remote });
+        } else {
+          self.beginCombat(attacker, defender);
+        }
+      },
+      disarm(_actor, _target) { /* TODO 21G — physical disarm (drop weapon as GroundItem) */ },
+      // ── Sabotage ─────────────────────────────────────────────────────
+      markSabotage(target) { agentById(target)?.markSabotaged(); self.persistSession(); },
+      clearSabotage(target) { agentById(target)?.clearSabotage(); self.persistSession(); },
+      // ── PDA ──────────────────────────────────────────────────────────
+      addPdaEntry(subject, _source, _from, _lines) { self.recordPda(subject); },
+      // ── Tamper ───────────────────────────────────────────────────────
+      seedTamper(target, kind, playerSkillValue) {
+        agentById(target)?.seedTamper({ kind, playerSkillValue });
+        self.persistSession();
+      },
+      // ── Commerce — pending trade ─────────────────────────────────────
+      stagePendingTrade(npc, itemId, price) {
+        self.pendingTrade = { npcId: npc, itemId, price };
+      },
+      executePendingTrade(npc) {
+        const a = agentById(npc);
+        if (a) self.executePendingTrade(a);
+      },
+      applyHaggleDiscount(npc, factor) {
+        const t = self.pendingTrade;
+        if (!t || t.npcId !== npc) return;
+        // Floor at 50% of the neutral base price (Fase 21 plan).
+        const base = priceFor(t.itemId, 'neutral');
+        const floor = Math.max(1, Math.round(base * 0.5));
+        t.price = Math.max(floor, Math.round(t.price * factor));
+        self.dialog?.addSystemLine(t ? `${self.itemName(t.itemId)} → ${t.price} cr` : '');
+      },
+      clearPendingTrade(_npc) { self.pendingTrade = null; },
+      // ── Missions ─────────────────────────────────────────────────────
+      stagePendingMission(giver, targetId, reward) {
+        const mission: Mission = {
+          id: `mission_${giver}_${targetId}`,
+          giverId: giver,
+          targetId,
+          status: 'active',
+          rewardKind: reward.kind,
+          ...(reward.kind === 'credits' ? { rewardCredits: reward.credits } : { rewardItemId: reward.itemId }),
+        };
+        self.pendingMission = mission;
+      },
+      acceptPendingMission(_giver) { self.acceptPendingMission(); },
+      declinePendingMission(_giver) { self.pendingMission = null; self.persistSession(); },
+      claimMissionCompletion(giver, targetId) {
+        // Find the active mission for this giver/target and pay out.
+        const mission = self.missions.find((m) => m.status === 'active' && m.giverId === giver && m.targetId === targetId);
+        if (!mission) return;
+        const giverAgent = agentById(giver);
+        if (giverAgent) {
+          const { mission: done } = completeMission(mission, self.playerInventory, giverAgent);
+          mission.status = done.status;
+          self.dialog?.addNarrationLine(t('economy.missionComplete', { giver: giverAgent.getDisplayName() }));
+          self.persistSession();
+        }
+      },
+      cancelActiveMission(giver) {
+        const mission = self.missions.find((m) => m.status === 'active' && m.giverId === giver);
+        if (mission) {
+          mission.status = 'cancelled';
+          self.persistSession();
+        }
+      },
+      // ── Crafting ─────────────────────────────────────────────────────
+      craft(_actor, _weaponId, _scrapCost) { /* TODO — handled by existing craft branch in scene */ },
+      repair(_actor, _itemId) { /* TODO — placeholder */ },
+      // ── Locomotion (NPC autonomy — wired in 21G) ─────────────────────
+      moveTo(_actor, _target, _coord) { /* TODO 21G */ },
+      fleeFrom(_actor, _threat) { /* TODO 21G */ },
+      wait(_actor) { /* no-op */ },
+      talkTo(_actor, _target) { /* TODO 21G — gossip trigger */ },
+      useItem(actor, itemId) {
+        // NPC self-medication: consume item + heal (medkit = 30 HP).
+        const a = agentById(actor);
+        if (!a) return;
+        const inv = a.getInventory();
+        if (!inv.has(itemId)) return;
+        inv.remove(itemId, 1);
+        if (itemId === 'medkit') a.getHealth().heal(30);
+        self.persistSession();
+      },
+      // ── Special narrations ───────────────────────────────────────────
+      examineSelf(_actor, success) {
+        if (!self.player || !self.dialog) return;
+        const line = describeCondition(self.player.getHealth().fraction(), success);
+        self.dialog.addNarrationLine(line);
+        self.speakNarration(line);
+      },
+      narrateTime() {
+        if (!self.dialog) return;
+        const line = narrateTime(self.clock.label(self.gameTimeSeconds), self.clock.period(self.gameTimeSeconds));
+        self.dialog.addNarrationLine(line);
+        self.speakNarration(line);
+      },
+      narrateTargetAlive(targetId) {
+        const name = agentById(targetId)?.getDisplayName() ?? 'they';
+        const line = `${name}'s still walking around.`;
+        self.dialog?.addNarrationLine(line);
+        self.speakNarration(line);
+      },
+      // ── Learn-by-doing ───────────────────────────────────────────────
+      applySkillUse(actor, skillId) {
+        if (actor !== 'player') return;
+        const before = self.playerStats;
+        self.playerStats = applySkillUse(before, skillId, SettingsService.get('skillGainMultiplier'));
+        self.applyPerkPointGrants(before, self.playerStats);
+      },
+      // ── Pure narration / TTS gateway ─────────────────────────────────
+      narrate(line, voice, agentId) {
+        if (!self.dialog) return;
+        if (voice === 'npc' && agentId) {
+          const a = agentById(agentId);
+          if (a) {
+            self.dialog.setNpcText(line);
+            self.speakNpc(a, line);
+            return;
+          }
+        }
+        self.dialog.addNarrationLine(line);
+        self.speakNarration(line);
+      },
+    };
   }
 
   /**
