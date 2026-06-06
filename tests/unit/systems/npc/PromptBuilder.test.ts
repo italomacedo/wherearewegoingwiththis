@@ -308,6 +308,63 @@ describe('PromptBuilder', () => {
     });
   });
 
+  describe('buildVerbalClassifierPrompt (Fase 21)', () => {
+    it('asks for the 5 fixed lines and lists the full 15-verb vocabulary', () => {
+      const p = PromptBuilder.buildVerbalClassifierPrompt(
+        'Got any work?', 'Zara', ['knife'], ['npc_mback'],
+      );
+      // Required output shape
+      expect(p).toContain('VERB=');
+      expect(p).toContain('TARGET=');
+      expect(p).toContain('ITEM=');
+      expect(p).toContain('PRICE=');
+      expect(p).toContain('DIR=');
+      // All 15 verbs listed
+      const verbs = [
+        'job_request', 'job_claim', 'job_accept', 'job_decline', 'job_cancel',
+        'commerce_discovery', 'commerce_pricing', 'commerce_haggle', 'commerce_buy', 'commerce_sell',
+        'manipulate', 'persuade', 'intimidate', 'info', 'narrative',
+      ];
+      verbs.forEach((v) => expect(p).toContain(v));
+      // Context lists
+      expect(p).toContain('knife');
+      expect(p).toContain('npc_mback');
+      expect(p).toContain('Zara');
+      expect(p).toContain('Got any work?');
+    });
+
+    it('lists "none" when sellable/rival lists are empty', () => {
+      const p = PromptBuilder.buildVerbalClassifierPrompt('Hi.', 'Zara', [], []);
+      expect(p).toContain('Sellable item ids: none');
+      expect(p).toContain('Rival npc ids');
+      expect(p).toContain(': none');
+    });
+
+    it('explains each verb category briefly so the classifier disambiguates', () => {
+      const p = PromptBuilder.buildVerbalClassifierPrompt('msg', 'Zara', [], []);
+      expect(p).toMatch(/job_request:/i);
+      expect(p).toMatch(/commerce_haggle:/i);
+      expect(p).toMatch(/manipulate:/i);
+      expect(p).toMatch(/info:/i);
+      expect(p).toMatch(/narrative:/i);
+    });
+
+    it('reports pending offers from the NPC so accept/decline disambiguate', () => {
+      const p = PromptBuilder.buildVerbalClassifierPrompt(
+        "I'm in", 'Zara', ['knife'], ['npc_mback'],
+        [{ kind: 'mission', targetId: 'npc_mback' }, { kind: 'trade', itemId: 'knife' }],
+      );
+      expect(p).toContain('Pending offers from this NPC');
+      expect(p).toContain('mission(kill npc_mback)');
+      expect(p).toContain('trade(knife)');
+    });
+
+    it('reports "No pending offers" when the list is empty', () => {
+      const p = PromptBuilder.buildVerbalClassifierPrompt('Hi.', 'Zara', [], []);
+      expect(p).toContain('No pending offers from this NPC');
+    });
+  });
+
   describe('buildCommerceClassifierPrompt (Phase 16)', () => {
     it('asks for the 6 fixed lines and lists valid ids + both messages', () => {
       const p = PromptBuilder.buildCommerceClassifierPrompt('I can sell you a knife.', 'deal', ['knife'], ['zara']);

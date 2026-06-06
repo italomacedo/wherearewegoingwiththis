@@ -160,6 +160,51 @@ export class PromptBuilder {
     ].join('\n');
   }
 
+  /**
+   * Verbal classifier prompt (Fase 21). For messages WITHOUT an `*emote*` —
+   * pure speech. Classifies the player's intent into one of 15 verbs +
+   * narrative fall-through (see `VerbalVerb` in `actions/Verbs.ts`).
+   *
+   * Returns 5 fixed lines so `parseVerbalClassification` reads them cheaply.
+   * Lists of sellable items + rival npc ids ground the classifier so it
+   * cannot emit a non-existent item or target. Pendings (the NPC's open
+   * trade/mission offers) help disambiguate `commerce_buy` (which item) and
+   * `job_accept`/`job_decline` (target implicit from the pending mission).
+   */
+  static buildVerbalClassifierPrompt(
+    message: string,
+    npcName: string,
+    sellableIds: readonly string[],
+    rivalIds: readonly string[],
+    pendings: readonly { kind: 'trade' | 'mission'; itemId?: string; targetId?: string }[] = [],
+  ): string {
+    const pendingLine = pendings.length === 0
+      ? 'No pending offers from this NPC.'
+      : 'Pending offers from this NPC: ' + pendings.map((p) =>
+        p.kind === 'trade' ? `trade(${p.itemId ?? '?'})` : `mission(kill ${p.targetId ?? '?'})`,
+      ).join(', ') + '.';
+    return [
+      `Classify the player's SPOKEN line (no emote) to ${npcName} in a cyberpunk RPG.`,
+      'Output EXACTLY these five lines, nothing else:',
+      'VERB=<one of: job_request job_claim job_accept job_decline job_cancel commerce_discovery commerce_pricing commerce_haggle commerce_buy commerce_sell manipulate persuade intimidate info narrative>',
+      'TARGET=<the THIRD-party npc id the player refers to (manipulate/info), or none>',
+      'ITEM=<the item id mentioned, or none>',
+      'PRICE=<integer the player proposes when haggling, or none>',
+      'DIR=up or down or none',
+      '',
+      'job_request: player asks for work/contract. job_claim: player reports a target dead. job_accept/decline/cancel: refers to a PENDING offer.',
+      'commerce_discovery: player asks what is for sale. commerce_pricing: player asks the price of a specific item.',
+      'commerce_haggle: player proposes a different price or pushes for a discount. commerce_buy: player commits to buy. commerce_sell: player offers to sell something.',
+      'manipulate: gossip or social engineering to change how this NPC feels about a THIRD person (TARGET). DIR=down to worsen, up to mend.',
+      'persuade: charm/reason this NPC into helping (no third party). intimidate: threaten THIS NPC (no third party).',
+      'info: player asks what this NPC knows about a third person (TARGET). narrative: chitchat / anything else.',
+      `Sellable item ids: ${sellableIds.join(', ') || 'none'}`,
+      `Rival npc ids (the giver is antagonistic toward these): ${rivalIds.join(', ') || 'none'}`,
+      pendingLine,
+      `Player: ${JSON.stringify(message)}`,
+    ].join('\n');
+  }
+
   /** Narrate the OUTCOME of a resolved deterministic action (no numbers/mechanics). */
   static buildOutcomeNarrationPrompt(message: string, success: boolean, language = 'English'): string {
     return [
