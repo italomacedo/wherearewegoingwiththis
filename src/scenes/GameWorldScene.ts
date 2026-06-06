@@ -98,6 +98,9 @@ import { AssetCache, babylonContainerLoader } from '@systems/world/AssetCache';
 /** Max seconds a single frame may advance the simulation. */
 export const MAX_FRAME_DELTA = 0.1;
 
+/** Game-time advance per real second (12 → 1 game-day = 2 real hours). */
+export const TIME_SCALE = 12;
+
 /**
  * Convert an engine frame delta (ms) to seconds, CAPPED. When the window is
  * backgrounded (Alt+Tab / minimise) the render loop pauses, and the next
@@ -170,7 +173,7 @@ export class GameWorldScene extends BaseScene {
   private static readonly COMBAT_RECRUIT_RADIUS = 30;
   /** World seed for deterministic tile generation (from the save; Phase D persists it). */
   private worldSeed = 1;
-  private clock = new GameClock(); // wall-clock mode by default (mirrors the PC clock)
+  private clock = new GameClock({ mode: 'fixed' }); // fixed: 1 game-day = 2 real hours
   private lastPeriod: DayPeriod | null = null;
   private cameraSystem: CameraSystem | null = null;
   private inputSystem: InputSystem | null = null;
@@ -1368,7 +1371,7 @@ export class GameWorldScene extends BaseScene {
     this.tickHunger(dt);
     this.updateHud(dialogOpen);
     this.inputSystem?.endFrame();
-    this.gameTimeSeconds += dt;
+    this.gameTimeSeconds += dt * TIME_SCALE;
   }
 
   /**
