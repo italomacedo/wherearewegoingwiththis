@@ -201,9 +201,9 @@ export class NPCManager {
   }
 
   /** One-shot narration of a resolved deterministic action's outcome. */
-  async narrateOutcome(message: string, success: boolean, language = 'English'): Promise<string> {
+  async narrateOutcome(message: string, success: boolean, language = 'English', critical = false): Promise<string> {
     if (!this.service) return '';
-    return this.service.narrate('action', PromptBuilder.buildOutcomeNarrationPrompt(message, success, language));
+    return this.service.narrate('action', PromptBuilder.buildOutcomeNarrationPrompt(message, success, language, critical));
   }
 
   /** One-shot ambient narration for the global chat's "react to surroundings". */

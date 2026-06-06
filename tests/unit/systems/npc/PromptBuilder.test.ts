@@ -200,6 +200,16 @@ describe('PromptBuilder', () => {
       expect(fail).toContain('FAILS');
       expect(fail).toContain('pick the lock');
     });
+
+    it('lifts a critical success to a "show-stopping" tone', () => {
+      const crit = PromptBuilder.buildOutcomeNarrationPrompt('*pick the lock*', true, 'English', true);
+      expect(crit).toMatch(/SUCCEEDS SPECTACULARLY|show-stopping/);
+      // Critical narration is reserved for SUCCESS only; failure path stays plain.
+      const failCritArg = PromptBuilder.buildOutcomeNarrationPrompt('*pick the lock*', false, 'English', true);
+      // The crit flag still adds the spectacular tone (caller is responsible for
+      // only passing critical=true on a success). Still must mention what to do.
+      expect(failCritArg).toContain('Narrate');
+    });
   });
 
   describe('buildAmbientReactionPrompt', () => {

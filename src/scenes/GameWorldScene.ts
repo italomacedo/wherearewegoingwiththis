@@ -2574,6 +2574,16 @@ export class GameWorldScene extends BaseScene {
     if (cls.verb === 'commerce_haggle' && result.rolled && !result.success) {
       this.dialog?.addSystemLine(t('economy.haggleFailed'));
     }
+    // Critical-success narrator beat — gives social/commerce crits the same
+    // "show-stopping moment" energy combat crits get. Skipped when the verb
+    // rolls no check (job_*, commerce_buy, narrative).
+    if (result.rolled && result.critical) {
+      const line = await this.npcManager.narrateOutcome(message, true, languageName(getLocale()), true);
+      if (line) {
+        this.dialog?.addNarrationLine(line);
+        this.speakNarration(line);
+      }
+    }
     return true;
   }
 
@@ -2889,6 +2899,11 @@ export class GameWorldScene extends BaseScene {
     const attribute = cls.attribute ?? GameWorldScene.DEFAULT_CHECK_ATTRIBUTE;
     const value = checkValue(this.playerStats, cls.skillId, attribute);
     const result = resolveCheck({ value, opponent: cls.difficulty });
+    const critical = result.success && result.roll < 5;
+
+    // Diagnostic for the deterministic-but-no-effect path (mirrors applySkillEffect).
+    this.logSkill(`classified effect=${cls.effect} skill=${cls.skillId ?? '—'} attr=${attribute} diff=${cls.difficulty} value=${value}`);
+    this.logSkill(`unresisted · roll=${result.roll.toFixed(0)} vs P=${(result.probability * 100).toFixed(0)}% → ${result.success ? 'HIT' : 'MISS'}${critical ? ' (CRIT)' : ''}`);
 
     // Learning by doing — only on success (owner's rule), × the Options multiplier.
     if (result.success && cls.skillId) {
@@ -2897,9 +2912,9 @@ export class GameWorldScene extends BaseScene {
       this.applyPerkPointGrants(before, this.playerStats);
     }
 
-    const narration = await this.npcManager.narrateOutcome(message, result.success, languageName(getLocale()));
+    const narration = await this.npcManager.narrateOutcome(message, result.success, languageName(getLocale()), critical);
     {
-      const outcomeLine = narration || (result.success ? 'You pull it off.' : "It doesn't go your way.");
+      const outcomeLine = narration || (result.success ? (critical ? 'You pull it off — flawlessly.' : 'You pull it off.') : "It doesn't go your way.");
       this.dialog.addNarrationLine(outcomeLine);
       this.speakNarration(outcomeLine);
     }
@@ -2966,8 +2981,8 @@ export class GameWorldScene extends BaseScene {
     if (res.mutations.length === 0) this.logSkill('mechanical: (none)');
     for (const m of res.mutations) this.applySkillMutation(m);
 
-    const narration = await this.npcManager.narrateOutcome(message, res.success, languageName(getLocale()));
-    const outcomeLine = narration || (res.success ? 'You pull it off.' : "It doesn't go your way.");
+    const narration = await this.npcManager.narrateOutcome(message, res.success, languageName(getLocale()), res.critical);
+    const outcomeLine = narration || (res.success ? (res.critical ? 'You pull it off — flawlessly.' : 'You pull it off.') : "It doesn't go your way.");
     this.logSkill(`narration: "${outcomeLine}"`);
     this.dialog.addNarrationLine(outcomeLine);
     this.speakNarration(outcomeLine);

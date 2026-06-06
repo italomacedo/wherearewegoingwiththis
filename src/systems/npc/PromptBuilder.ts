@@ -206,11 +206,21 @@ export class PromptBuilder {
     ].join('\n');
   }
 
-  /** Narrate the OUTCOME of a resolved deterministic action (no numbers/mechanics). */
-  static buildOutcomeNarrationPrompt(message: string, success: boolean, language = 'English'): string {
+  /**
+   * Narrate the OUTCOME of a resolved deterministic action (no numbers/mechanics).
+   * `critical` lifts the prose into a "show-stopping moment" register — meant for
+   * skill-check criticals (roll < 5 on a success). The flag is optional so callers
+   * that don't care about crits stay compatible.
+   */
+  static buildOutcomeNarrationPrompt(
+    message: string, success: boolean, language = 'English', critical = false,
+  ): string {
+    const tone = critical
+      ? `The action SUCCEEDS SPECTACULARLY — narrate a small show-stopping moment (slick, lucky, perfect timing), still grounded but punchier than a normal success.`
+      : `The action ${success ? 'SUCCEEDS' : 'FAILS'} — make the narration reflect that, grounded and cinematic.`;
     return [
       `Narrate, in ${language}, in second person and 1-2 sentences, the OUTCOME of the player action below.`,
-      `The action ${success ? 'SUCCEEDS' : 'FAILS'} — make the narration reflect that, grounded and cinematic.`,
+      tone,
       'Do NOT mention dice, numbers, skills, or game mechanics. No quotation marks.',
       `Action: ${message}`,
     ].join('\n');
