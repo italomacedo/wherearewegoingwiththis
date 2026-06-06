@@ -108,6 +108,23 @@ describe('EmoteIntent (pure)', () => {
       expect(r.effect).toBe('steal');
       expect(r.dir).toBe('up');
     });
+    it('accepts the new Fase 21 slim-vocab verbs (disarm/persuade/intimidate/examine_self/narrate_time/narrative)', () => {
+      const verbs = ['disarm', 'persuade', 'intimidate', 'examine_self', 'narrate_time', 'narrative'];
+      verbs.forEach((v) => {
+        const r = parseActionClassification(`VERDICT=DETERMINISTIC\nEFFECT=${v}`);
+        expect(r.effect).toBe(v);
+      });
+    });
+    it('still accepts legacy verbs for backward compat (deprecated, removed in 21D-F)', () => {
+      // The classifier no longer EMITS these (the new prompt teaches only the slim vocab),
+      // but the parser is tolerant so a stray output is still recognised rather than
+      // silently degrading. Lets us catch unexpected legacy emissions in logs.
+      const verbs = ['relationship', 'disposition', 'haggle', 'appraise', 'traverse', 'none'];
+      verbs.forEach((v) => {
+        const r = parseActionClassification(`VERDICT=DETERMINISTIC\nEFFECT=${v}`);
+        expect(r.effect).toBe(v);
+      });
+    });
     it('parses HOSTILE=yes (and treats sim/true as hostile)', () => {
       expect(parseActionClassification('VERDICT=DETERMINISTIC\nSKILL=combate_corpo_a_corpo\nATTR=forca\nDIFF=medium\nHOSTILE=yes').hostile).toBe(true);
       expect(parseActionClassification('HOSTILE=sim').hostile).toBe(true);

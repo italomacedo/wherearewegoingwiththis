@@ -6,7 +6,7 @@ import { createDefaultStats, maxHpFor, isHacker } from '@entities/CharacterStats
 import { NPCDisposition } from '@entities/NPCAgent';
 import { InventoryState, defaultInventoryState } from '@entities/Inventory';
 import type { AttachOverrides } from '@systems/HeldItems';
-import type { Mission } from '@systems/economy/Missions';
+import type { Mission, PendingOffer } from '@systems/economy/Missions';
 import type { GroundItem } from '@systems/world/GroundItems';
 import type { PdaEntry } from '@systems/pda/Pda';
 
@@ -58,8 +58,12 @@ export interface SaveGame {
   inventory: InventoryState;
   /** Per-item held-prop transform overrides tuned in-game (Adjust tool). */
   heldAttach: AttachOverrides;
-  /** Active/complete kill-contracts the player has taken on (Phase 16). */
+  /** Active/complete/cancelled kill-contracts the player has taken on (Phase 16 + Fase 21). */
   missions: Mission[];
+  /** Trade/mission OFFERS made by NPCs that the player has not yet accepted or
+   *  declined. Persist cross-session (Fase 21, decision #11). 1 per (npcId, kind);
+   *  a fresh offer overwrites the previous. */
+  pendings: PendingOffer[];
   /** Items the player dropped into the world, by tile (Fase 18). */
   groundItems: GroundItem[];
   /** Intel dossiers gathered by scanning/hacking NPCs (Fase 20 PDA). */
@@ -141,6 +145,8 @@ export class SaveService {
     // Cyberdeck rule (Fase 20): IT ≥ 20 means an amateur hacker → starts with a deck.
     const inventory = defaultInventoryState();
     if (character.stats && isHacker(character.stats)) inventory.items.push({ id: 'cyberdeck', qty: 1 });
+    // Fase 21: player starts with seed money so commerce + early-game trades are testable.
+    inventory.items.push({ id: 'credstick', qty: 100 });
     return {
       saveId,
       saveName: saveName ?? `Save ${saveId.slice(0, 4)}`,
@@ -161,6 +167,7 @@ export class SaveService {
       inventory,
       heldAttach: {},
       missions: [],
+      pendings: [],
       groundItems: [],
       pda: [],
       flags: {},
@@ -196,6 +203,13 @@ export class SaveService {
     const save = SaveService.load(saveId);
     if (!save) return;
     SaveService.save({ ...save, missions });
+  }
+
+  /** Persist pending trade/mission offers (Fase 21, decision #11 — cross-session). */
+  static updatePendings(saveId: string, pendings: PendingOffer[]): void {
+    const save = SaveService.load(saveId);
+    if (!save) return;
+    SaveService.save({ ...save, pendings });
   }
 
   static save(saveGame: SaveGame): void {
@@ -325,6 +339,8 @@ export class SaveService {
     if (!save.inventory) save.inventory = defaultInventoryState();
     if (!save.heldAttach) save.heldAttach = {};
     if (!save.missions) save.missions = [];
+    // Fase 21: pendings cross-session (decision #11). Legacy saves get an empty list.
+    if (!save.pendings) save.pendings = [];
     if (!save.groundItems) save.groundItems = [];
     if (!save.pda) save.pda = [];
     // Fase 17: backfill the procedural-world seed (derived stably from the saveId

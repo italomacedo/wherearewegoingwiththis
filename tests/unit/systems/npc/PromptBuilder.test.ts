@@ -167,6 +167,30 @@ describe('PromptBuilder', () => {
       expect(p).toContain('armas_de_fogo'); // a real skill id is listed
       expect(p).toContain('inteligencia'); // a real attribute id is listed
     });
+    it('teaches the slim Fase 21 emote vocabulary (14 verbs incl. narrative)', () => {
+      const p = PromptBuilder.buildActionClassifierPrompt('*action*');
+      // Slim vocab — these MUST appear in the EFFECT list.
+      [
+        'attack', 'steal', 'info', 'coerce', 'heal', 'sabotage', 'repair', 'craft',
+        'persuade', 'intimidate', 'disarm', 'examine_self', 'narrate_time', 'narrative',
+      ].forEach((v) => expect(p).toContain(v));
+    });
+    it('no longer teaches the legacy verbs (Fase 21 slim — relationship/disposition/haggle/appraise/traverse/none)', () => {
+      const p = PromptBuilder.buildActionClassifierPrompt('*action*');
+      // The EFFECT= line lists vocab — legacy names must NOT appear there.
+      // We do this by grabbing only the EFFECT line and asserting against it
+      // (the legacy words could appear elsewhere as English text, e.g. "relationship" in
+      // a context line — what matters is that they aren't in the vocabulary list).
+      const effectLine = p.split('\n').find((l) => l.startsWith('EFFECT='))!;
+      expect(effectLine).not.toContain('relationship');
+      expect(effectLine).not.toContain('disposition');
+      expect(effectLine).not.toContain('haggle');
+      expect(effectLine).not.toContain('appraise');
+      expect(effectLine).not.toContain('traverse');
+      // 'none' is renamed to 'narrative' — must NOT be in EFFECT= options anymore.
+      expect(effectLine).not.toContain(' none ');
+      expect(effectLine).not.toMatch(/\bnone\b/);
+    });
   });
 
   describe('buildOutcomeNarrationPrompt', () => {
@@ -175,6 +199,16 @@ describe('PromptBuilder', () => {
       const fail = PromptBuilder.buildOutcomeNarrationPrompt('*pick the lock*', false);
       expect(fail).toContain('FAILS');
       expect(fail).toContain('pick the lock');
+    });
+
+    it('lifts a critical success to a "show-stopping" tone', () => {
+      const crit = PromptBuilder.buildOutcomeNarrationPrompt('*pick the lock*', true, 'English', true);
+      expect(crit).toMatch(/SUCCEEDS SPECTACULARLY|show-stopping/);
+      // Critical narration is reserved for SUCCESS only; failure path stays plain.
+      const failCritArg = PromptBuilder.buildOutcomeNarrationPrompt('*pick the lock*', false, 'English', true);
+      // The crit flag still adds the spectacular tone (caller is responsible for
+      // only passing critical=true on a success). Still must mention what to do.
+      expect(failCritArg).toContain('Narrate');
     });
   });
 
@@ -297,6 +331,9 @@ describe('PromptBuilder', () => {
       // The contract is bounded to killing a present rival — no invented heists.
       expect(p).toContain('KILLING');
       expect(p).toContain('Do NOT invent');
+      // Fase 21 fix: NPCs must quote literal prices + not invent stock.
+      expect(p).toMatch(/EXACTLY|exactly/);
+      expect(p).toMatch(/never invent/i);
     });
     it('returns empty when nothing to sell and no rivals', () => {
       expect(PromptBuilder.buildCommerceContext({ sellable: [], rivals: [], payableCredits: 0, payableItems: [] })).toBe('');
@@ -305,6 +342,63 @@ describe('PromptBuilder', () => {
       const p = PromptBuilder.buildCommerceContext({ sellable: [], rivals: ['Rook'], payableCredits: 0, payableItems: [] });
       expect(p).toContain('Rook');
       expect(p).toContain('a favour');
+    });
+  });
+
+  describe('buildVerbalClassifierPrompt (Fase 21)', () => {
+    it('asks for the 5 fixed lines and lists the full 15-verb vocabulary', () => {
+      const p = PromptBuilder.buildVerbalClassifierPrompt(
+        'Got any work?', 'Zara', ['knife'], ['npc_mback'],
+      );
+      // Required output shape
+      expect(p).toContain('VERB=');
+      expect(p).toContain('TARGET=');
+      expect(p).toContain('ITEM=');
+      expect(p).toContain('PRICE=');
+      expect(p).toContain('DIR=');
+      // All 15 verbs listed
+      const verbs = [
+        'job_request', 'job_claim', 'job_accept', 'job_decline', 'job_cancel',
+        'commerce_discovery', 'commerce_pricing', 'commerce_haggle', 'commerce_buy', 'commerce_sell',
+        'manipulate', 'persuade', 'intimidate', 'info', 'narrative',
+      ];
+      verbs.forEach((v) => expect(p).toContain(v));
+      // Context lists
+      expect(p).toContain('knife');
+      expect(p).toContain('npc_mback');
+      expect(p).toContain('Zara');
+      expect(p).toContain('Got any work?');
+    });
+
+    it('lists "none" when sellable/rival lists are empty', () => {
+      const p = PromptBuilder.buildVerbalClassifierPrompt('Hi.', 'Zara', [], []);
+      expect(p).toContain('Sellable item ids: none');
+      expect(p).toContain('Rival npc ids');
+      expect(p).toContain(': none');
+    });
+
+    it('explains each verb category briefly so the classifier disambiguates', () => {
+      const p = PromptBuilder.buildVerbalClassifierPrompt('msg', 'Zara', [], []);
+      expect(p).toMatch(/job_request:/i);
+      expect(p).toMatch(/commerce_haggle:/i);
+      expect(p).toMatch(/manipulate:/i);
+      expect(p).toMatch(/info:/i);
+      expect(p).toMatch(/narrative:/i);
+    });
+
+    it('reports pending offers from the NPC so accept/decline disambiguate', () => {
+      const p = PromptBuilder.buildVerbalClassifierPrompt(
+        "I'm in", 'Zara', ['knife'], ['npc_mback'],
+        [{ kind: 'mission', targetId: 'npc_mback' }, { kind: 'trade', itemId: 'knife' }],
+      );
+      expect(p).toContain('Pending offers from this NPC');
+      expect(p).toContain('mission(kill npc_mback)');
+      expect(p).toContain('trade(knife)');
+    });
+
+    it('reports "No pending offers" when the list is empty', () => {
+      const p = PromptBuilder.buildVerbalClassifierPrompt('Hi.', 'Zara', [], []);
+      expect(p).toContain('No pending offers from this NPC');
     });
   });
 

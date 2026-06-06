@@ -3,6 +3,7 @@ import { NPCAgent } from '@entities/NPCAgent';
 import { PromptBuilder, WorldSnapshot } from '@systems/npc/PromptBuilder';
 import { ActionClassification, parseActionClassification } from '@systems/npc/EmoteIntent';
 import { CommerceParse, parseCommerceResponse } from '@systems/economy/Commerce';
+import { VerbalClassification, parseVerbalClassification } from '@systems/actions/VerbalIntent';
 import { estimateTokens } from '@systems/TokenMeter';
 
 /**
@@ -151,6 +152,31 @@ export class ClaudeNPCService {
       return parseActionClassification(raw);
     } catch {
       return { deterministic: false, skillId: null, attribute: null, difficulty: 50, hostile: false, effect: 'none', target2: null, dir: null };
+    }
+  }
+
+  /**
+   * Verbal classifier (Fase 21). For SPEECH messages (no `*emote*`) the player
+   * directs at an NPC: detects job/commerce/social verbs (15 + narrative) plus
+   * a target/item/price/dir per the verb's needs. One-shot; fails OPEN to
+   * `narrative` (the no-op fall-through) so a CLI failure never blocks the
+   * conversation.
+   *
+   * `pendings` carries the NPC's open offers (trades / missions) so the
+   * classifier can disambiguate "yes, deal" / "I'll take it" against the
+   * actual pending — see `parseVerbalClassification`.
+   */
+  async classifyVerbal(
+    npcId: string, npcName: string, message: string,
+    sellableIds: string[], rivalIds: string[],
+    pendings: { kind: 'trade' | 'mission'; itemId?: string; targetId?: string }[] = [],
+  ): Promise<VerbalClassification> {
+    try {
+      const prompt = PromptBuilder.buildVerbalClassifierPrompt(message, npcName, sellableIds, rivalIds, pendings);
+      const raw = await this.oneShot(`${npcId}::verbal`, prompt, 'verbal-classify');
+      return parseVerbalClassification(raw, { sellableIds, rivalIds });
+    } catch {
+      return { verb: 'narrative', target: null, itemId: null, proposedPrice: null, dir: null };
     }
   }
 

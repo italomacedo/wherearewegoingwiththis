@@ -137,34 +137,90 @@ export class PromptBuilder {
    */
   static buildActionClassifierPrompt(message: string): string {
     return [
-      'Classify a player action in a cyberpunk RPG. Output EXACTLY these eight lines, nothing else:',
+      'Classify a player emote (*action*) in a cyberpunk RPG. Output EXACTLY these eight lines, nothing else:',
       'VERDICT=DETERMINISTIC or NARRATIVE',
       'SKILL=<skill id or none>',
       'ATTR=<attribute id>',
       'DIFF=trivial or easy or medium or hard or extreme',
       'HOSTILE=yes or no',
-      'EFFECT=<one of: attack steal info relationship disposition coerce heal sabotage repair craft haggle appraise traverse none>',
-      'TARGET2=<name of a SECOND person the action targets, e.g. for changing how two others get along, else none>',
+      'EFFECT=<one of: attack steal info coerce heal sabotage repair craft persuade intimidate disarm examine_self narrate_time narrative>',
+      'TARGET2=<name of a SECOND person the action targets (e.g. NPC↔NPC manipulation), else none>',
       'DIR=up or down or none',
       '',
-      'DETERMINISTIC=action resolves by game systems. NARRATIVE=pure roleplay, no game outcome.',
+      'DETERMINISTIC=action resolves by game systems. NARRATIVE=pure roleplay, no game outcome (use EFFECT=narrative).',
       'HOSTILE=yes only for physical aggression/credible threat against a present PERSON.',
       'EFFECT: attack=hurt/fight; steal=take item or transfer their money; info=hack/scan to learn about them;',
-      'relationship=change how two NPCs feel about each other; disposition=change how they feel about YOU;',
-      'coerce=threaten them into giving something; heal=restore health; sabotage=rig their gear;',
-      'repair/craft=fix or build gear; haggle=better price; appraise=value an item; traverse=climb/force/escape; none=otherwise.',
-      'DIR=up if it improves a feeling (befriend/reconcile), down if it worsens it (anger/turn against), else none.',
+      'coerce=physically threaten them into giving something; heal=restore health; sabotage=rig their gear;',
+      'repair/craft=fix or build gear; persuade=emote charm/seduction (no third party); intimidate=emote physical pressure (shove, brandish);',
+      'disarm=knock their weapon to the ground; examine_self=check your own wounds/condition; narrate_time=check the diegetic time of day;',
+      'narrative=otherwise (pure roleplay flavour with no mechanic).',
+      'DIR=up if it improves a feeling, down if it worsens it, else none.',
       `Skills: ${SKILLS.map((s) => s.id).join(', ')}`,
       `Attributes: ${ATTRIBUTES.map((a) => a.id).join(', ')}`,
       `Player: ${JSON.stringify(message)}`,
     ].join('\n');
   }
 
-  /** Narrate the OUTCOME of a resolved deterministic action (no numbers/mechanics). */
-  static buildOutcomeNarrationPrompt(message: string, success: boolean, language = 'English'): string {
+  /**
+   * Verbal classifier prompt (Fase 21). For messages WITHOUT an `*emote*` —
+   * pure speech. Classifies the player's intent into one of 15 verbs +
+   * narrative fall-through (see `VerbalVerb` in `actions/Verbs.ts`).
+   *
+   * Returns 5 fixed lines so `parseVerbalClassification` reads them cheaply.
+   * Lists of sellable items + rival npc ids ground the classifier so it
+   * cannot emit a non-existent item or target. Pendings (the NPC's open
+   * trade/mission offers) help disambiguate `commerce_buy` (which item) and
+   * `job_accept`/`job_decline` (target implicit from the pending mission).
+   */
+  static buildVerbalClassifierPrompt(
+    message: string,
+    npcName: string,
+    sellableIds: readonly string[],
+    rivalIds: readonly string[],
+    pendings: readonly { kind: 'trade' | 'mission'; itemId?: string; targetId?: string }[] = [],
+  ): string {
+    const pendingLine = pendings.length === 0
+      ? 'No pending offers from this NPC.'
+      : 'Pending offers from this NPC: ' + pendings.map((p) =>
+        p.kind === 'trade' ? `trade(${p.itemId ?? '?'})` : `mission(kill ${p.targetId ?? '?'})`,
+      ).join(', ') + '.';
+    return [
+      `Classify the player's SPOKEN line (no emote) to ${npcName} in a cyberpunk RPG.`,
+      'Output EXACTLY these five lines, nothing else:',
+      'VERB=<one of: job_request job_claim job_accept job_decline job_cancel commerce_discovery commerce_pricing commerce_haggle commerce_buy commerce_sell manipulate persuade intimidate info narrative>',
+      'TARGET=<the THIRD-party npc id the player refers to (manipulate/info), or none>',
+      'ITEM=<the item id mentioned, or none>',
+      'PRICE=<integer the player proposes when haggling, or none>',
+      'DIR=up or down or none',
+      '',
+      'job_request: player asks for work/contract. job_claim: player reports a target dead. job_accept/decline/cancel: refers to a PENDING offer.',
+      'commerce_discovery: player asks what is for sale. commerce_pricing: player asks the price of a specific item.',
+      'commerce_haggle: player proposes a different price or pushes for a discount. commerce_buy: player commits to buy. commerce_sell: player offers to sell something.',
+      'manipulate: gossip or social engineering to change how this NPC feels about a THIRD person (TARGET). DIR=down to worsen, up to mend.',
+      'persuade: charm/reason this NPC into helping (no third party). intimidate: threaten THIS NPC (no third party).',
+      'info: player asks what this NPC knows about a third person (TARGET). narrative: chitchat / anything else.',
+      `Sellable item ids: ${sellableIds.join(', ') || 'none'}`,
+      `Rival npc ids (the giver is antagonistic toward these): ${rivalIds.join(', ') || 'none'}`,
+      pendingLine,
+      `Player: ${JSON.stringify(message)}`,
+    ].join('\n');
+  }
+
+  /**
+   * Narrate the OUTCOME of a resolved deterministic action (no numbers/mechanics).
+   * `critical` lifts the prose into a "show-stopping moment" register — meant for
+   * skill-check criticals (roll < 5 on a success). The flag is optional so callers
+   * that don't care about crits stay compatible.
+   */
+  static buildOutcomeNarrationPrompt(
+    message: string, success: boolean, language = 'English', critical = false,
+  ): string {
+    const tone = critical
+      ? `The action SUCCEEDS SPECTACULARLY — narrate a small show-stopping moment (slick, lucky, perfect timing), still grounded but punchier than a normal success.`
+      : `The action ${success ? 'SUCCEEDS' : 'FAILS'} — make the narration reflect that, grounded and cinematic.`;
     return [
       `Narrate, in ${language}, in second person and 1-2 sentences, the OUTCOME of the player action below.`,
-      `The action ${success ? 'SUCCEEDS' : 'FAILS'} — make the narration reflect that, grounded and cinematic.`,
+      tone,
       'Do NOT mention dice, numbers, skills, or game mechanics. No quotation marks.',
       `Action: ${message}`,
     ].join('\n');
@@ -259,6 +315,7 @@ export class PromptBuilder {
     const lines: string[] = [];
     if (inputs.sellable.length > 0) {
       lines.push(`You could sell from your own gear: ${inputs.sellable.map((s) => `${s.name} (${s.price} cr)`).join(', ')}.`);
+      lines.push('Quote prices EXACTLY as listed. Never invent stock not in the list.');
     }
     if (inputs.rivals.length > 0) {
       const reward = [

@@ -32,29 +32,47 @@ export function difficultyValue(level: string): number {
 }
 
 /**
- * The mechanical effect a deterministic skill action produces (Fase 20). `none` =
- * pure roleplay / no mechanical result (the legacy behaviour). The scene maps each
- * to a concrete mutation in the resolution layer (SkillActions).
+ * The mechanical effect a deterministic skill action produces.
+ *
+ * **Vocabulary in transition (Fase 21):** the slim emote vocabulary the
+ * classifier emits going forward is `attack | steal | info | coerce | heal |
+ * sabotage | repair | craft | persuade | intimidate | disarm | examine_self |
+ * narrate_time | narrative`. The LEGACY entries (`relationship`,
+ * `disposition`, `haggle`, `appraise`, `traverse`, `none`) remain in the
+ * union for backward compatibility with scene + SkillActions switch branches
+ * that are still wired today (Fase 21 21C — type superset). They will be
+ * removed in 21D-F when the unified Resolver subsumes the old paths.
  */
 export type SkillEffect =
-  | 'attack'        // offensive strike/shot/hack → ambush combat (pervasive HP)
-  | 'steal'         // pickpocket an item or wire-transfer credits (surprise)
-  | 'info'          // hack/scan to learn about the target → PDA entry
-  | 'relationship'  // alter the NPC↔NPC ledger (IT social hack / persuasion)
-  | 'disposition'   // shift the target's stance toward the player
-  | 'coerce'        // intimidation: fear → target yields item/credits/info
-  | 'heal'          // restore HP (self or another)
-  | 'sabotage'      // rig the target's gear to explode on next use
-  | 'repair'        // restore one's own item
-  | 'craft'         // build an existing melee weapon from scrap
-  | 'haggle'        // commerce: improve a price
-  | 'appraise'      // commerce: reveal an item's real value → PDA
-  | 'traverse'      // athletics: climb/force/shove/escape
-  | 'none';
+  // ─── Slim vocab (Fase 21) — the classifier emits ONLY these going forward.
+  | 'attack'         // offensive strike/shot/hack → ambush combat
+  | 'steal'          // pickpocket / wire-transfer (surprise)
+  | 'info'           // hack/scan to learn about target → PDA entry
+  | 'coerce'         // fear → target yields item/credits/info
+  | 'heal'           // restore HP (self or another)
+  | 'sabotage'       // rig gear (Engenharia melee / IT remote)
+  | 'repair'         // restore own item
+  | 'craft'          // build melee weapon from scrap
+  | 'persuade'       // emote charm/seduction (Fase 21 NEW)
+  | 'intimidate'     // emote physical pressure (Fase 21 NEW)
+  | 'disarm'         // knock target's weapon to the ground (Fase 21 NEW)
+  | 'examine_self'   // *check my wounds* — narrate HP condition (Fase 21 NEW)
+  | 'narrate_time'   // *check the time* — narrate diegetic time (Fase 21 NEW)
+  | 'narrative'      // pure narration, no mechanic (Fase 21 — renamed from `none`)
+  // ─── Legacy (deprecated, kept for type compatibility until 21D-F land).
+  | 'relationship'   // → moves to verbal `manipulate` (decision #2)
+  | 'disposition'    // → split into emote `persuade` / `intimidate` (decision #2)
+  | 'haggle'         // → moves to verbal `commerce_haggle` (decision #2)
+  | 'appraise'       // → merged into verbal `commerce_pricing` (decision #2)
+  | 'traverse'       // → removed entirely (Atletismo is passive only)
+  | 'none';          // → renamed to `narrative` (decision #3)
 
 export const SKILL_EFFECTS: readonly SkillEffect[] = [
-  'attack', 'steal', 'info', 'relationship', 'disposition', 'coerce', 'heal',
-  'sabotage', 'repair', 'craft', 'haggle', 'appraise', 'traverse', 'none',
+  // Slim vocab first (these are what the classifier emits today).
+  'attack', 'steal', 'info', 'coerce', 'heal', 'sabotage', 'repair', 'craft',
+  'persuade', 'intimidate', 'disarm', 'examine_self', 'narrate_time', 'narrative',
+  // Legacy — recognised by the parser if a stray model output uses them.
+  'relationship', 'disposition', 'haggle', 'appraise', 'traverse', 'none',
 ];
 
 export interface ActionClassification {

@@ -134,7 +134,9 @@ export const ITEM_REGISTRY: Readonly<Record<string, ItemDef>> = Object.freeze({
   armor_spc_legs: { id: 'armor_spc_legs', nameKey: 'item.armor_spc_legs', category: 'armor', weight: 5.0, stackable: false, maxStack: 1, equipSlot: 'bottom', armorTier: 'space',    armorRegion: 'bottom' },
   // ── Loot / misc (no mechanic yet — seeds future economy) ──
   scrap:  { id: 'scrap',  nameKey: 'item.scrap',  category: 'misc', weight: 0.3, stackable: true, maxStack: 20 },
-  credstick: { id: 'credstick', nameKey: 'item.credstick', category: 'misc', weight: 0.1, stackable: true, maxStack: 50 },
+  // Credstick = the digital wallet balance (1 cr each). Weightless + huge stack
+  // cap (effectively unlimited) because it is a wallet entry, not a physical chip.
+  credstick: { id: 'credstick', nameKey: 'item.credstick', category: 'misc', weight: 0, stackable: true, maxStack: 999999 },
 });
 
 /** The three armor body slots, in render/display order (head → top → bottom). */
