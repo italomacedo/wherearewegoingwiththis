@@ -29,17 +29,25 @@ export const SKILL_CRITICAL_ROLL = 5;
 type AwarenessPolicy = 'covert' | 'confront' | 'self';
 
 const EFFECT_POLICY: Record<SkillEffect, AwarenessPolicy> = {
+  // Slim vocab (Fase 21).
   attack: 'covert',       // surprise = ambush (first turn); open = normal start
   steal: 'covert',
   info: 'covert',
-  relationship: 'covert', // done behind the target's back
   sabotage: 'covert',
-  disposition: 'confront',
-  coerce: 'confront',
-  haggle: 'confront',
-  heal: 'self',
+  coerce: 'confront',     // physical threat → target is aware
+  persuade: 'confront',   // emote charm; addressee is the target, aware by default
+  intimidate: 'confront', // emote physical pressure; aware
+  disarm: 'confront',     // physical attempt; target sees it coming
+  heal: 'self',           // healing self or another nearby — no opponent
   repair: 'self',
   craft: 'self',
+  examine_self: 'self',
+  narrate_time: 'self',
+  narrative: 'self',
+  // Legacy (deprecated; removed in 21D-F).
+  relationship: 'covert',
+  disposition: 'confront',
+  haggle: 'confront',
   appraise: 'self',
   traverse: 'self',
   none: 'self',

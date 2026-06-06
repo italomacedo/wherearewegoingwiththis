@@ -167,6 +167,30 @@ describe('PromptBuilder', () => {
       expect(p).toContain('armas_de_fogo'); // a real skill id is listed
       expect(p).toContain('inteligencia'); // a real attribute id is listed
     });
+    it('teaches the slim Fase 21 emote vocabulary (14 verbs incl. narrative)', () => {
+      const p = PromptBuilder.buildActionClassifierPrompt('*action*');
+      // Slim vocab — these MUST appear in the EFFECT list.
+      [
+        'attack', 'steal', 'info', 'coerce', 'heal', 'sabotage', 'repair', 'craft',
+        'persuade', 'intimidate', 'disarm', 'examine_self', 'narrate_time', 'narrative',
+      ].forEach((v) => expect(p).toContain(v));
+    });
+    it('no longer teaches the legacy verbs (Fase 21 slim — relationship/disposition/haggle/appraise/traverse/none)', () => {
+      const p = PromptBuilder.buildActionClassifierPrompt('*action*');
+      // The EFFECT= line lists vocab — legacy names must NOT appear there.
+      // We do this by grabbing only the EFFECT line and asserting against it
+      // (the legacy words could appear elsewhere as English text, e.g. "relationship" in
+      // a context line — what matters is that they aren't in the vocabulary list).
+      const effectLine = p.split('\n').find((l) => l.startsWith('EFFECT='))!;
+      expect(effectLine).not.toContain('relationship');
+      expect(effectLine).not.toContain('disposition');
+      expect(effectLine).not.toContain('haggle');
+      expect(effectLine).not.toContain('appraise');
+      expect(effectLine).not.toContain('traverse');
+      // 'none' is renamed to 'narrative' — must NOT be in EFFECT= options anymore.
+      expect(effectLine).not.toContain(' none ');
+      expect(effectLine).not.toMatch(/\bnone\b/);
+    });
   });
 
   describe('buildOutcomeNarrationPrompt', () => {
