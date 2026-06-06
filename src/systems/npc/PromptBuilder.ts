@@ -305,6 +305,7 @@ export class PromptBuilder {
     const lines: string[] = [];
     if (inputs.sellable.length > 0) {
       lines.push(`You could sell from your own gear: ${inputs.sellable.map((s) => `${s.name} (${s.price} cr)`).join(', ')}.`);
+      lines.push('Quote prices EXACTLY as listed. Never invent stock not in the list.');
     }
     if (inputs.rivals.length > 0) {
       const reward = [

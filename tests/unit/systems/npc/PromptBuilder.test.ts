@@ -321,6 +321,9 @@ describe('PromptBuilder', () => {
       // The contract is bounded to killing a present rival — no invented heists.
       expect(p).toContain('KILLING');
       expect(p).toContain('Do NOT invent');
+      // Fase 21 fix: NPCs must quote literal prices + not invent stock.
+      expect(p).toMatch(/EXACTLY|exactly/);
+      expect(p).toMatch(/never invent/i);
     });
     it('returns empty when nothing to sell and no rivals', () => {
       expect(PromptBuilder.buildCommerceContext({ sellable: [], rivals: [], payableCredits: 0, payableItems: [] })).toBe('');
