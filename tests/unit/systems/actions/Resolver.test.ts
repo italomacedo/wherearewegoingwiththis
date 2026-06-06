@@ -154,15 +154,15 @@ describe('Resolver — verbal: job_*', () => {
 describe('Resolver — verbal: commerce_*', () => {
   const zara = makeNpc('npc_zara');
 
-  it('commerce_discovery acknowledges + indexes the seller in PDA', () => {
+  it('commerce_discovery acknowledges + silently indexes the seller in PDA', () => {
     const r = resolveAction(makePlayer(), 'commerce_discovery', zara, {});
     expect(r.allowed).toBe(true);
     expect(r.mutations).toEqual([
-      { kind: 'add_pda', subject: 'npc_zara', source: 'asked' },
+      { kind: 'add_pda', subject: 'npc_zara', source: 'asked', silent: true },
     ]);
   });
 
-  it('commerce_pricing stages a pending_trade at the disposition-adjusted price AND indexes in PDA', () => {
+  it('commerce_pricing stages a pending_trade at the disposition-adjusted price AND silently indexes in PDA', () => {
     const r = resolveAction(makePlayer(), 'commerce_pricing', zara, {
       itemId: 'knife',
       npcSellableIds: ['knife'],
@@ -170,7 +170,7 @@ describe('Resolver — verbal: commerce_*', () => {
     });
     expect(r.mutations).toEqual([
       { kind: 'stage_pending_trade', npc: 'npc_zara', itemId: 'knife', price: 21 },
-      { kind: 'add_pda', subject: 'npc_zara', source: 'asked' },
+      { kind: 'add_pda', subject: 'npc_zara', source: 'asked', silent: true },
     ]);
   });
 
@@ -227,9 +227,10 @@ describe('Resolver — verbal: commerce_*', () => {
     expect(r.mutations).toEqual([{ kind: 'execute_pending_trade', npc: 'npc_zara' }]);
   });
 
-  it('commerce_buy blocks when nothing is on the table', () => {
-    expect(resolveAction(makePlayer(), 'commerce_buy', zara, {}).blockedReason)
-      .toBe('no_pending_trade');
+  it('commerce_buy is a silent no-op when nothing is on the table (avoids spurious "no_pending_trade" noise after a successful buy)', () => {
+    const r = resolveAction(makePlayer(), 'commerce_buy', zara, {});
+    expect(r.allowed).toBe(true);
+    expect(r.mutations).toEqual([]);
   });
 
   it('commerce_sell is a reserved no-op (deferred)', () => {

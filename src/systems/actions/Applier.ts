@@ -63,7 +63,7 @@ export interface ApplierContext {
   clearSabotage(target: string): void;
 
   // ── PDA ─────────────────────────────────────────────────────────────
-  addPdaEntry(subject: string, source: 'asked' | 'scanned', from?: string, lines?: string[]): void;
+  addPdaEntry(subject: string, source: 'asked' | 'scanned', from?: string, lines?: string[], silent?: boolean): void;
 
   // ── Tamper trace (post-surprise detection loop) ─────────────────────
   seedTamper(target: string, kind: 'theft' | 'hack' | 'social', playerSkillValue: number): void;
@@ -178,7 +178,7 @@ export function applyMutation(ctx: ApplierContext, m: Mutation): void {
 
     // ── PDA ──
     case 'add_pda':
-      ctx.addPdaEntry(m.subject, m.source, m.from, m.lines);
+      ctx.addPdaEntry(m.subject, m.source, m.from, m.lines, m.silent);
       return;
 
     // ── Tamper ──

@@ -85,6 +85,11 @@ export type Mutation =
       source: 'asked' | 'scanned';
       from?: ActorId;
       lines?: string[];
+      /** When true, the Applier upserts the PDA entry without firing a
+       *  narration line. Used by commerce_* paths — the player asked
+       *  about wares, not about the seller's identity; the "you identified
+       *  Zara, the vendor" hook would feel off there. Defaults to false. */
+      silent?: boolean;
     }
 
   // ─── Crafting ───────────────────────────────────────────────────────────

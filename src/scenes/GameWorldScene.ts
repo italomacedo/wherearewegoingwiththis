@@ -2642,7 +2642,7 @@ export class GameWorldScene extends BaseScene {
       markSabotage(target) { agentById(target)?.markSabotaged(); self.persistSession(); },
       clearSabotage(target) { agentById(target)?.clearSabotage(); self.persistSession(); },
       // ── PDA ──────────────────────────────────────────────────────────
-      addPdaEntry(subject, _source, _from, _lines) { self.recordPda(subject); },
+      addPdaEntry(subject, _source, _from, _lines, silent) { self.recordPda(subject, silent); },
       // ── Tamper ───────────────────────────────────────────────────────
       seedTamper(target, kind, playerSkillValue) {
         agentById(target)?.seedTamper({ kind, playerSkillValue });
@@ -3139,11 +3139,12 @@ export class GameWorldScene extends BaseScene {
    * (role, attitude, credits, gear) and upsert it into the persisted PDA, then narrate.
    */
   /* istanbul ignore next — browser-only (reads runtime agents; PDA store is tested) */
-  private recordPda(subjectId: string): void {
+  private recordPda(subjectId: string, silent?: boolean): void {
     const a = this.npcManager?.getAgent(subjectId);
     if (!a) return;
-    a.markNameKnown(); // a successful scan cracks their identity
+    a.markNameKnown(); // recording an entry cracks their identity
     this.pda = upsertPdaEntry(this.pda, { subjectId, subjectName: a.definition.name, lines: this.dossierLinesFor(a) });
+    if (silent) return; // commerce paths skip the "you identified X" narration
     const line = t('skill.scanned', { name: a.definition.name, role: a.definition.role });
     this.dialog?.addNarrationLine(line);
     this.speakNarration(line);

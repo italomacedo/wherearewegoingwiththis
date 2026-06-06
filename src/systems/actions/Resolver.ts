@@ -442,7 +442,7 @@ function resolveVerbal(
       // Index the seller in the PDA — the dossier re-derives a "Sells X for Y cr"
       // line for every sellable item the next time the PDA opens (recomputed live
       // from the NPC's current disposition).
-      return { ...ok(), mutations: [{ kind: 'add_pda', subject: target.id, source: 'asked' }] };
+      return { ...ok(), mutations: [{ kind: 'add_pda', subject: target.id, source: 'asked', silent: true }] };
     }
 
     case 'commerce_pricing': {
@@ -457,7 +457,7 @@ function resolveVerbal(
         // discounted prices, so a fresh PDA open shows the quote going forward).
         mutations: [
           { kind: 'stage_pending_trade', npc: target.id, itemId: o.itemId, price },
-          { kind: 'add_pda', subject: target.id, source: 'asked' },
+          { kind: 'add_pda', subject: target.id, source: 'asked', silent: true },
         ],
       };
     }
@@ -478,7 +478,7 @@ function resolveVerbal(
         { kind: 'apply_skill_use', actor: actor.id, skillId: 'comercio' },
         // Index the negotiation in the PDA on EVERY haggle — the dossier line
         // will reflect the haggled price via the active pendingTrade.
-        { kind: 'add_pda', subject: target.id, source: 'asked' },
+        { kind: 'add_pda', subject: target.id, source: 'asked', silent: true },
       ];
       if (check.success) {
         const factor = critical ? HAGGLE_CRIT_FACTOR : HAGGLE_SUCCESS_FACTOR;
@@ -494,7 +494,12 @@ function resolveVerbal(
 
     case 'commerce_buy': {
       if (!target) return blocked('no_target');
-      if (!o.pendingTrade) return blocked('no_pending_trade');
+      // No pending trade → silently no-op (don't block). The player may have
+      // already bought it in the previous turn (the classifier picks "I want
+      // X" + "Deal" as TWO buys in sequence), and a hard block here would
+      // surface "no_pending_trade" noise. Let the NPC's reply handle it
+      // diegetically ("we're settled" / "what did you want?").
+      if (!o.pendingTrade) return ok();
       return { ...ok(), mutations: [{ kind: 'execute_pending_trade', npc: target.id }] };
     }
 
