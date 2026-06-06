@@ -153,9 +153,17 @@ function reconstructCells(cameFrom: Map<number, number>, current: number, cols: 
   return cells.map((id) => ({ x: id % cols, z: Math.floor(id / cols) }));
 }
 
-/** Turn the cell sequence into a world polyline with exact endpoints, and total length. */
+/** Turn the cell sequence into a world polyline with exact endpoints, and total length.
+ *
+ * `cells` is the full A* reconstruction including BOTH the start and goal cells. We
+ * skip those endpoint cells' centres — `from` and `to` already cover those positions,
+ * and inserting the cell-centre would add a visible "snap" segment that pulls the
+ * trail back towards the cell centre of the cell the combatant is already STANDING
+ * IN (showing up as a trail leg behind the avatar when its world position is off the
+ * cell centre). Only the *intermediate* cell centres carry the routing detour.
+ */
 function assemblePath(grid: WalkGrid, cells: Point2[], from: Point2, to: Point2): PathResult {
-  const mid = cells.map((cell) => cellCentre(grid, cell.x, cell.z));
+  const mid = cells.slice(1, -1).map((cell) => cellCentre(grid, cell.x, cell.z));
   const pts: Point2[] = [{ ...from }, ...mid, { ...to }];
   // Drop consecutive duplicates so zero-length segments don't accumulate.
   const points: Point2[] = [];

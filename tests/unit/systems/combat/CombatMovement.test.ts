@@ -57,6 +57,27 @@ describe('gridPath', () => {
     expect(path.points[path.points.length - 1]).toEqual({ x: 0.5, z: 3.5 });
   });
 
+  it('does NOT loop back through the start cell centre when from is off-centre (regression: trail-from-behind)', () => {
+    // The combatant stands in the bottom-left cell (centre = (0.5, 0.5)) but its
+    // EXACT position is in the cell's corner, ahead of the centre. The trail
+    // should head straight to the goal — not first snap back to the cell centre
+    // (which used to render as a leg coming out of the avatar's back).
+    const g = buildWalkGrid([], BOUNDS, 1, 0);
+    const path = gridPath(g, { x: 0.9, z: 0.9 }, { x: 4.5, z: 0.9 })!;
+    expect(path).not.toBeNull();
+    expect(path.points[0]).toEqual({ x: 0.9, z: 0.9 });
+    // The very next polyline vertex must be AHEAD of from (toward the goal), not
+    // BEHIND it (toward the start cell's centre at 0.5, 0.5).
+    const second = path.points[1]!;
+    expect(second.x).toBeGreaterThan(0.9);
+    // And neither the start nor the goal cell centre may appear as an explicit
+    // polyline vertex any more (they used to add a kink at both ends).
+    const containsCentre = (cx: number, cz: number) =>
+      path.points.some((p, i) => i !== 0 && i !== path.points.length - 1 && Math.abs(p.x - cx) < 1e-9 && Math.abs(p.z - cz) < 1e-9);
+    expect(containsCentre(0.5, 0.5)).toBe(false); // start cell
+    expect(containsCentre(4.5, 0.5)).toBe(false); // goal cell
+  });
+
   it('routes around a partial wall (longer than the straight line)', () => {
     const g = buildWalkGrid([wall(2, 4)], BOUNDS, 1, 0); // blocks col 2, rows 0..3
     const from = { x: 0.5, z: 0.5 };

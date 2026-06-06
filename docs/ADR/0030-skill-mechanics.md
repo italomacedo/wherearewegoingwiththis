@@ -7,7 +7,11 @@
 ## Post-playtest revisions (locked by owner)
 1. **Attribute model:** 1×40% primary + 1×30% secondary + 2×20% (was 1×30% + 3×20%). Creator buttons cycle `20 → 30 ◆ → 40 ★ → 20` per click — 1st click introduces as secondary, 2nd promotes to primary; promotion preserves the pair (the demoted ex-primary takes the secondary slot). `setPrimaryAndSecondaryAttributes` is the new pure helper; `setPrimaryAttribute` kept as legacy 1-tier shortcut.
 2. **Perk picker** iterates `unlockedTierCount(attr%)` per attribute (no longer hard-coded tier-1) and **re-renders on every attribute cycle** — the 40% primary moves the tier-2 slot around, so the picker must follow. Without this, `canBegin` was unsatisfiable (Lesson 52).
-3. **Physical-contact reach:** `SKILL_CONTACT_RADIUS = 2 m` for `steal` (Furtividade), `sabotage`, and `heal` on another NPC; `SKILL_ACTION_RADIUS = 30 m` for everything else. New pure `reachFor(effect, skillId)` decides per call.
+3. **Physical-contact reach + ranged-vs-melee skill principle:** the engine now encodes a general rule:
+   - **Tecnologia da Informação (IT) = ranged/remote** — every IT-routed effect (attack, steal, sabotage, info, relationship) reaches `SKILL_ACTION_RADIUS = 30 m` ("same quadrant", over the network).
+   - **Physical skills (Engenharia, Furtividade, Medicina) = melee/contact** — every effect that requires hands on the target/gear/wound reaches `SKILL_CONTACT_RADIUS = 2 m`. Specifically: pickpocket (`steal + Furtividade`), gear-rigging (`sabotage + Engenharia`), treating another (`heal`).
+   - **Social skills** (Persuasão, Intimidação, Comércio) = 30 m (voice/presence, not contact).
+   - Same effect, different reach by skill (matches `steal`: IT-wire 30 m vs Furtividade-pickpocket 2 m; and `sabotage`: IT-hack 30 m vs Engenharia-gear 2 m). New pure `reachFor(effect, skillId)` decides per call.
 4. **Caught red-handed on failed pressure:** `effect ∈ {steal, coerce}` OR (`effect=disposition && skillId=intimidacao`) and `!res.success` → `onHostilePlayerAction` (worsens disposition one step, forces hostile state). Persuasion failures (`disposition+persuasao`) do NOT punish.
 5. **PDA is live, not a snapshot:** the `info` scan unlocks the entry; dossier lines (role/disposition/credits/inventory) are re-read from the live agent on every `openPda`. Defeated NPCs get a red rotated "DECEASED" stamp on the card.
 6. **Remote attack via IT hack:** `SkillMutation.begin_combat` carries `remote: boolean`; the scene passes `noLunge: true` to `beginCombat` so the player isn't teleported into the target's face when triggering combat via an IT-effect attack (vs the Phase-11 melee surprise lunge).
@@ -76,3 +80,48 @@ Persuasão → disposition↑ + relationship · Intimidação → `coerce` · Co
 - NPCs use the uniform `enemyStatsFor` block for defensive values (per-NPC stat blocks remain owner-cancelled).
 - Sabotage fires at combat START (drawing the rigged weapon), not mid-fight, to avoid touching the pure combat engine.
 - Lesson: JS `\b` is unreliable around accented letters (`pá`) — anchor with `(?<![a-zà-ú])…(?![a-zà-ú])`.
+
+### Deferred idea — Engenharia "environmental hazards" (own phase)
+A discussed-and-deferred concept that would give Engenharia a genuine **ranged** damage vector
+**without** stepping on IT's network identity: the player rigs a distant **circuit breaker / valve /
+gas line**, the environmental hazard linked to it (transformer, pipe, fuel tank) **overloads** and
+damages whoever is in the blast radius. Fictionally exactly what an engineer does (MacGyver / Watch
+Dogs / Hitman). **Owner-decided to NOT build this in Fase 20** — too rich to retrofit as a patch,
+deserves its own phase with mitigations baked in from day 1.
+
+**Abuse vectors that any future implementation MUST address** (otherwise it becomes a one-shot
+"kill button"):
+1. **Trivial kills** if hazards are abundant — every NPC dies for free.
+2. **No counterplay** — target has no signal it's standing in a trap.
+3. **Perfect stealth** — cross-map assassinations with no witness chain.
+4. **Save-scumming** binary proximity thresholds.
+5. **Friendly fire** on allies/civilians in the blast radius.
+6. **NPC AI** doesn't know to keep its distance from hazards.
+
+**Required mitigation set** (the minimum bar the owner endorsed for any future build):
+- **(a) Hazards are RARE** in the world catalog (1–2 per tile, treated as a resource, not scenery).
+- **(b) Visible/audible warm-up** before detonation — sparks + alarm SFX for N turns, giving the
+  target a window to step out of range. Kills the "no counterplay" + "AI ignores" vectors at once.
+- **(c) High skill gate** (Engenharia ≥ 60%) + **catastrophic failure** on a low roll (the engineer
+  takes the damage at the breaker). Skill check carries weight.
+- **(g) Hazard is one-shot** — a blown transformer stays dead for the rest of the save
+  (`SaveGame.world.consumedHazards`), so they can't be farmed.
+
+**Optional**: (d) investigative pre-requisite (Percepção/Engenharia scan to MAP which breaker
+feeds which hazard, persisted in PDA — converts the action from impulse to planned setup);
+(e) radius collateral including allies (forces deliberate use); (f) extended `pendingTamper` on
+EVERY living witness in range (survivors can deduce + escalate).
+
+**Engine touchpoints** when the phase is built:
+- New `effect: 'overload'` (or `sabotage` with `target_kind: 'environment'`) in
+  `EmoteIntent.SkillEffect` + classifier prompt.
+- New pure catalog `HazardObject { type, position, linkedHazardIds, damageRadius, damage, consumed }`
+  in a `WorldHazardCatalog`, placed via `ThemeRegistry.generateTile`.
+- `SkillActions` gains the gate/check/mutation for `overload`; mutation triggers a warm-up timer
+  visible/audible to nearby NPCs, then radius damage to all combatants in range (uses the
+  pervasive HP from 20A).
+- Reuses existing systems: `ParticleEffects` (already used for nave explosion + muzzle flash) for
+  the blast; `pendingTamper` loop (20G) for witness detection; `SaveGame.world` for the burned
+  hazard list.
+- Identity preserved: **IT = network damage**, **Engenharia = physical-infrastructure damage** —
+  same "ranged" outcome, completely different fictional path.

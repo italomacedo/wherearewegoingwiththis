@@ -3,6 +3,15 @@ import { SKILLS, ATTRIBUTES } from '@entities/CharacterStats';
 import { Exchange } from './ConversationContext';
 import { IntentPromptInputs } from './Intent';
 
+/** A NPC that is physically co-present with the speaker (in conversation range). */
+export interface NearbyNpcSnapshot {
+  id: string;
+  name: string;
+  distanceMeters: number;
+  /** How the SPEAKER feels about this NPC (friendly / neutral / wary / hostile). */
+  relationship: string;
+}
+
 export interface WorldSnapshot {
   cityName: string;
   gameTime: string;       // "14:30, day 1"
@@ -10,6 +19,10 @@ export interface WorldSnapshot {
   distanceMeters: number;
   playerAction: PlayerAction;
   recentEvents: string[]; // up to 3 short event lines
+  /** OTHER NPCs physically present with the speaker right now (within ~30 m).
+   *  Lets the NPC react to who's in the room — answer "is X here?" truthfully,
+   *  defer if a rival is listening, etc. */
+  nearbyNpcs?: NearbyNpcSnapshot[];
   /** Human-readable reply language for the NPC (e.g. "English"). Defaults to English. */
   language?: string;
   /** Extra per-turn context (e.g. Phase-16 commerce levers). Appended verbatim. */
@@ -67,6 +80,15 @@ export class PromptBuilder {
     lines.push(
       `The player is ${Math.round(world.distanceMeters)}m away. Player action: ${world.playerAction}.`
     );
+
+    // Who else is physically here right now (speaker's perspective). Lets the NPC
+    // answer "is X here?" truthfully and react to who is in earshot.
+    if (world.nearbyNpcs && world.nearbyNpcs.length > 0) {
+      const present = world.nearbyNpcs
+        .map((n) => `${n.name} (${Math.round(n.distanceMeters)}m, you see them as ${n.relationship})`)
+        .join(', ');
+      lines.push(`Also physically present with you right now: ${present}.`);
+    }
 
     if (world.extraContext) lines.push(world.extraContext);
 

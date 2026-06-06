@@ -29,6 +29,7 @@ import { Inventory, defaultInventoryState } from '@entities/Inventory';
 import { weaponProfile, itemDef, isMeleeWeapon, isFirearm, armorOverlayParts, itemValue } from '@entities/items/ItemCatalog';
 import {
   resolveSkillAction, SkillActionInput, SkillTargetInfo, SkillMutation, BlockReason,
+  SKILL_ACTION_RADIUS,
 } from '@systems/skills/SkillActions';
 import { craftTargetFromText, scrapCostFor, sabotageDamage } from '@systems/skills/Crafting';
 import {
@@ -58,7 +59,7 @@ import { createZara } from '@entities/npcs/zara';
 import { createMback } from '@entities/npcs/mback';
 import { PlayerAction, NPCDefinition, NPCAgent, friendlyFireDefection } from '@entities/NPCAgent';
 import { CharacterAssembler, AssembledCharacter } from '@systems/CharacterAssembler';
-import { WorldSnapshot, PromptBuilder } from '@systems/npc/PromptBuilder';
+import { WorldSnapshot, PromptBuilder, NearbyNpcSnapshot } from '@systems/npc/PromptBuilder';
 import { resolveAddressee, AddressCandidate, stripShout } from '@systems/npc/Addressing';
 import { hasEmote, isCheckTimeEmote, isSelfExamEmote, narrateTime, ActionClassification } from '@systems/npc/EmoteIntent';
 import {
@@ -3000,9 +3001,43 @@ export class GameWorldScene extends BaseScene {
       distanceMeters,
       playerAction: this.derivePlayerAction(),
       recentEvents: agent.getRecentEvents(), // e.g. "X was killed" — so the NPC knows
+      nearbyNpcs: this.nearbyNpcsFor(agent),
       language: languageName(getLocale()),
       extraContext: this.commerceContextFor(agent),
     };
+  }
+
+  /**
+   * Other live NPCs physically present with `agent` right now (within
+   * SKILL_ACTION_RADIUS = 30 m — same "this quadrant" radius the deliberation
+   * loop uses). Filters out the speaker, the dead, and anyone too far. Carries
+   * the SPEAKER's own disposition toward each so the prompt can read tone.
+   * Browser-only resolver of agent positions; the pure formatter is tested.
+   */
+  /* istanbul ignore next — browser-only co-presence assembly */
+  private nearbyNpcsFor(agent: NPCAgent): NearbyNpcSnapshot[] {
+    const mgr = this.npcManager;
+    if (!mgr) return [];
+    const selfId = agent.definition.id;
+    const selfPos = agent.getPosition();
+    const out: NearbyNpcSnapshot[] = [];
+    for (const id of mgr.liveNpcIds()) {
+      if (id === selfId) continue;
+      const other = mgr.getAgent(id);
+      if (!other || other.isDefeated()) continue;
+      const op = this.npcHolderById.get(id)?.position ?? other.getPosition();
+      const dx = op.x - selfPos.x;
+      const dz = op.z - selfPos.z;
+      const dist = Math.sqrt(dx * dx + dz * dz);
+      if (dist > SKILL_ACTION_RADIUS) continue;
+      out.push({
+        id,
+        name: other.getDisplayName(),
+        distanceMeters: dist,
+        relationship: agent.getRelationship(id),
+      });
+    }
+    return out.sort((a, b) => a.distanceMeters - b.distanceMeters);
   }
 
   /**

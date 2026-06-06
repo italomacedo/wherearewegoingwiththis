@@ -74,7 +74,7 @@ describe('SkillActions — gating', () => {
     expect(r.mutations).toEqual([{ kind: 'steal_credits', targetId: 'npc1' }]);
   });
 
-  it('sabotage requires physical contact (2m)', () => {
+  it('sabotage via Engenharia requires physical contact (2m)', () => {
     const beyond = resolveSkillAction(input({
       effect: 'sabotage', skillId: 'engenharia', hasCyberdeck: false,
       target: target({ distance: 3 }),
@@ -85,6 +85,19 @@ describe('SkillActions — gating', () => {
       target: target({ distance: 1 }),
     }), rollLow);
     expect(close.allowed).toBe(true);
+  });
+
+  it('sabotage via IT (hack) is REMOTE — reaches 30m', () => {
+    const r = resolveSkillAction(input({
+      effect: 'sabotage', skillId: 'tecnologia_informacao', hasCyberdeck: true,
+      target: target({ distance: 10 }),
+    }), rollLow);
+    expect(r.allowed).toBe(true);
+    const tooFar = resolveSkillAction(input({
+      effect: 'sabotage', skillId: 'tecnologia_informacao', hasCyberdeck: true,
+      target: target({ distance: 40 }),
+    }), rollLow);
+    expect(tooFar.blockedReason).toBe('out_of_range');
   });
 
   it('heal on another NPC requires physical contact (2m); self-heal has no target check', () => {
@@ -108,6 +121,7 @@ describe('SkillActions — gating', () => {
     expect(reachFor('steal', 'furtividade')).toBe(SKILL_CONTACT_RADIUS);
     expect(reachFor('steal', 'tecnologia_informacao')).toBe(SKILL_ACTION_RADIUS); // wire = remote
     expect(reachFor('sabotage', 'engenharia')).toBe(SKILL_CONTACT_RADIUS);
+    expect(reachFor('sabotage', 'tecnologia_informacao')).toBe(SKILL_ACTION_RADIUS); // hack = remote
     expect(reachFor('heal', 'medicina')).toBe(SKILL_CONTACT_RADIUS);
     expect(reachFor('info', 'tecnologia_informacao')).toBe(SKILL_ACTION_RADIUS);
     expect(reachFor('disposition', 'persuasao')).toBe(SKILL_ACTION_RADIUS);

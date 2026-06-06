@@ -51,16 +51,28 @@ const TARGET_REQUIRED: ReadonlySet<SkillEffect> = new Set<SkillEffect>([
 ]);
 
 /**
- * Reach radius for each effect. Actions that require PHYSICAL CONTACT
- * (pickpocket, gear sabotage, treating another's wounds) use SKILL_CONTACT_RADIUS
- * (2 m); everything else (remote hacks, social pressure, conversation tricks)
- * uses the larger same-quadrant SKILL_ACTION_RADIUS (30 m).
+ * Reach radius for each effect.
+ *
+ * General principle (Fase 20):
+ *   - **Tecnologia da Informação (IT)** = RANGED/remote. Hacks travel over the
+ *     network → same-quadrant `SKILL_ACTION_RADIUS` (30 m). This applies to
+ *     ALL effects routed through IT (attack, steal, sabotage, info, relationship).
+ *   - **Physical skills** (Engenharia, Furtividade, Medicina) = MELEE/contact.
+ *     You need hands on the target/gear/wound → `SKILL_CONTACT_RADIUS` (2 m).
+ *   - **Social skills** (Persuasão, Intimidação, Comércio) = "same quadrant"
+ *     (30 m). Voice/presence, not contact.
+ *
+ * Concretely: pickpocket (Furtividade) is 2 m but wire-transfer (IT) is 30 m;
+ * gear sabotage (Engenharia) is 2 m but commlink hack-sabotage (IT) is 30 m;
+ * treating another's wound (Medicina) is 2 m. Self-targeted effects skip the
+ * range check entirely.
  */
 export function reachFor(effect: SkillEffect, skillId: string | null): number {
   // Stealth pickpocket = literally lifting from a pocket → physical contact.
   if (effect === 'steal' && skillId !== 'tecnologia_informacao') return SKILL_CONTACT_RADIUS;
-  // Sabotage = rigging the target's gear in person.
-  if (effect === 'sabotage') return SKILL_CONTACT_RADIUS;
+  // Sabotage via Engenharia = rigging the target's gear in person → physical contact.
+  // Sabotage via IT (hack) = corrupting their device over the network → remote (same-quadrant).
+  if (effect === 'sabotage' && skillId !== 'tecnologia_informacao') return SKILL_CONTACT_RADIUS;
   // Healing ANOTHER person needs hands on them (self-heal is unresisted, no target).
   if (effect === 'heal') return SKILL_CONTACT_RADIUS;
   return SKILL_ACTION_RADIUS;

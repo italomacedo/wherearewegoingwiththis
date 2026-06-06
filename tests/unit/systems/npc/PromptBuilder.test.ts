@@ -255,6 +255,30 @@ describe('PromptBuilder', () => {
       expect(p).toContain('Conversation so far:');
       expect(p).toContain('what do you want');
     });
+
+    it('lists nearby NPCs physically present with the speaker (so they know who is here)', () => {
+      const p = PromptBuilder.buildDynamicContext({
+        ...baseInputs,
+        world: {
+          ...baseInputs.world,
+          nearbyNpcs: [
+            { id: 'npc_mback', name: 'Mback', distanceMeters: 1.4, relationship: 'hostile' },
+            { id: 'npc_tek', name: 'Tek', distanceMeters: 6.7, relationship: 'neutral' },
+          ],
+        },
+      });
+      expect(p).toContain('Also physically present with you right now');
+      expect(p).toContain('Mback (1m, you see them as hostile)');
+      expect(p).toContain('Tek (7m, you see them as neutral)');
+    });
+
+    it('omits the nearby-NPC line when no one else is present (clean prompt)', () => {
+      const p = PromptBuilder.buildDynamicContext({
+        ...baseInputs,
+        world: { ...baseInputs.world, nearbyNpcs: [] },
+      });
+      expect(p).not.toContain('Also physically present');
+    });
   });
 
   describe('buildCommerceContext (Phase 16)', () => {
