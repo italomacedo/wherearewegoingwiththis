@@ -160,13 +160,16 @@ describe('Resolver — verbal: commerce_*', () => {
     expect(r.mutations).toEqual([]);
   });
 
-  it('commerce_pricing stages a pending_trade at the disposition-adjusted price', () => {
+  it('commerce_pricing stages a pending_trade at the disposition-adjusted price AND indexes in PDA', () => {
     const r = resolveAction(makePlayer(), 'commerce_pricing', zara, {
       itemId: 'knife',
       npcSellableIds: ['knife'],
       priceFor: () => 21,
     });
-    expect(r.mutations).toEqual([{ kind: 'stage_pending_trade', npc: 'npc_zara', itemId: 'knife', price: 21 }]);
+    expect(r.mutations).toEqual([
+      { kind: 'stage_pending_trade', npc: 'npc_zara', itemId: 'knife', price: 21 },
+      { kind: 'add_pda', subject: 'npc_zara', source: 'asked' },
+    ]);
   });
 
   it('commerce_pricing rejects unknown items', () => {

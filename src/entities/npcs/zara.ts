@@ -56,11 +56,13 @@ export const ZARA_DEFINITION: NPCDefinition = {
   npcRelationships: { npc_mback_fence_01: 'wary' },
   // Keeps a length of pipe for self-defence and a medkit (lootable from her corpse).
   // A cyberdeck too — she's an activist hacker, so she can resist/detect hacks (Fase 20).
+  // 100 credsticks — runner archetype baseline (decision: enough to bankroll a kill-contract).
   loadout: [
     { id: 'pipe', qty: 1 },
     { id: 'medkit', qty: 1 },
     { id: 'scrap', qty: 2 },
     { id: 'cyberdeck', qty: 1 },
+    { id: 'credstick', qty: 100 },
   ],
 };
 

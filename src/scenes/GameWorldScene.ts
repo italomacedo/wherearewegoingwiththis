@@ -2539,7 +2539,15 @@ export class GameWorldScene extends BaseScene {
       this.logSkill(`verbal verb=${cls.verb} BLOCKED: ${result.blockedReason}`);
       return false; // fall through to legacy reply path
     }
-    this.logSkill(`verbal verb=${cls.verb} → ${result.mutations.length} mutation(s)`);
+    // Diagnostic line per turn: classifier output + check outcome (when rolled).
+    if (result.rolled) {
+      const pct = Math.round(result.probability * 100);
+      const roll = Math.round(result.roll);
+      const outcome = result.success ? (result.critical ? 'CRIT' : 'HIT') : 'MISS';
+      this.logSkill(`verbal verb=${cls.verb} · roll=${roll} vs P=${pct}% → ${outcome} · ${result.mutations.length} mutation(s)`);
+    } else {
+      this.logSkill(`verbal verb=${cls.verb} (no check) · ${result.mutations.length} mutation(s)`);
+    }
     applyMutations(this.buildApplierContext(), result.mutations);
     return true;
   }
@@ -3128,19 +3136,31 @@ export class GameWorldScene extends BaseScene {
     this.speakNarration(line);
   }
 
-  /** Compose the dossier lines for a live NPC (role, disposition, credits, gear). */
+  /** Compose the dossier lines for a live NPC (role, disposition, credits, gear, market prices). */
   /* istanbul ignore next — browser-only (reads runtime agent state) */
   private dossierLinesFor(a: NPCAgent): string[] {
+    const disp = a.getDisposition();
+    const inv = a.getInventory();
     const items = a.getInventoryState().items
       .filter((s) => s.id !== 'credstick')
       .map((s) => t(itemDef(s.id)?.nameKey ?? s.id));
-    const credits = creditBalance(a.getInventory());
-    return [
+    const credits = creditBalance(inv);
+    const lines = [
       t('pda.role', { role: a.definition.role }),
-      t('pda.disposition', { value: a.getDisposition() }),
+      t('pda.disposition', { value: disp }),
       t('pda.credits', { n: credits }),
       items.length ? t('pda.carrying', { items: items.join(', ') }) : t('pda.carryingNothing'),
     ];
+    // Fase 21: indexar preços de venda quando o NPC pode negociar — o jogador
+    // que descobriu o NPC via scan/ask vê as cotações ao vivo (recomputadas a
+    // cada abertura, refletindo qualquer mudança de disposição).
+    if (canTrade(disp)) {
+      const sellable = sellableItems(inv);
+      sellable.forEach((id) => {
+        lines.push(t('pda.sellsFor', { item: t(itemDef(id)?.nameKey ?? id), price: priceFor(id, disp) }));
+      });
+    }
+    return lines;
   }
 
   /**

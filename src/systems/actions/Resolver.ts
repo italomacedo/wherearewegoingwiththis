@@ -451,7 +451,13 @@ function resolveVerbal(
       const price = o.priceFor ? o.priceFor(o.itemId) : 0;
       return {
         ...ok(),
-        mutations: [{ kind: 'stage_pending_trade', npc: target.id, itemId: o.itemId, price }],
+        // Stage the pending trade AND index the price discovery in the PDA (the
+        // dossier rebuild picks up the seller's live inventory + disposition-
+        // discounted prices, so a fresh PDA open shows the quote going forward).
+        mutations: [
+          { kind: 'stage_pending_trade', npc: target.id, itemId: o.itemId, price },
+          { kind: 'add_pda', subject: target.id, source: 'asked' },
+        ],
       };
     }
 

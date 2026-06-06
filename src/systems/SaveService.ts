@@ -145,6 +145,8 @@ export class SaveService {
     // Cyberdeck rule (Fase 20): IT ≥ 20 means an amateur hacker → starts with a deck.
     const inventory = defaultInventoryState();
     if (character.stats && isHacker(character.stats)) inventory.items.push({ id: 'cyberdeck', qty: 1 });
+    // Fase 21: player starts with seed money so commerce + early-game trades are testable.
+    inventory.items.push({ id: 'credstick', qty: 100 });
     return {
       saveId,
       saveName: saveName ?? `Save ${saveId.slice(0, 4)}`,

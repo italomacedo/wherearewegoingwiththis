@@ -196,6 +196,7 @@ export const STRINGS: Record<string, Entry> = {
   'economy.haggled': e('Haggled — {item} now {price} cr.', 'Pechinchou — {item} agora {price} cr.'),
   'economy.haggleFailed': e("The price stands.", 'O preço está firme.'),
   'economy.commerceDiscoveryHint': e('They have stock to offer — ask about prices.', 'Eles têm mercadoria — pergunte os preços.'),
+  'pda.sellsFor': e('Sells {item} for {price} cr.', 'Vende {item} por {price} cr.'),
   'economy.deceasedNpc': e("They don't answer. They're dead.", 'Eles não respondem. Estão mortos.'),
 
   // ─── Dialog ────────────────────────────────────────────────────────────────

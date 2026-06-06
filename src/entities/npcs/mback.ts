@@ -54,11 +54,12 @@ export const MBACK_DEFINITION: NPCDefinition = {
   initialDisposition: 'neutral',
   // Wary of the activist hacker — would side against her (8B).
   npcRelationships: { npc_zara_vendor_01: 'wary' },
-  // Carries a concealed blade + a medkit and a credstick (lootable from his corpse).
+  // Carries a concealed blade + a medkit and a stack of credsticks (lootable).
+  // 1000 credsticks — corpo archetype baseline (decision: deep pockets to buy people off).
   loadout: [
     { id: 'knife', qty: 1 },
     { id: 'medkit', qty: 1 },
-    { id: 'credstick', qty: 3 },
+    { id: 'credstick', qty: 1000 },
   ],
 };
 

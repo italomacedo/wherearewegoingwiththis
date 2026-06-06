@@ -126,9 +126,11 @@ describe('SaveService', () => {
     expect(() => SaveService.updateHeldAttach('nope', {})).not.toThrow();
   });
 
-  it('createNewSave includes an empty inventory', () => {
+  it('createNewSave includes 100 starting credits (Fase 21 seed money)', () => {
     const save = SaveService.createNewSave(testCharacter);
-    expect(save.inventory).toEqual({ items: [], equipped: {}, equippedWeaponId: null, capacityWeight: 30 });
+    expect(save.inventory.items).toEqual([{ id: 'credstick', qty: 100 }]);
+    expect(save.inventory.equippedWeaponId).toBeNull();
+    expect(save.inventory.capacityWeight).toBe(30);
   });
 
   it('load migrates a legacy save missing the inventory field', () => {
