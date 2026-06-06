@@ -186,6 +186,15 @@ export const STRINGS: Record<string, Entry> = {
   'skill.appraised': e('You size up the worth of your gear.', 'Você avalia o valor do seu equipamento.'),
   'skill.marketRead': e('Market read', 'Avaliação de mercado'),
 
+  // ─── Loading screen ──────────────────────────────────────────────────────
+  'loading.didyouknow': e('DID YOU KNOW?', 'VOCÊ SABIA?'),
+  'loading.label.physics': e('Initializing physics…', 'Inicializando física…'),
+  'loading.label.zone': e('Loading the city…', 'Carregando a cidade…'),
+  'loading.label.player': e('Spawning your character…', 'Criando seu personagem…'),
+  'loading.label.npcs': e('Waking up the locals…', 'Acordando os locais…'),
+  'loading.label.ui': e('Setting up overlays…', 'Configurando overlays…'),
+  'loading.label.done': e('Ready.', 'Pronto.'),
+
   'economy.bought': e('Bought {item} for {price} credits.', 'Comprou {item} por {price} créditos.'),
   'economy.noCredits': e("You can't afford that.", 'Você não tem créditos suficientes.'),
   'economy.missionAccepted': e('Contract accepted: take out {target}.', 'Contrato aceito: elimine {target}.'),

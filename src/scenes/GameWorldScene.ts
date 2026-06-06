@@ -3,6 +3,7 @@ import {
   PhysicsAggregate, PhysicsShapeType, PhysicsMotionType, AnimationGroup, Animation, LinesMesh,
   SpotLight, StandardMaterial,
 } from '@babylonjs/core';
+import { AdvancedDynamicTexture, Rectangle, TextBlock, Control } from '@babylonjs/gui';
 import { BaseScene } from './BaseScene';
 import { ServiceLocator } from '@core/ServiceLocator';
 import { GameSession } from '@core/GameSession';
@@ -325,6 +326,16 @@ export class GameWorldScene extends BaseScene {
   };
   private gameOver = false;
 
+  /** Loading overlay GUI and animated sub-controls (browser-only, shown during doLoad). */
+  private loadingGui: AdvancedDynamicTexture | null = null;
+  private loadingProgressFill: Rectangle | null = null;
+  private loadingProgressLabel: TextBlock | null = null;
+  private loadingSpinnerObs: (() => void) | null = null;
+  /** Settled when doLoad() finishes (or errors). Stored so onExit() can await it
+   *  before tearing down, preventing the fire-and-forget doLoad() from racing with
+   *  the afterEach cleanup in tests. */
+  private loadPromise: Promise<void> = Promise.resolve();
+
   constructor(engine: Engine) {
     super(engine);
     this.babylonScene.clearColor = new Color4(0.01, 0.01, 0.03, 1);
@@ -427,30 +438,6 @@ export class GameWorldScene extends BaseScene {
     // setters still win if a test injected them before onEnter.
     this.adoptSession(ServiceLocator.tryGet<GameSession>('gameSession'));
 
-    // Raise the per-material light cap (Babylon default 4) on EVERY material —
-    // including async-loaded world assets (sidewalks/props/buildings) — so the
-    // player's flashlight (a 5th+ light alongside the street neons) lights them.
-    /* istanbul ignore next — browser-only material wiring */
-    if (typeof document !== 'undefined') {
-      const lift = (m: unknown) => {
-        const mat = m as { maxSimultaneousLights?: number };
-        if ((mat.maxSimultaneousLights ?? 4) < 8) mat.maxSimultaneousLights = 8;
-      };
-      this.babylonScene.materials.forEach(lift);
-      this.babylonScene.onNewMaterialAddedObservable.add(lift);
-      // A left-click commits an out-of-combat surprise attack (the ribbon entered
-      // aiming). Listen on the CANVAS DOM directly — the most reliable signal (the
-      // Babylon pointer observable can be swallowed by the camera input). Button 0
-      // only, so right/middle-drag camera orbit never fires.
-      const canvas = this.engine.getRenderingCanvas();
-      if (canvas) {
-        this.surpriseClickHandler = (e: PointerEvent) => {
-          if (this.surpriseTargeting && e.button === 0) this.commitSurpriseTargeting();
-        };
-        canvas.addEventListener('pointerdown', this.surpriseClickHandler);
-      }
-    }
-
     // Camera FIRST — guarantees the scene always has an active camera so it
     // renders even if a later async step (physics WASM, asset load) is slow.
     this.cameraSystem = new CameraSystem(this.babylonScene);
@@ -463,9 +450,43 @@ export class GameWorldScene extends BaseScene {
     this.detachInput = this.inputSystem.attach();
     ServiceLocator.register('inputSystem', this.inputSystem);
 
+    /* istanbul ignore if — loading overlay + fire-and-forget is browser/Electron only */
+    if (typeof document !== 'undefined') {
+      // Show the loading overlay immediately, then fire the heavy work WITHOUT
+      // awaiting. The SceneManager creates its fade scrim AFTER onEnter returns,
+      // so the overlay (created here) sits below it and is revealed as the scene
+      // fades in — the player sees progress + a tip instead of a black void.
+      this.buildLoadingOverlay();
+      this.loadPromise = this.doLoad();
+      void this.loadPromise;
+    } else {
+      // Test / headless: await directly so the scene is fully initialised when
+      // onEnter() returns (no loading overlay rendered headless).
+      this.loadPromise = this.doLoad();
+      await this.loadPromise;
+    }
+  }
+
+  /** All the heavy async init that used to block onEnter — now runs post-fade so
+   *  the loading overlay can show progress while it streams in. */
+  private async doLoad(): Promise<void> {
+    // Raise the per-material light cap (Babylon default 4) on EVERY material —
+    // including async-loaded world assets (sidewalks/props/buildings) — so the
+    // player's flashlight (a 5th+ light alongside the street neons) lights them.
+    /* istanbul ignore next — browser-only material wiring */
+    if (typeof document !== 'undefined') {
+      const lift = (m: unknown) => {
+        const mat = m as { maxSimultaneousLights?: number };
+        if ((mat.maxSimultaneousLights ?? 4) < 8) mat.maxSimultaneousLights = 8;
+      };
+      this.babylonScene.materials.forEach(lift);
+      this.babylonScene.onNewMaterialAddedObservable.add(lift);
+    }
+
     // Physics BEFORE the zone + player so the zone can build static colliders and
     // the hero gets a Havok character controller. Resilient: if the WASM fails the
     // world still loads (movement falls back to the kinematic path).
+    this.updateLoadingProgress(10, 'loading.label.physics');
     this.physics = new PhysicsService();
     ServiceLocator.register('physics', this.physics);
     try {
@@ -474,6 +495,7 @@ export class GameWorldScene extends BaseScene {
       // ignore — movement falls back to non-physics path
     }
 
+    this.updateLoadingProgress(20, 'loading.label.zone');
     this.zoneManager = new ZoneManager();
     this.zoneManager.register('mercado_sombras', () => new MercadoSombrasZone());
     ServiceLocator.register('zoneManager', this.zoneManager);
@@ -482,12 +504,13 @@ export class GameWorldScene extends BaseScene {
     this.zone = zone;
     this.updateTimeOfDay(); // initial light/fog tint for the current time of day
 
-    this.player = new PlayerController(this.babylonScene, this.inputSystem);
+    this.updateLoadingProgress(40, 'loading.label.player');
+    this.player = new PlayerController(this.babylonScene, this.inputSystem!);
     await this.player.spawn(this.spawnOverride ?? zone.getSpawnPoint(), this.appearance);
     // Apply skill-driven movement speed (Phase 19C).
     this.player.setAtletismo(this.playerStats.skills['atletismo'] ?? 10);
     ServiceLocator.register('player', this.player);
-    this.cameraSystem.setTarget(this.player.getRoot());
+    this.cameraSystem!.setTarget(this.player.getRoot());
 
     this.player.setHealthState(this.playerHealthState);
 
@@ -510,7 +533,10 @@ export class GameWorldScene extends BaseScene {
     this.vehicle.setDestroyed(this.vehicleState.destroyed);
     ServiceLocator.register('vehicle', this.vehicle);
 
+    this.updateLoadingProgress(60, 'loading.label.npcs');
     await this.setupNPCs();
+
+    this.updateLoadingProgress(80, 'loading.label.ui');
     this.dialog = new DialogSystem(this.babylonScene);
     this.wireDialog();
 
@@ -602,6 +628,225 @@ export class GameWorldScene extends BaseScene {
     this.worldStreamer.setCurrent(tileOf(spawn.x, spawn.z));
     this.updateNpcRing(); // seed the inner NPC ring
     this.renderGroundMarkers(); // dropped-item piles persisted in this save (Fase 18)
+
+    // A left-click commits an out-of-combat surprise attack (the ribbon entered
+    // aiming). Listen on the CANVAS DOM directly — the most reliable signal (the
+    // Babylon pointer observable can be swallowed by the camera input). Button 0
+    // only, so right/middle-drag camera orbit never fires.
+    /* istanbul ignore next — browser-only canvas listener */
+    if (typeof document !== 'undefined') {
+      const canvas = this.engine.getRenderingCanvas();
+      if (canvas) {
+        this.surpriseClickHandler = (e: PointerEvent) => {
+          if (this.surpriseTargeting && e.button === 0) this.commitSurpriseTargeting();
+        };
+        canvas.addEventListener('pointerdown', this.surpriseClickHandler);
+      }
+    }
+
+    // World is ready — fade the loading overlay out (no-op headless).
+    this.updateLoadingProgress(100, 'loading.label.done');
+    this.hideLoadingOverlay();
+  }
+
+  /** "Did you know?" loading tips: game mechanics + lore, bilingual, picked at random. */
+  private static readonly LOADING_TIPS: Array<{ en: string; 'pt-BR': string }> = [
+    { en: 'NPCs remember grudges. What you do today shapes tomorrow’s alliances.',
+      'pt-BR': 'NPCs guardam rancor. O que você faz hoje molda as alianças de amanhã.' },
+    { en: 'Press T to hail any NPC in range. Whisper, persuade, or intimidate — your call.',
+      'pt-BR': 'Pressione T para abordar qualquer NPC ao alcance. Sussurre, persuada ou intimide — sua escolha.' },
+    { en: 'Skills grow through use. Fight to get better at fighting. Talk to sharpen your tongue.',
+      'pt-BR': 'Skills crescem com o uso. Lute para ficar melhor lutando. Fale para afiar a língua.' },
+    { en: 'Equip a weapon before combat. Fists are free; a blade tips the odds.',
+      'pt-BR': 'Equipe uma arma antes do combate. Punhos são de graça; uma lâmina muda as chances.' },
+    { en: 'Armor absorbs punishment. Tactical is solid; space-grade borders on invulnerable.',
+      'pt-BR': 'Armadura absorve pancada. A tática é sólida; a espacial beira a invulnerabilidade.' },
+    { en: 'Intelligence 20+ unlocks hacking. Without a cyberdeck, the Net stays closed.',
+      'pt-BR': 'Inteligência 20+ desbloqueia hacking. Sem um cyberdeck, a Net permanece fechada.' },
+    { en: 'The PDA (P) tracks everyone you’ve met, scanned, or doublecrossed.',
+      'pt-BR': 'O PDA (P) registra todos que você conheceu, escaneou ou traiu.' },
+    { en: 'Hunger chips away at HP over time. Loot food; eat before you fight.',
+      'pt-BR': 'A fome corrói o HP com o tempo. Saqueie comida; coma antes de lutar.' },
+    { en: 'NPCs carry their own gear. Win the fight, search the corpse.',
+      'pt-BR': 'NPCs carregam seus próprios itens. Vença a luta, reviste o cadáver.' },
+    { en: 'The city breathes. Day and night shift who’s on the street — and why.',
+      'pt-BR': 'A cidade respira. Dia e noite mudam quem está na rua — e por quê.' },
+    { en: 'Mercado das Sombras: the gray market of Neo-Recife, where corpo credits spend like runner sweat.',
+      'pt-BR': 'Mercado das Sombras: o mercado cinza de Neo-Recife, onde créditos corporativos valem tanto quanto o suor de um runner.' },
+    { en: 'Zara is a hacktivist and street vendor. She doesn’t trust corps, but she’ll talk — if you give her reason.',
+      'pt-BR': 'Zara é hacktivista e vendedora de rua. Ela não confia em corpos, mas vai conversar — se você der um motivo.' },
+    { en: 'Credsticks are untraceable. That’s the point.',
+      'pt-BR': 'Credsticks são inrrastreáveis. Esse é o ponto.' },
+  ];
+
+  /** Build the neon loading overlay shown while doLoad() streams the world in. */
+  /* istanbul ignore next — browser-only Babylon GUI; pure logic lives in I18n + tips data */
+  private buildLoadingOverlay(): void {
+    if (typeof document === 'undefined') return;
+
+    const tips = GameWorldScene.LOADING_TIPS;
+    const locale = getLocale();
+    const tip = tips[Math.floor(Math.random() * tips.length)]![locale === 'pt-BR' ? 'pt-BR' : 'en'];
+
+    const gui = AdvancedDynamicTexture.CreateFullscreenUI('loading-ui', true, this.babylonScene);
+    this.loadingGui = gui;
+
+    // Full-screen dark scrim
+    const scrim = new Rectangle('loading-scrim');
+    scrim.width = '100%';
+    scrim.height = '100%';
+    scrim.background = 'rgba(2,5,11,0.96)';
+    scrim.thickness = 0;
+    gui.addControl(scrim);
+
+    // Central neon frame
+    const frame = new Rectangle('loading-frame');
+    frame.width = '560px';
+    frame.height = '380px';
+    frame.background = 'rgba(7,14,24,0.98)';
+    frame.color = '#0c4d57';
+    frame.thickness = 2;
+    frame.cornerRadius = 12;
+    scrim.addControl(frame);
+
+    // Title
+    const title = new TextBlock('loading-title', 'WHERE ARE WE GOING WITH THIS');
+    title.color = '#00FFCC';
+    title.fontSize = 18;
+    title.fontFamily = '"Courier New", monospace';
+    title.height = '30px';
+    title.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+    title.top = '28px';
+    frame.addControl(title);
+
+    // Accent line under the title
+    const accent = new Rectangle('loading-accent');
+    accent.width = '480px';
+    accent.height = '2px';
+    accent.background = '#00FFCC';
+    accent.thickness = 0;
+    accent.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+    accent.top = '62px';
+    frame.addControl(accent);
+
+    // Animated spinner (cycles through quadrant glyphs every ~12 frames)
+    const spinner = new TextBlock('loading-spinner', '◐');
+    spinner.color = '#00FFCC';
+    spinner.fontSize = 30;
+    spinner.fontFamily = '"Courier New", monospace';
+    spinner.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+    spinner.top = '92px';
+    frame.addControl(spinner);
+    const frames = ['◐', '◓', '◑', '◒'];
+    let tick = 0;
+    let frameIdx = 0;
+    const spinObs = this.babylonScene.onBeforeRenderObservable.add(() => {
+      if (++tick % 12 === 0) { frameIdx = (frameIdx + 1) % frames.length; spinner.text = frames[frameIdx]!; }
+    });
+    this.loadingSpinnerObs = () => {
+      if (spinObs) this.babylonScene.onBeforeRenderObservable.remove(spinObs);
+    };
+
+    // Progress bar track + fill
+    const barTrack = new Rectangle('loading-bar-track');
+    barTrack.width = '440px';
+    barTrack.height = '8px';
+    barTrack.background = 'rgba(0,28,40,0.9)';
+    barTrack.color = '#1d3b46';
+    barTrack.thickness = 1;
+    barTrack.cornerRadius = 4;
+    barTrack.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+    barTrack.top = '136px';
+    frame.addControl(barTrack);
+
+    const barFill = new Rectangle('loading-bar-fill');
+    barFill.width = '0%';
+    barFill.height = '100%';
+    barFill.background = '#00FFCC';
+    barFill.thickness = 0;
+    barFill.cornerRadius = 4;
+    barFill.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+    barTrack.addControl(barFill);
+    this.loadingProgressFill = barFill;
+
+    // Progress label (e.g. "Loading the city…")
+    const progressLabel = new TextBlock('loading-progress-label', '');
+    progressLabel.color = '#7d93a6';
+    progressLabel.fontSize = 11;
+    progressLabel.fontFamily = '"Courier New", monospace';
+    progressLabel.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+    progressLabel.top = '150px';
+    frame.addControl(progressLabel);
+    this.loadingProgressLabel = progressLabel;
+
+    // Divider before the tip
+    const divider = new Rectangle('loading-divider');
+    divider.width = '440px';
+    divider.height = '1px';
+    divider.background = '#0c4d57';
+    divider.thickness = 0;
+    divider.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+    divider.top = '188px';
+    frame.addControl(divider);
+
+    // "DID YOU KNOW?" header
+    const tipHeader = new TextBlock('loading-tip-header', t('loading.didyouknow'));
+    tipHeader.color = '#00FFCC';
+    tipHeader.fontSize = 11;
+    tipHeader.fontFamily = '"Courier New", monospace';
+    tipHeader.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+    tipHeader.top = '204px';
+    frame.addControl(tipHeader);
+
+    // Tip body (wrapping)
+    const tipText = new TextBlock('loading-tip-text', `"${tip}"`);
+    tipText.color = '#aec4d6';
+    tipText.fontSize = 12;
+    tipText.fontFamily = '"Courier New", monospace';
+    tipText.textWrapping = true;
+    tipText.width = '480px';
+    tipText.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+    tipText.top = '228px';
+    frame.addControl(tipText);
+  }
+
+  /** Update the progress bar fill and label. No-ops in headless environments. */
+  private updateLoadingProgress(pct: number, labelKey: string): void {
+    /* istanbul ignore next — browser-only GUI update */
+    if (this.loadingProgressFill) {
+      this.loadingProgressFill.width = `${Math.min(100, Math.max(0, pct))}%`;
+    }
+    /* istanbul ignore next */
+    if (this.loadingProgressLabel) {
+      this.loadingProgressLabel.text = t(labelKey);
+    }
+  }
+
+  /** Fade the loading overlay out and dispose it. No-ops if no overlay exists. */
+  /* istanbul ignore next — browser-only animation + disposal */
+  private hideLoadingOverlay(): void {
+    if (!this.loadingGui) return;
+    const gui = this.loadingGui;
+    this.loadingSpinnerObs?.();
+    this.loadingSpinnerObs = null;
+    this.loadingProgressFill = null;
+    this.loadingProgressLabel = null;
+
+    // Animate alpha 1 → 0 over ~500 ms, then dispose
+    const totalMs = 500;
+    const stepMs = 16;
+    let elapsed = 0;
+    const iv = setInterval(() => {
+      elapsed += stepMs;
+      const alpha = Math.max(0, 1 - elapsed / totalMs);
+      const ctrl = gui.getControlByName('loading-scrim');
+      if (ctrl) ctrl.alpha = alpha;
+      if (elapsed >= totalMs) {
+        clearInterval(iv);
+        gui.dispose();
+        if (this.loadingGui === gui) this.loadingGui = null;
+      }
+    }, stepMs);
   }
 
   /** Build a procedural neighbor tile's SCENERY (skip (0,0); props stream via the pump). */
@@ -904,6 +1149,17 @@ export class GameWorldScene extends BaseScene {
   }
 
   async onExit(): Promise<void> {
+    // The browser path fires doLoad() without awaiting; wait for it before tearing
+    // down so the heavy init can't race the disposal (e.g. quitting mid-load).
+    await this.loadPromise.catch(() => {});
+    // Tear down the loading overlay if it's still up (e.g. exit before it faded).
+    this.loadingSpinnerObs?.();
+    this.loadingSpinnerObs = null;
+    this.loadingProgressFill = null;
+    this.loadingProgressLabel = null;
+    /* istanbul ignore next — browser-only GUI disposal */
+    if (this.loadingGui) { this.loadingGui.dispose(); this.loadingGui = null; }
+
     /* istanbul ignore next — browser-only listener cleanup */
     if (this.surpriseClickHandler) {
       this.engine.getRenderingCanvas()?.removeEventListener('pointerdown', this.surpriseClickHandler);

@@ -775,8 +775,14 @@ describe('GameWorldScene', () => {
     expect(zara.shouldInitiateCombat(true)).toBe(true);    // → combat trigger fires
   });
 
-  it('a self-exam emote narrates the condition (no NPC call)', async () => {
-    await scene.onEnter(); // no service needed — pure check + descriptor
+  it('a self-exam emote narrates the condition (medicine_check, no NPC reply)', async () => {
+    // Classifier returns medicine_check → resolveSkillAction → describeCondition narration.
+    // suppressNarration=true skips narrateOutcome so npcText stays ''.
+    const { service } = makeInjectedService(
+      'VERDICT=DETERMINISTIC\nSKILL=medicina\nATTR=inteligencia\nDIFF=medium\nHOSTILE=no\nEFFECT=medicine_check\nTARGET2=none\nDIR=none',
+    );
+    scene.setClaudeService(service);
+    await scene.onEnter();
     scene.getPlayer()!.getRoot().position.set(3, 0, 5);
     await scene.sendToActiveNPC('*check my wounds*');
     const lines = scene.getDialog()!.getState().lines;
