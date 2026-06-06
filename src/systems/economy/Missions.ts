@@ -13,7 +13,37 @@ import type { NPCDisposition } from '@entities/NPCAgent';
 import type { Inventory } from '@entities/Inventory';
 import { CURRENCY_ID, creditBalance } from './Economy';
 
-export type MissionStatus = 'active' | 'complete';
+/**
+ * Mission status:
+ *  - `active`     : accepted, awaiting kill (or claim).
+ *  - `complete`   : reward already paid.
+ *  - `cancelled`  : player voluntarily dropped the contract (Fase 21, decision #14)
+ *                   — kept in history rather than removed from the array so the
+ *                   PDA can show a record of past contracts.
+ */
+export type MissionStatus = 'active' | 'complete' | 'cancelled';
+
+/**
+ * A trade or mission OFFERED but not yet accepted/declined by the player
+ * (Fase 21, decision #11). One offer per `(npcId, kind)` pair — a new offer
+ * from the same NPC of the same kind overwrites the previous. Pendings
+ * persist cross-session in `SaveGame.pendings`.
+ */
+export type PendingOffer =
+  | {
+      kind: 'trade';
+      npcId: string;
+      itemId: string;
+      price: number;
+      createdAt: number;
+    }
+  | {
+      kind: 'mission';
+      npcId: string;
+      targetId: string;
+      reward: RewardOffer;
+      createdAt: number;
+    };
 
 export interface Mission {
   id: string;
