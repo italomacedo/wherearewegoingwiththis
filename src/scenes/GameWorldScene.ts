@@ -2851,6 +2851,9 @@ export class GameWorldScene extends BaseScene {
     if (isSelfExamEmote(message) && this.player) {
       const value = checkValue(this.playerStats, 'medicina', 'inteligencia');
       const result = resolveCheck({ value });
+      const pct = Math.round(result.probability * 100);
+      const roll = Math.round(result.roll);
+      this.logSkill(`emote examine_self · roll=${roll} vs P=${pct}% → ${result.success ? 'HIT' : 'MISS'} (Medicina)`);
       if (result.success) {
         const before = this.playerStats;
         this.playerStats = applySkillUse(this.playerStats, 'medicina', SettingsService.get('skillGainMultiplier'));
