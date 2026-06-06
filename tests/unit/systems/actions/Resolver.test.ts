@@ -181,6 +181,26 @@ describe('Resolver — verbal: commerce_*', () => {
     expect(r.blockedReason).toBe('unknown_item');
   });
 
+  it('commerce_pricing falls back to ITEM_VALUES base when no priceFor callback', () => {
+    // knife base value = 12 (per ITEM_VALUES in ItemCatalog).
+    const r = resolveAction(makePlayer(), 'commerce_pricing', zara, {
+      itemId: 'knife', npcSellableIds: ['knife'],
+      // priceFor intentionally omitted → fallback path.
+    });
+    expect(r.mutations).toContainEqual({
+      kind: 'stage_pending_trade', npc: 'npc_zara', itemId: 'knife', price: 12,
+    });
+  });
+
+  it('commerce_pricing fallback also kicks in when priceFor returns 0/non-finite', () => {
+    const r = resolveAction(makePlayer(), 'commerce_pricing', zara, {
+      itemId: 'knife', npcSellableIds: ['knife'],
+      priceFor: () => 0, // misbehaving callback → resolver falls back to catalog
+    });
+    const stage = r.mutations.find((m) => m.kind === 'stage_pending_trade');
+    expect(stage).toMatchObject({ price: 12 });
+  });
+
   it('commerce_haggle success applies 0.85 factor (15% off)', () => {
     const stats = createDefaultStats();
     stats.skills.comercio = 80;

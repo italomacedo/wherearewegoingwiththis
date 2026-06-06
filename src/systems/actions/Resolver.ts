@@ -38,6 +38,7 @@ import {
 import { SkillEffect } from '@systems/npc/EmoteIntent';
 import { resolveCheck, RollFn, defaultRoll } from '@systems/SkillCheck';
 import { checkValue } from '@entities/CharacterStats';
+import { itemValue } from '@entities/items/ItemCatalog';
 
 /**
  * A natural d100 below this on a successful check = CRITICAL (doubles social
@@ -166,6 +167,20 @@ function ok(): ResolveResult {
 
 function blocked(reason: BlockedReason): ResolveResult {
   return { allowed: false, blockedReason: reason, surprise: false, rolled: false, success: false, critical: false, probability: 0, roll: 0, mutations: [] };
+}
+
+/**
+ * Resolve a price for an item: prefer the caller's `priceFor` (disposition-
+ * aware) when given, but fall back to the catalog base value when absent OR
+ * when the caller returned 0/non-finite. Items not in the catalog go to 0
+ * (the scene should have rejected them via `npcSellableIds` already).
+ */
+function resolvePriceFor(itemId: string, override?: (id: string) => number): number {
+  if (override) {
+    const p = override(itemId);
+    if (Number.isFinite(p) && p > 0) return p;
+  }
+  return itemValue(itemId); // catalog base — no disposition discount applied
 }
 
 /** Distance² between two Point2 (XZ plane). */
@@ -449,7 +464,7 @@ function resolveVerbal(
       if (!target) return blocked('no_target');
       if (!o.itemId) return blocked('unknown_item');
       if (o.npcSellableIds && !o.npcSellableIds.includes(o.itemId)) return blocked('unknown_item');
-      const price = o.priceFor ? o.priceFor(o.itemId) : 0;
+      const price = resolvePriceFor(o.itemId, o.priceFor);
       return {
         ...ok(),
         // Stage the pending trade AND index the price discovery in the PDA (the
@@ -472,7 +487,7 @@ function resolveVerbal(
       const mutations: Mutation[] = [];
       if (!o.pendingTrade) {
         if (o.itemId && (!o.npcSellableIds || o.npcSellableIds.includes(o.itemId))) {
-          const stagePrice = o.priceFor ? o.priceFor(o.itemId) : 0;
+          const stagePrice = resolvePriceFor(o.itemId, o.priceFor);
           mutations.push({ kind: 'stage_pending_trade', npc: target.id, itemId: o.itemId, price: stagePrice });
         } else {
           // No item to haggle on → fall through to discovery silently.
@@ -512,7 +527,7 @@ function resolveVerbal(
       // touches (player sees a quoted price but inventory/credits don't move).
       if (!o.pendingTrade) {
         if (o.itemId && (!o.npcSellableIds || o.npcSellableIds.includes(o.itemId))) {
-          const price = o.priceFor ? o.priceFor(o.itemId) : 0;
+          const price = resolvePriceFor(o.itemId, o.priceFor);
           return {
             ...ok(),
             mutations: [
