@@ -104,6 +104,44 @@ export function paletteForPeriod(period: DayPeriod): DayPalette {
   return DAY_PALETTES[period];
 }
 
+/** Period boundary hours in [start, end) notation. */
+const PERIOD_SPANS: Array<{ period: DayPeriod; start: number; end: number }> = [
+  { period: 'dawn',  start: PERIOD_BOUNDS.dawnStart,  end: PERIOD_BOUNDS.dayStart },
+  { period: 'day',   start: PERIOD_BOUNDS.dayStart,   end: PERIOD_BOUNDS.duskStart },
+  { period: 'dusk',  start: PERIOD_BOUNDS.duskStart,  end: PERIOD_BOUNDS.nightStart },
+  { period: 'night', start: PERIOD_BOUNDS.nightStart, end: PERIOD_BOUNDS.dawnStart + 24 },
+];
+
+function lerpNum(a: number, b: number, t: number): number {
+  return a + (b - a) * Math.max(0, Math.min(1, t));
+}
+
+function lerpPalette(a: DayPalette, b: DayPalette, t: number): DayPalette {
+  return {
+    ambientIntensity: lerpNum(a.ambientIntensity, b.ambientIntensity, t),
+    ambient:  [lerpNum(a.ambient[0],  b.ambient[0],  t), lerpNum(a.ambient[1],  b.ambient[1],  t), lerpNum(a.ambient[2],  b.ambient[2],  t)],
+    ground:   [lerpNum(a.ground[0],   b.ground[0],   t), lerpNum(a.ground[1],   b.ground[1],   t), lerpNum(a.ground[2],   b.ground[2],   t)],
+    fog:      [lerpNum(a.fog[0],      b.fog[0],      t), lerpNum(a.fog[1],      b.fog[1],      t), lerpNum(a.fog[2],      b.fog[2],      t)],
+    fogDensity: lerpNum(a.fogDensity, b.fogDensity,  t),
+  };
+}
+
+/** Smoothly interpolated DayPalette for any hour — blends across period boundaries. */
+export function smoothPaletteForHour(hour: number): DayPalette {
+  const h = normalizeHour(hour);
+  // Adjust night's wrap-around (nightStart..24+dawnStart).
+  const hAdj = h < PERIOD_BOUNDS.dawnStart ? h + 24 : h;
+  for (let i = 0; i < PERIOD_SPANS.length; i++) {
+    const { period, start, end } = PERIOD_SPANS[i]!;
+    if (hAdj >= start && hAdj < end) {
+      const t = (hAdj - start) / (end - start);
+      const nextPeriod = PERIOD_SPANS[(i + 1) % PERIOD_SPANS.length]!.period;
+      return lerpPalette(DAY_PALETTES[period], DAY_PALETTES[nextPeriod], t);
+    }
+  }
+  return DAY_PALETTES.night;
+}
+
 export interface GameClockConfig {
   /** 'wall' mirrors the real local clock; 'fixed' uses startHour + playtime. */
   mode: 'wall' | 'fixed';
