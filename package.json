@@ -16,6 +16,7 @@
     "preelectron:dev": "npm run copy:assets",
     "electron:dev": "vite",
     "electron:build": "npm run build && electron-builder",
+    "scrub": "vite --config vite.scrub.config.ts --port 5174",
     "test": "jest",
     "test:watch": "jest --watch",
     "coverage": "jest --coverage",

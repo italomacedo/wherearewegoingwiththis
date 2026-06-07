@@ -116,11 +116,11 @@ export const STRINGS: Record<string, Entry> = {
   'hud.talkTo': e('[E] Interact with {name}', '[E] Interagir com {name}'),
   'hud.search': e('[E] Search the body', '[E] Revistar o corpo'),
   'hud.searchTo': e('[E] Search {name}', '[E] Revistar {name}'),
-  'hud.enterBike': e('[F] Enter bike', '[F] Entrar na nave'),
-  'hud.exitBike': e('[F] Exit bike', '[F] Sair da nave'),
+  'hud.enterCar': e('[F] Enter car', '[F] Entrar no carro'),
+  'hud.exitCar': e('[F] Exit car', '[F] Sair do carro'),
   'hud.pickUp': e('[E] Pick up {name}', '[E] Pegar {name}'),
-  'hud.naveStatus': e('NAVE {pct}%', 'NAVE {pct}%'),
-  'hud.naveDestroyed': e('NAVE DESTROYED', 'NAVE DESTRUÍDA'),
+  'hud.carStatus': e('CAR {pct}%', 'CARRO {pct}%'),
+  'hud.carDestroyed': e('CAR DESTROYED', 'CARRO DESTRUÍDO'),
 
   // ─── Action ribbon (Phase 11) ────────────────────────────────────────────────
   'ribbon.attackRanged': e('Shoot', 'Atirar'),
@@ -129,6 +129,7 @@ export const STRINGS: Record<string, Entry> = {
   'ribbon.inventory': e('Inventory', 'Inventário'),
   'ribbon.characterSheet': e('Character', 'Ficha'),
   'ribbon.pda': e('PDA', 'PDA'),
+  'ribbon.adjustSeat': e('Adjust Seat', 'Ajustar Assento'),
 
   // ─── PDA (Fase 20) ───────────────────────────────────────────────────────────
   'pda.title': e('PDA — DOSSIERS', 'PDA — DOSSIÊS'),

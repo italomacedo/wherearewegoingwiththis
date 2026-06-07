@@ -34,46 +34,58 @@ export function difficultyValue(level: string): number {
 /**
  * The mechanical effect a deterministic skill action produces.
  *
- * **Vocabulary in transition (Fase 21):** the slim emote vocabulary the
- * classifier emits going forward is `attack | steal | info | coerce | heal |
- * sabotage | repair | craft | persuade | intimidate | disarm | examine_self |
- * narrate_time | narrative`. The LEGACY entries (`relationship`,
- * `disposition`, `haggle`, `appraise`, `traverse`, `none`) remain in the
- * union for backward compatibility with scene + SkillActions switch branches
- * that are still wired today (Fase 21 21C — type superset). They will be
- * removed in 21D-F when the unified Resolver subsumes the old paths.
+ * **Naming convention:** skill-governed effects read `<skill>_<use_case>` so
+ * the governing skill is explicit (mirrors the verbal `commerce_*` family). The
+ * Medicina pair is `medicine_check` (read your own condition) and
+ * `medicine_treat` (restore HP); generic action verbs (attack/steal/…) stay
+ * single-word because they route through more than one skill (e.g. `steal` =
+ * Furtividade OR IT) — the skill is carried separately on `SKILL=`.
+ *
+ * The LEGACY entries (`heal`, `examine_self`, `relationship`, `disposition`,
+ * `haggle`, `appraise`, `traverse`, `none`) remain in the union and are mapped
+ * to their replacements by `parseActionClassification` (type-superset
+ * transition, Lesson 55) so a stray model output never breaks; they will be
+ * removed once the unified Resolver subsumes the old paths.
  */
 export type SkillEffect =
-  // ─── Slim vocab (Fase 21) — the classifier emits ONLY these going forward.
+  // ─── Slim vocab — the classifier emits ONLY these going forward.
   | 'attack'         // offensive strike/shot/hack → ambush combat
   | 'steal'          // pickpocket / wire-transfer (surprise)
   | 'info'           // hack/scan to learn about target → PDA entry
   | 'coerce'         // fear → target yields item/credits/info
-  | 'heal'           // restore HP (self or another)
+  | 'medicine_treat' // restore HP (self or another) — Medicina
   | 'sabotage'       // rig gear (Engenharia melee / IT remote)
   | 'repair'         // restore own item
   | 'craft'          // build melee weapon from scrap
-  | 'persuade'       // emote charm/seduction (Fase 21 NEW)
-  | 'intimidate'     // emote physical pressure (Fase 21 NEW)
-  | 'disarm'         // knock target's weapon to the ground (Fase 21 NEW)
-  | 'examine_self'   // *check my wounds* — narrate HP condition (Fase 21 NEW)
-  | 'narrate_time'   // *check the time* — narrate diegetic time (Fase 21 NEW)
-  | 'narrative'      // pure narration, no mechanic (Fase 21 — renamed from `none`)
-  // ─── Legacy (deprecated, kept for type compatibility until 21D-F land).
-  | 'relationship'   // → moves to verbal `manipulate` (decision #2)
-  | 'disposition'    // → split into emote `persuade` / `intimidate` (decision #2)
-  | 'haggle'         // → moves to verbal `commerce_haggle` (decision #2)
-  | 'appraise'       // → merged into verbal `commerce_pricing` (decision #2)
+  | 'persuade'       // emote charm/seduction
+  | 'intimidate'     // emote physical pressure
+  | 'disarm'         // knock target's weapon to the ground
+  | 'medicine_check' // *check my wounds* — narrate HP condition — Medicina
+  | 'narrate_time'   // *check the time* — narrate diegetic time (no skill)
+  | 'narrative'      // pure narration, no mechanic
+  // ─── Legacy (deprecated; normalized to the names above by the parser).
+  | 'heal'           // → medicine_treat
+  | 'examine_self'   // → medicine_check
+  | 'relationship'   // → moves to verbal `manipulate`
+  | 'disposition'    // → split into emote `persuade` / `intimidate`
+  | 'haggle'         // → moves to verbal `commerce_haggle`
+  | 'appraise'       // → merged into verbal `commerce_pricing`
   | 'traverse'       // → removed entirely (Atletismo is passive only)
-  | 'none';          // → renamed to `narrative` (decision #3)
+  | 'none';          // → renamed to `narrative`
 
 export const SKILL_EFFECTS: readonly SkillEffect[] = [
   // Slim vocab first (these are what the classifier emits today).
-  'attack', 'steal', 'info', 'coerce', 'heal', 'sabotage', 'repair', 'craft',
-  'persuade', 'intimidate', 'disarm', 'examine_self', 'narrate_time', 'narrative',
-  // Legacy — recognised by the parser if a stray model output uses them.
-  'relationship', 'disposition', 'haggle', 'appraise', 'traverse', 'none',
+  'attack', 'steal', 'info', 'coerce', 'medicine_treat', 'sabotage', 'repair', 'craft',
+  'persuade', 'intimidate', 'disarm', 'medicine_check', 'narrate_time', 'narrative',
+  // Legacy — recognised by the parser (then normalized) if a stray output uses them.
+  'heal', 'examine_self', 'relationship', 'disposition', 'haggle', 'appraise', 'traverse', 'none',
 ];
+
+/** Legacy effect names → their current replacement (applied by the parser). */
+const EFFECT_ALIASES: Partial<Record<SkillEffect, SkillEffect>> = {
+  heal: 'medicine_treat',
+  examine_self: 'medicine_check',
+};
 
 export interface ActionClassification {
   deterministic: boolean;
@@ -116,8 +128,9 @@ export function parseActionClassification(raw: string): ActionClassification {
 
   const effMatch = raw.match(/EFFECT\s*=\s*([a-z_]+)/i);
   const effId = effMatch?.[1]!.toLowerCase();
-  const effect: SkillEffect = (effId && SKILL_EFFECTS.includes(effId as SkillEffect))
+  const rawEffect: SkillEffect = (effId && SKILL_EFFECTS.includes(effId as SkillEffect))
     ? (effId as SkillEffect) : 'none';
+  const effect: SkillEffect = EFFECT_ALIASES[rawEffect] ?? rawEffect;
 
   const t2Match = raw.match(/TARGET2\s*=\s*([^\n\r]+)/i);
   const t2 = t2Match?.[1]!.trim();
@@ -156,14 +169,6 @@ export function isCheckTimeEmote(message: string): boolean {
 // `ferimento(s)` is matched explicitly; `\b` is unreliable around accented letters
 // (Lesson 49), so PT-BR variants `sa[úu]de` / `condi[çc][ãa]o` are anchored with the
 // same word boundary but the accented ranges are tolerated by the case-insensitive flag.
-const SELF_EXAM_RE =
-  /\b(wound|wounds|hurt|injur\w*|bleed\w*|health|condition|ferida|ferid\w*|ferimento|ferimentos|sa[úu]de|machuca\w*|condi[çc][ãa]o)\b/i;
-
-/** True when an emote is the player checking their own condition (Medicina-gated). */
-export function isSelfExamEmote(message: string): boolean {
-  return emoteTexts(message).some((t) => SELF_EXAM_RE.test(t));
-}
-
 /** Parse a classifier reply. Fails OPEN to NARRATIVE (never blocks normal chat). */
 export function parseEmoteVerdict(raw: string): EmoteVerdict {
   return /\bDETERMINISTIC\b/i.test(raw) ? 'DETERMINISTIC' : 'NARRATIVE';

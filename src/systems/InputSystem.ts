@@ -15,6 +15,7 @@ export type GameAction =
   | 'vehicle.enter'
   | 'camera.rotateLeft'
   | 'camera.rotateRight'
+  | 'view.switch'
   | 'pause';
 
 /** Default key code → action bindings (KeyboardEvent.code values). */
@@ -39,6 +40,7 @@ export const DEFAULT_BINDINGS: Record<string, GameAction> = {
   KeyK: 'character.sheet.open',    // open the character sheet (attributes/skills/perks)
   KeyP: 'pda.open',                // open the PDA (intel dossiers)
   KeyF: 'vehicle.enter',
+  KeyV: 'view.switch',             // toggle first-person / third-person (in vehicle)
   Escape: 'pause',
   // Camera orbit: hold Z / C to rotate left / right (also middle-mouse drag).
   KeyZ: 'camera.rotateLeft',

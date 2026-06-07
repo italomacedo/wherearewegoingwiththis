@@ -13,7 +13,7 @@
  * repair/persuade/intimidate/disarm), the Resolver delegates to the
  * pre-existing `resolveSkillAction` in `skills/SkillActions.ts` and
  * **lifts** its `SkillMutation`s into actor-explicit `Mutation`s. For the
- * NEW verbs (job_*, commerce_*, manipulate, examine_self, narrate_time,
+ * NEW verbs (job_*, commerce_*, manipulate, medicine_check, narrate_time,
  * autonomy locomotion) the Resolver implements branches directly.
  *
  * Decisions baked in here:
@@ -346,7 +346,7 @@ export function resolveAction(
   }
 
   // channel === 'emote'
-  if (verb === 'examine_self') {
+  if (verb === 'medicine_check') {
     const skillValue = checkValue(actor.getStats(), 'medicina', 'inteligencia');
     /* istanbul ignore next — `?? 50` defensive */
     const check = resolveCheck({ value: skillValue, opponent: options.difficulty ?? 50 }, rng);
@@ -355,6 +355,7 @@ export function resolveAction(
       success: check.success, critical: check.success && check.roll < RESOLVER_CRITICAL_ROLL,
       probability: check.probability, roll: check.roll,
       mutations: [
+        // `examine_self` mutation = the generic "narrate condition band" primitive.
         { kind: 'examine_self', actor: actor.id, success: check.success },
         { kind: 'apply_skill_use', actor: actor.id, skillId: 'medicina' },
       ],

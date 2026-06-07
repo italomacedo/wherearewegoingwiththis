@@ -12,6 +12,7 @@ import { t } from '@systems/I18n';
  *
  * The button set + enabled gating is pure/testable (`ribbonButtons`); the Babylon
  * GUI is browser-only. Attack Ranged is enabled only with a firearm in hand.
+ * While piloting a vehicle (`isPiloting=true`) only the Adjust Seat button shows.
  */
 
 export interface ActionRibbonHandlers {
@@ -21,9 +22,10 @@ export interface ActionRibbonHandlers {
   onInventory?: () => void;
   onCharacterSheet?: () => void;
   onPda?: () => void;
+  onAdjustSeat?: () => void;
 }
 
-export type RibbonKey = 'attackRanged' | 'attackMelee' | 'talk' | 'inventory' | 'characterSheet' | 'pda';
+export type RibbonKey = 'attackRanged' | 'attackMelee' | 'talk' | 'inventory' | 'characterSheet' | 'pda' | 'adjustSeat';
 
 export interface RibbonButton {
   key: RibbonKey;
@@ -32,10 +34,28 @@ export interface RibbonButton {
 }
 
 /**
- * Pure: the ordered ribbon buttons with their enabled state. Attack Ranged needs a
- * firearm equipped; the rest are always available (melee falls back to fists).
+ * All possible ribbon buttons — used to build the GUI upfront so the bar can
+ * toggle button visibility instead of rebuilding when context changes.
  */
-export function ribbonButtons(hasFirearm: boolean): RibbonButton[] {
+const ALL_RIBBON_BUTTONS: RibbonButton[] = [
+  { key: 'attackRanged', labelKey: 'ribbon.attackRanged', enabled: false },
+  { key: 'attackMelee', labelKey: 'ribbon.attackMelee', enabled: false },
+  { key: 'talk', labelKey: 'ribbon.talk', enabled: false },
+  { key: 'inventory', labelKey: 'ribbon.inventory', enabled: false },
+  { key: 'characterSheet', labelKey: 'ribbon.characterSheet', enabled: false },
+  { key: 'pda', labelKey: 'ribbon.pda', enabled: false },
+  { key: 'adjustSeat', labelKey: 'ribbon.adjustSeat', enabled: false },
+];
+
+/**
+ * Pure: the active ribbon buttons with their enabled state for the given context.
+ * - On foot (`isPiloting=false`): the standard 6 action buttons.
+ * - Piloting a vehicle (`isPiloting=true`): only Adjust Seat.
+ */
+export function ribbonButtons(hasFirearm: boolean, isPiloting = false): RibbonButton[] {
+  if (isPiloting) {
+    return [{ key: 'adjustSeat', labelKey: 'ribbon.adjustSeat', enabled: true }];
+  }
   return [
     { key: 'attackRanged', labelKey: 'ribbon.attackRanged', enabled: hasFirearm },
     { key: 'attackMelee', labelKey: 'ribbon.attackMelee', enabled: true },
@@ -50,6 +70,7 @@ export class ActionRibbon {
   private scene: Scene;
   private handlers: ActionRibbonHandlers = {};
   private hasFirearm = false;
+  private isPiloting = false;
   private visible = true;
 
   private gui: AdvancedDynamicTexture | null = null;
@@ -72,7 +93,14 @@ export class ActionRibbon {
     this.refresh();
   }
 
-  /** Show/hide the whole ribbon (hidden during combat/dialog/overlays/vehicle). */
+  /** Switch between the on-foot and piloting button contexts. */
+  setIsPiloting(piloting: boolean): void {
+    if (this.isPiloting === piloting) return;
+    this.isPiloting = piloting;
+    this.refresh();
+  }
+
+  /** Show/hide the whole ribbon (hidden during combat/dialog/overlays). */
   setVisible(visible: boolean): void {
     if (this.visible === visible) return;
     this.visible = visible;
@@ -85,7 +113,7 @@ export class ActionRibbon {
 
   /** Dispatch a button press (pure-callable in tests). */
   press(key: RibbonKey): void {
-    const enabled = ribbonButtons(this.hasFirearm).find((b) => b.key === key)?.enabled;
+    const enabled = ribbonButtons(this.hasFirearm, this.isPiloting).find((b) => b.key === key)?.enabled;
     if (!enabled) return;
     if (key === 'attackRanged') this.handlers.onAttackRanged?.();
     else if (key === 'attackMelee') this.handlers.onAttackMelee?.();
@@ -93,6 +121,7 @@ export class ActionRibbon {
     else if (key === 'inventory') this.handlers.onInventory?.();
     else if (key === 'characterSheet') this.handlers.onCharacterSheet?.();
     else if (key === 'pda') this.handlers.onPda?.();
+    else if (key === 'adjustSeat') this.handlers.onAdjustSeat?.();
   }
 
   private buildUI(): void {
@@ -110,13 +139,14 @@ export class ActionRibbon {
   /* istanbul ignore next — browser GUI only */
   private refreshBrowser(): void {
     if (this.bar) this.bar.isVisible = this.visible;
-    const states = ribbonButtons(this.hasFirearm);
-    for (const b of states) {
-      const btn = this.buttonsByKey.get(b.key);
-      if (!btn) continue;
-      btn.isEnabled = b.enabled;
-      btn.alpha = b.enabled ? 1 : 0.4;
-      btn.color = b.enabled ? '#00FFCC' : '#557';
+    const active = ribbonButtons(this.hasFirearm, this.isPiloting);
+    const activeMap = new Map(active.map((b) => [b.key, b]));
+    for (const [key, btn] of this.buttonsByKey) {
+      const state = activeMap.get(key);
+      btn.isVisible = !!state;
+      btn.isEnabled = state?.enabled ?? false;
+      btn.alpha = (state?.enabled ?? false) ? 1 : 0.4;
+      btn.color = (state?.enabled ?? false) ? '#00FFCC' : '#557';
     }
   }
 
@@ -135,7 +165,7 @@ export class ActionRibbon {
     gui.addControl(bar);
     this.bar = bar;
 
-    for (const b of ribbonButtons(this.hasFirearm)) {
+    for (const b of ALL_RIBBON_BUTTONS) {
       const btn = Button.CreateSimpleButton(`ribbon-${b.key}`, t(b.labelKey));
       btn.width = '150px';
       btn.height = '36px';

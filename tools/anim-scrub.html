@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Anim Scrub — pose finder</title>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { height: 100%; overflow: hidden; background: #3a3a44; font-family: monospace; color: #cde; }
+      #c { display: block; width: 100vw; height: 100vh; position: absolute; inset: 0; }
+      #panel {
+        position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;
+        background: rgba(20,22,30,0.9); padding: 10px 14px; display: flex;
+        flex-direction: column; gap: 8px;
+      }
+      .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+      select, button { font-family: monospace; padding: 4px 8px; font-size: 13px; }
+      input[type=range] { flex: 1; min-width: 300px; }
+      #frame { width: 110px; text-align: right; }
+      #pose { color: #6cf; font-size: 13px; }
+      label { font-size: 12px; color: #9ab; }
+    </style>
+  </head>
+  <body>
+    <canvas id="c"></canvas>
+    <div id="panel">
+      <div id="pose">loading…</div>
+      <div class="row">
+        <label>Character</label>
+        <select id="char"></select>
+        <label>Clip</label>
+        <select id="clip"></select>
+        <label><input type="checkbox" id="loop" /> play/loop</label>
+        <button id="prev">◀ -1</button>
+        <button id="next">+1 ▶</button>
+        <span id="frame">frame 0</span>
+      </div>
+      <div class="row">
+        <label>Frame</label>
+        <input type="range" id="scrub" min="0" max="100" value="0" step="1" />
+      </div>
+      <div class="row">
+        <label>View</label>
+        <button data-view="side">Side</button>
+        <button data-view="front">Front</button>
+        <button data-view="back">Back</button>
+        <button data-view="3q">3/4</button>
+        <span style="color:#9ab">— drag to orbit / wheel to zoom. Pick a clip + frame, note both.</span>
+      </div>
+    </div>
+    <script type="module" src="/src/tools/animScrub.ts"></script>
+  </body>
+</html>

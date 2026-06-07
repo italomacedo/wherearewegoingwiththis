@@ -345,16 +345,16 @@ describe('Resolver — emote dispatch (delegates to SkillActions)', () => {
     });
   });
 
-  it('heal self emote heals the actor', () => {
+  it('medicine_treat self emote heals the actor (generic heal mutation)', () => {
     const stats = createDefaultStats();
     stats.skills.medicina = 80;
-    const r = resolveAction(makePlayer({ stats }), 'heal', null, { skillId: 'medicina' }, rollLow, 'emote');
+    const r = resolveAction(makePlayer({ stats }), 'medicine_treat', null, { skillId: 'medicina' }, rollLow, 'emote');
     expect(r.success).toBe(true);
     expect(r.mutations.find((m) => m.kind === 'heal')).toMatchObject({ target: 'player' });
   });
 
-  it('examine_self always emits an examine_self mutation + skill use', () => {
-    const r = resolveAction(makePlayer(), 'examine_self', null, {}, rollLow, 'emote');
+  it('medicine_check always emits an examine_self mutation + skill use', () => {
+    const r = resolveAction(makePlayer(), 'medicine_check', null, {}, rollLow, 'emote');
     expect(r.allowed).toBe(true);
     expect(r.rolled).toBe(true);
     expect(r.mutations.find((m) => m.kind === 'examine_self')).toBeDefined();
@@ -557,11 +557,11 @@ describe('Resolver — emote dispatch lifts (coverage of all SkillMutation kinds
     }, rollLow, 'verbal').blockedReason).toBe('dead_target');
   });
 
-  it('heal with explicit target NPC lifts to heal of THAT target (line 222 branch)', () => {
+  it('medicine_treat with explicit target NPC lifts to heal of THAT target (line 222 branch)', () => {
     const stats = createDefaultStats();
     stats.skills.medicina = 99;
     const close = makeNpc('npc_close', [0.5, 0, 0]);
-    const r = resolveAction(makePlayer({ stats }), 'heal', close, { skillId: 'medicina' }, rollLow, 'emote');
+    const r = resolveAction(makePlayer({ stats }), 'medicine_treat', close, { skillId: 'medicina' }, rollLow, 'emote');
     expect(r.success).toBe(true);
     expect(r.mutations.find((m) => m.kind === 'heal')).toMatchObject({ target: 'npc_close' });
   });

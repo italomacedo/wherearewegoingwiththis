@@ -28,7 +28,7 @@ describe('WorldHud', () => {
   });
 
   it('setActionPrompt(null) clears the prompt', () => {
-    hud.setActionPrompt('[F] Enter bike');
+    hud.setActionPrompt('[F] Enter car');
     hud.setActionPrompt(null);
     expect(hud.getActionPrompt()).toBeNull();
   });
@@ -76,15 +76,15 @@ describe('WorldHud', () => {
 
   it('vehicle status starts null and updates', () => {
     expect(hud.getVehicleStatus()).toBeNull();
-    hud.setVehicleStatus('NAVE 50%');
-    expect(hud.getVehicleStatus()).toBe('NAVE 50%');
+    hud.setVehicleStatus('CAR 50%');
+    expect(hud.getVehicleStatus()).toBe('CAR 50%');
     hud.setVehicleStatus(null);
     expect(hud.getVehicleStatus()).toBeNull();
   });
 
   it('dispose resets prompt and vehicle status', () => {
     hud.setActionPrompt('x');
-    hud.setVehicleStatus('NAVE 10%');
+    hud.setVehicleStatus('CAR 10%');
     hud.dispose();
     expect(hud.getActionPrompt()).toBeNull();
     expect(hud.getVehicleStatus()).toBeNull();

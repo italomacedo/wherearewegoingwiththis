@@ -333,9 +333,9 @@ export const TRASH_MODELS: Record<string, string> = {
   waterbottle_2: 'world/trash/waterbottle_2.glb',
 };
 
-/** Atmospheric nave (small Spaceships model) — replaces the flying bike. */
+/** Flying car model (flying_car_1_low-poly CC0) — replaces the nave. */
 export const NAVE_MODEL = {
-  path: 'vehicles/nave.glb',
-  scale: 0.6,
-  yaw: Math.PI,
+  path: 'vehicles/flying_car_1_low_poly.glb',
+  scale: 0.012,
+  yaw: 0,
 } as const;

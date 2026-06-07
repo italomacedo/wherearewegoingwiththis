@@ -384,11 +384,11 @@ describe('GameWorldScene', () => {
     const v = scene.getVehicle()!;
     scene.getPlayer()!.getRoot().position.copyFrom(v.getPosition());
     scene.update();
-    expect(scene.getHud()!.getActionPrompt()).toBe('[F] Enter bike');
+    expect(scene.getHud()!.getActionPrompt()).toBe('[F] Enter car');
     // mount, then the prompt becomes exit
     scene.getInputSystem()!.handleKeyDown('KeyF');
     scene.update();
-    expect(scene.getHud()!.getActionPrompt()).toBe('[F] Exit bike');
+    expect(scene.getHud()!.getActionPrompt()).toBe('[F] Exit car');
   });
 
   it('HUD prompt is null far from anything interactive', async () => {
@@ -443,7 +443,7 @@ describe('GameWorldScene', () => {
     scene.getPlayer()!.getRoot().position.copyFrom(v.getPosition());
     scene.getInputSystem()!.handleKeyDown('KeyF');
     scene.update();
-    expect(scene.getHud()!.getVehicleStatus()).toBe('NAVE 100%');
+    expect(scene.getHud()!.getVehicleStatus()).toBe('CAR 100%');
   });
 
   it('opens the Game Over menu when the hero dies; its options load/quit', async () => {

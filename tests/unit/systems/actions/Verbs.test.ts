@@ -45,9 +45,9 @@ describe('Verbs vocabulary', () => {
       expect(EMOTE_VERBS).toHaveLength(14);
       expect(EMOTE_VERBS).toEqual(
         expect.arrayContaining([
-          'attack', 'steal', 'info', 'coerce', 'heal', 'sabotage',
+          'attack', 'steal', 'info', 'coerce', 'medicine_treat', 'sabotage',
           'repair', 'craft', 'persuade', 'intimidate', 'disarm',
-          'examine_self', 'narrate_time', 'narrative',
+          'medicine_check', 'narrate_time', 'narrative',
         ]),
       );
     });
@@ -63,10 +63,11 @@ describe('Verbs vocabulary', () => {
       expect(EMOTE_VERBS).not.toContain('none'); // renamed to 'narrative'
     });
 
-    it('has examine_self + narrate_time (decision #1 — replace short-circuits)', () => {
+    it('has medicine_check + narrate_time (decision #1 — replace short-circuits)', () => {
       // The legacy isCheckTimeEmote / isSelfExamEmote regex short-circuits
       // are dropped; their behaviour is folded into first-class verbs.
-      expect(EMOTE_VERBS).toContain('examine_self');
+      // (medicine_check = the old examine_self, renamed to <skill>_<use_case>.)
+      expect(EMOTE_VERBS).toContain('medicine_check');
       expect(EMOTE_VERBS).toContain('narrate_time');
     });
 
@@ -96,7 +97,7 @@ describe('Verbs vocabulary', () => {
     it('includes the verbal/emote subset relevant to NPCs', () => {
       expect(AUTONOMY_VERBS).toEqual(
         expect.arrayContaining([
-          'attack', 'steal', 'info', 'sabotage', 'heal',
+          'attack', 'steal', 'info', 'sabotage', 'medicine_treat',
           'intimidate', 'persuade', 'manipulate', 'commerce_pricing', 'narrative',
         ]),
       );
@@ -115,7 +116,7 @@ describe('Verbs vocabulary', () => {
 
     it('isEmoteVerb accepts vocabulary entries and rejects others', () => {
       expect(isEmoteVerb('attack')).toBe(true);
-      expect(isEmoteVerb('examine_self')).toBe(true);
+      expect(isEmoteVerb('medicine_check')).toBe(true);
       expect(isEmoteVerb('narrative')).toBe(true);
       expect(isEmoteVerb('job_request')).toBe(false); // verbal-only
       expect(isEmoteVerb('wait')).toBe(false); // autonomy-only
@@ -127,7 +128,7 @@ describe('Verbs vocabulary', () => {
       expect(isAutonomyVerb('use_item')).toBe(true);
       expect(isAutonomyVerb('attack')).toBe(true); // shared with emote
       expect(isAutonomyVerb('narrative')).toBe(true);
-      expect(isAutonomyVerb('examine_self')).toBe(false); // emote-only
+      expect(isAutonomyVerb('medicine_check')).toBe(false); // emote-only
       expect(isAutonomyVerb('job_request')).toBe(false); // verbal-only
     });
   });

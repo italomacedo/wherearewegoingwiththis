@@ -85,6 +85,19 @@ export const COMBAT_CLIPS: Record<'punch' | 'kick' | 'shoot' | 'aim' | 'hit' | '
 
 export type CombatClipState = keyof typeof COMBAT_CLIPS;
 
+/**
+ * Embedded clips kept on the rig PURELY as static-pose sources (frozen at a frame
+ * via `PlayerController.playPose(clip, frame)`), not played as motion. Without an
+ * entry here the assembler discards the clip (only LOCO/COMBAT are kept). Value =
+ * exact embedded clip name; key = the renamed in-game name. Frames are catalogued
+ * in `tools/README.md` (e.g. `roll`@65 = sit-on-ground, `roll`@70 = passenger).
+ */
+export const POSE_CLIPS = {
+  roll: 'Roll',
+} as const;
+
+export type PoseClipState = keyof typeof POSE_CLIPS;
+
 /** The clip an attacker plays for a given attack kind (melee → punch, ranged → shoot). */
 export function combatClipFor(attackKind: 'melee' | 'ranged'): CombatClipState {
   return attackKind === 'melee' ? 'punch' : 'shoot';

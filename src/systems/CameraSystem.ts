@@ -1,5 +1,5 @@
 import {
-  Scene, ArcRotateCamera, Vector3, TransformNode, Scalar,
+  Scene, ArcRotateCamera, UniversalCamera, Vector3, TransformNode, Scalar,
 } from '@babylonjs/core';
 import { SettingsService } from '@systems/SettingsService';
 
@@ -30,6 +30,9 @@ export const KEY_ORBIT_SPEED = 1.8;
 /** Close radius used to frame the speaking NPC during a conversation. */
 export const CONVERSATION_RADIUS = 7;
 
+/** Radius (m) the camera pulls to when piloting a vehicle. */
+export const VEHICLE_RADIUS = 9;
+
 /**
  * Isometric-style camera using ArcRotateCamera locked to a fixed elevation.
  * Follows a target mesh with damping. Q/E rotate the view in 45° snaps.
@@ -42,6 +45,7 @@ export class CameraSystem {
   private vehicleMode = false;
   private savedRadius = 0;
   private savedDamping = 0;
+  private savedLowerRadius = 0;
   private conversationMode = false;
   private convSavedRadius = 0;
   private convSavedTarget: TransformNode | null = null;
@@ -51,8 +55,11 @@ export class CameraSystem {
   private freeSavedRadius = 0;
   private freeSavedTarget: TransformNode | null = null;
   private detachPointer: (() => void) | null = null;
+  private scene: Scene;
+  private fpCamera: UniversalCamera | null = null;
 
   constructor(scene: Scene, config?: Partial<CameraConfig>) {
+    this.scene = scene;
     this.config = {
       ...DEFAULT_CAMERA_CONFIG,
       elevationDeg: SettingsService.get('cameraAngleDeg'),
@@ -106,6 +113,24 @@ export class CameraSystem {
     this.camera.alpha += deltaRadians;
   }
 
+  /**
+   * Trailing camera: ease the orbit so the camera sits BEHIND the car and looks
+   * the way it drives (you see its rear + the road ahead). The car's forward sits
+   * opposite the camera orbit angle, so the behind-the-car alpha is `heading + π/2`
+   * (the `−π/2` variant put the camera in FRONT looking back — a reverse cam).
+   * `factor` (0..1) is the lerp weight this frame; the eased path takes the
+   * shortest way around the circle.
+   */
+  alignBehind(heading: number, factor: number): void {
+    const targetAlpha = heading + Math.PI / 2;
+    this.camera.alpha += CameraSystem.shortestAngleDelta(this.camera.alpha, targetAlpha) * factor;
+  }
+
+  /** Pure: smallest signed delta (radians) from `from` to `to`, in (−π, π]. */
+  static shortestAngleDelta(from: number, to: number): number {
+    return Math.atan2(Math.sin(to - from), Math.cos(to - from));
+  }
+
   clearTarget(): void {
     this.target = null;
   }
@@ -128,15 +153,19 @@ export class CameraSystem {
   }
 
   /**
-   * Switch to vehicle framing: pull the camera further out and lower the follow
-   * damping so it lags behind speed. Idempotent. Restored by exitVehicleMode().
+   * Switch to vehicle framing: set the camera to VEHICLE_RADIUS and lower the
+   * follow damping so it lags behind speed. The on-foot lowerRadiusLimit (zoomMin)
+   * is relaxed so a tighter radius isn't clamped. Idempotent. Restored by
+   * exitVehicleMode().
    */
   enterVehicleMode(): void {
     if (this.vehicleMode) return;
     this.vehicleMode = true;
     this.savedRadius = this.camera.radius;
     this.savedDamping = this.config.followDamping;
-    this.camera.radius = this.config.zoomMax;
+    this.savedLowerRadius = this.camera.lowerRadiusLimit ?? this.config.zoomMin;
+    this.camera.lowerRadiusLimit = VEHICLE_RADIUS;
+    this.camera.radius = VEHICLE_RADIUS;
     this.config.followDamping = Math.min(this.savedDamping, 0.06);
   }
 
@@ -144,12 +173,52 @@ export class CameraSystem {
   exitVehicleMode(): void {
     if (!this.vehicleMode) return;
     this.vehicleMode = false;
+    this.camera.lowerRadiusLimit = this.savedLowerRadius;
     this.camera.radius = this.savedRadius;
     this.config.followDamping = this.savedDamping;
   }
 
   isVehicleMode(): boolean {
     return this.vehicleMode;
+  }
+
+  /**
+   * Create the first-person (driver) camera, parented to `parent` (the vehicle
+   * visual pivot) at `localOffset` (driver head), looking along the parent's +Z
+   * (car forward). Does NOT attachControl — driving keys are read from InputSystem
+   * window events, and attaching would let the camera consume WASD. Browser-only.
+   */
+  /* istanbul ignore next — camera creation needs a real engine/DOM */
+  enableFirstPerson(parent: TransformNode, localOffset: Vector3): void {
+    if (typeof document === 'undefined') return;
+    if (!this.fpCamera) {
+      this.fpCamera = new UniversalCamera('fp-cam', Vector3.Zero(), this.scene);
+      this.fpCamera.fov = 0.9;
+      this.fpCamera.minZ = 0.05;
+    }
+    this.fpCamera.parent = parent;
+    this.fpCamera.position = localOffset.clone();
+    this.fpCamera.setTarget(localOffset.add(new Vector3(0, 0, 1))); // look forward (+Z local)
+  }
+
+  /** Swap the active camera between first-person and the arc follow camera. Idempotent. */
+  setFirstPerson(on: boolean): void {
+    /* istanbul ignore if — fpCamera only exists in browser (enableFirstPerson) */
+    if (on && this.fpCamera) { this.scene.activeCamera = this.fpCamera; return; }
+    this.scene.activeCamera = this.camera;
+  }
+
+  isFirstPerson(): boolean {
+    /* istanbul ignore next — the FP branch needs a browser-created fpCamera */
+    return this.fpCamera !== null && this.scene.activeCamera === this.fpCamera;
+  }
+
+  /** Revert to the arc camera and dispose the FP camera (called on dismount). */
+  disableFirstPerson(): void {
+    this.scene.activeCamera = this.camera;
+    /* istanbul ignore next — fpCamera only exists in browser */
+    this.fpCamera?.dispose();
+    this.fpCamera = null;
   }
 
   /**
@@ -255,6 +324,8 @@ export class CameraSystem {
       this.detachPointer = null;
     }
     this.camera.dispose();
+    this.fpCamera?.dispose();
+    this.fpCamera = null;
     this.target = null;
   }
 

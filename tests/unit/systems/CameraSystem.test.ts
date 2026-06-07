@@ -1,5 +1,5 @@
 import { NullEngine, Scene, MeshBuilder, Vector3 } from '@babylonjs/core';
-import { CameraSystem, DEFAULT_CAMERA_CONFIG, CONVERSATION_RADIUS } from '../../../src/systems/CameraSystem';
+import { CameraSystem, DEFAULT_CAMERA_CONFIG, CONVERSATION_RADIUS, VEHICLE_RADIUS } from '../../../src/systems/CameraSystem';
 import { SettingsService } from '../../../src/systems/SettingsService';
 
 describe('CameraSystem', () => {
@@ -29,6 +29,17 @@ describe('CameraSystem', () => {
     SettingsService.set('cameraAngleDeg', 50);
     const cam = new CameraSystem(scene);
     expect(cam.getConfig().elevationDeg).toBe(50);
+  });
+
+  it('first-person: starts off; toggling without an FP camera stays on the arc cam', () => {
+    const cam = new CameraSystem(scene);
+    expect(cam.isFirstPerson()).toBe(false);
+    cam.setFirstPerson(true); // no FP camera created headless → stays arc
+    expect(cam.isFirstPerson()).toBe(false);
+    expect(scene.activeCamera).toBe(cam.getCamera());
+    cam.disableFirstPerson(); // reverts cleanly, no throw
+    expect(scene.activeCamera).toBe(cam.getCamera());
+    expect(cam.isFirstPerson()).toBe(false);
   });
 
   it('respects config overrides', () => {
@@ -130,6 +141,25 @@ describe('CameraSystem', () => {
     expect(cam.getCamera().alpha).toBeCloseTo(before - 0.7, 6);
   });
 
+  it('shortestAngleDelta returns the smallest signed wrap-around delta', () => {
+    expect(CameraSystem.shortestAngleDelta(0, Math.PI / 2)).toBeCloseTo(Math.PI / 2, 6);
+    // Going from 0 to 3π/2 is shorter the negative way (−π/2).
+    expect(CameraSystem.shortestAngleDelta(0, (3 * Math.PI) / 2)).toBeCloseTo(-Math.PI / 2, 6);
+  });
+
+  it('alignBehind eases the orbit to sit behind the car (alpha → heading + π/2)', () => {
+    const cam = new CameraSystem(scene);
+    const heading = 1.0;
+    const target = heading + Math.PI / 2;
+    const before = Math.abs(CameraSystem.shortestAngleDelta(cam.getCamera().alpha, target));
+    cam.alignBehind(heading, 0.5);
+    const after = Math.abs(CameraSystem.shortestAngleDelta(cam.getCamera().alpha, target));
+    expect(after).toBeLessThan(before); // moved toward sitting behind the car
+    // factor 1 snaps the orbit onto the behind-the-car angle.
+    cam.alignBehind(heading, 1);
+    expect(CameraSystem.shortestAngleDelta(cam.getCamera().alpha, target)).toBeCloseTo(0, 5);
+  });
+
   it('following the target preserves the orbit angle (MMB rotation is not reset each frame)', () => {
     const cam = new CameraSystem(scene);
     const mesh = MeshBuilder.CreateBox('hero', { size: 1 }, scene);
@@ -147,11 +177,13 @@ describe('CameraSystem', () => {
     expect(t.z).toBeGreaterThan(4);
   });
 
-  it('enterVehicleMode widens the view and softens damping', () => {
+  it('enterVehicleMode pulls the camera in close and softens damping', () => {
     const cam = new CameraSystem(scene, { zoomDefault: 25, zoomMax: 50, followDamping: 0.1 });
     cam.enterVehicleMode();
     expect(cam.isVehicleMode()).toBe(true);
-    expect(cam.getCamera().radius).toBe(50);
+    expect(cam.getCamera().radius).toBe(VEHICLE_RADIUS);
+    // the on-foot lower-radius clamp is relaxed so the tight radius isn't clamped
+    expect(cam.getCamera().lowerRadiusLimit).toBe(VEHICLE_RADIUS);
     expect(cam.getConfig().followDamping).toBeLessThanOrEqual(0.06);
   });
 

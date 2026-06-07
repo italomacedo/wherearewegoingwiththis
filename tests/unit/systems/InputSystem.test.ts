@@ -105,6 +105,12 @@ describe('InputSystem', () => {
     expect(input.wasJustPressed('vehicle.enter')).toBe(true);
   });
 
+  it('V maps to view.switch', () => {
+    expect(DEFAULT_BINDINGS.KeyV).toBe('view.switch');
+    input.handleKeyDown('KeyV');
+    expect(input.wasJustPressed('view.switch')).toBe(true);
+  });
+
   it('Z / C map to camera rotation', () => {
     input.handleKeyDown('KeyZ');
     expect(input.isActionActive('camera.rotateLeft')).toBe(true);

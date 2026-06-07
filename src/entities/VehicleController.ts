@@ -2,21 +2,27 @@ import {
   Scene, Vector3, Quaternion, TransformNode, AbstractMesh, MeshBuilder, StandardMaterial, Color3, Color4,
   ParticleSystem, Texture, PhysicsBody, PhysicsShapeBox, PhysicsMotionType,
 } from '@babylonjs/core';
-import { MovementAxis } from '@systems/InputSystem';
 import { Health, HealthState } from '@entities/Health';
 
 export interface VehicleConfig {
-  thrust: number;          // horizontal acceleration (units/s²) from WASD
-  maxSpeed: number;        // horizontal speed cap (units/s)
+  thrust: number;          // (legacy flight) horizontal acceleration — unused by the car model
+  maxSpeed: number;        // forward speed cap (units/s)
   ascendAccel: number;     // vertical acceleration from Space/Ctrl (units/s²)
   gravity: number;         // downward acceleration (units/s²)
   hoverLift: number;       // baseline lift while powered; == gravity → neutral hover
-  drag: number;            // linear drag coefficient (per second), opposes velocity
+  drag: number;            // vertical drag coefficient (per second) while powered
   hoverHeight: number;     // minimum altitude while powered (engine on)
   groundRestHeight: number; // resting height when unpowered (sitting on the ground)
   maxAltitude: number;     // ceiling
   safeImpactSpeed: number; // crash speed (units/s) below which no damage
   damagePerSpeed: number;  // HP lost per unit of impact speed above the safe threshold
+  // --- Car-driving model ---
+  accel: number;           // forward acceleration from W (units/s²)
+  brakeDecel: number;      // deceleration from S while moving forward (units/s²)
+  reverseAccel: number;    // acceleration into reverse from S once stopped (units/s²)
+  maxReverse: number;      // reverse speed cap (units/s)
+  rollingResist: number;   // passive speed decay while coasting (units/s²)
+  turnRate: number;        // steering yaw rate at full A/D (radians/s)
   /** Half-extent (m) the nave is confined to on X/Z (the closed street). Infinity = unbounded. */
   horizontalHalfExtent: number;
   /**
@@ -33,12 +39,22 @@ export interface VehicleConfig {
  * missing). Large Spaceships models are reserved for interplanetary travel. See
  * gap #4 / Lesson 17.
  */
-export const VEHICLE_MODEL_PATH = 'vehicles/nave.glb';
-/** Uniform scale + Y-rotation applied to the loaded model to match the placeholder footprint. */
-export const VEHICLE_MODEL_SCALE = 0.6;
-export const VEHICLE_MODEL_YAW = Math.PI; // glTF exports tend to face away from our camera
+export const VEHICLE_MODEL_PATH = 'vehicles/flying_car_1_low_poly.glb';
+/**
+ * Uniform scale + Y-rotation applied to the loaded model. The GLB carries a 100×
+ * scale baked into its node matrix (intrinsic size ≈ 250×522×125 u), so a tiny
+ * factor here yields a sensible ≈3 × 6.3 × 1.5 m flying car.
+ */
+export const VEHICLE_MODEL_SCALE = 0.012;
+export const VEHICLE_MODEL_YAW = 0; // flying_car_1_low_poly faces +Z (world forward) — tune if backwards
+/** Driver seat position in the visual pivot's local space (calibrated via Adjust). */
+export const DRIVER_SEAT_OFFSET = new Vector3(-0.54, -0.06, 0.36);
+/** Driver seat facing (Y rotation, radians) so the avatar faces the car's front. */
+export const DRIVER_SEAT_YAW = 0;
+/** Driver seat forward pitch (X rotation, radians) — leans the seated body forward. */
+export const DRIVER_SEAT_PITCH = -Math.PI / 12; // -15°
 
-/** Agile open-air flying motorcycle (Phase 9 MVP). */
+/** Flying car (Phase 9 MVP): car-like ground driving + Space/Ctrl flight. */
 export const DEFAULT_VEHICLE_CONFIG: VehicleConfig = {
   thrust: 18,
   maxSpeed: 14,
@@ -52,20 +68,32 @@ export const DEFAULT_VEHICLE_CONFIG: VehicleConfig = {
   safeImpactSpeed: 6,
   damagePerSpeed: 8,
   horizontalHalfExtent: Infinity, // unbounded by default; the scene confines it to the street
+  accel: 18,
+  brakeDecel: 24,
+  reverseAccel: 10,
+  maxReverse: 6,
+  rollingResist: 8,
+  turnRate: 1.8,
 };
 
-export interface VehicleFlightInput {
-  axis: MovementAxis; // horizontal steering (x = strafe, z = forward)
-  vertical: number;   // +1 ascend, -1 descend, 0 hold altitude
-  engineOn?: boolean; // false → no lift/thrust (gravity pulls it down). Default true.
+/** Driving input for the car model: throttle/brake/steer + vertical (flight). */
+export interface VehicleDriveInput {
+  accelerate: boolean; // W — accelerate forward
+  brake: boolean;      // S — brake; once stopped, reverse
+  steer: number;       // A/D — -1 (left) .. +1 (right)
+  vertical: number;    // +1 ascend, -1 descend, 0 hold altitude
+  engineOn?: boolean;  // false → abandoned (coast + free-fall). Default true.
 }
 
-export interface VehicleFlightState {
+export interface VehicleDriveState {
   position: Vector3;
-  velocity: Vector3;
+  heading: number;   // car yaw (radians) — driven by the steering wheel
+  speed: number;     // signed scalar along heading (forward +, reverse −)
+  velocityY: number; // vertical velocity (flight)
 }
 
-export interface VehicleFlightResult extends VehicleFlightState {
+export interface VehicleDriveResult extends VehicleDriveState {
+  velocity: Vector3;   // derived world velocity (Havok body + airborne check)
   landed: boolean;     // touched the floor this step
   impactSpeed: number; // downward speed at touchdown (0 if not landed)
 }
@@ -85,7 +113,7 @@ export class VehicleController {
   /** Holds the visual nave meshes; yawed for facing so the physics body (root) needn't rotate. */
   private visualPivot: TransformNode;
   private parts: AbstractMesh[] = [];
-  private state: VehicleFlightState;
+  private state: VehicleDriveState;
   private occupied = false;
   private facing = 0;
   /**
@@ -118,110 +146,131 @@ export class VehicleController {
     this.root = new TransformNode('vehicle-root', scene);
     this.visualPivot = new TransformNode('vehicle-visual', scene);
     this.visualPivot.parent = this.root;
-    this.state = { position: Vector3.Zero(), velocity: Vector3.Zero() };
+    this.state = { position: Vector3.Zero(), heading: 0, speed: 0, velocityY: 0 };
   }
 
   /**
-   * Pure: the nave's desired velocity for one step (camera-relative thrust + lift
-   * while powered; gravity while off; drag; horizontal speed cap). Shared by the
-   * kinematic `computeFlightStep` (integrates it into a position) and the dynamic
-   * Havok path (feeds it to the rigid body, which integrates + resolves collisions).
+   * Pure: advance the car kinematics (heading/speed/velocityY) for one step and
+   * derive the world velocity — WITHOUT integrating position or clamping the
+   * floor. Shared by `computeDriveStep` (kinematic: integrate + clamp) and the
+   * dynamic Havok path (feeds the body, which integrates + resolves contacts).
    */
-  static computeDesiredVelocity(
-    currentVelocity: Vector3,
-    input: VehicleFlightInput,
-    cameraYaw: number,
+  private static stepKinematics(
+    state: VehicleDriveState,
+    input: VehicleDriveInput,
     dt: number,
-    config: VehicleConfig = DEFAULT_VEHICLE_CONFIG,
-  ): Vector3 {
+    config: VehicleConfig,
+  ): { heading: number; speed: number; velocityY: number; velocity: Vector3 } {
     const engineOn = input.engineOn !== false;
-    const velocity = currentVelocity.clone();
+    let { heading, speed, velocityY } = state;
+
     if (engineOn) {
-      const cos = Math.cos(cameraYaw);
-      const sin = Math.sin(cameraYaw);
-      const dirX = input.axis.x * cos - input.axis.z * sin;
-      const dirZ = input.axis.x * sin + input.axis.z * cos;
-      velocity.x += dirX * config.thrust * dt;
-      velocity.z += dirZ * config.thrust * dt;
-      velocity.y += (config.hoverLift - config.gravity + input.vertical * config.ascendAccel) * dt;
+      // Steering (arcade): turns even at rest. Reverse inverts the wheel feel.
+      const steerEffect = speed < -0.1 ? -input.steer : input.steer;
+      heading += steerEffect * config.turnRate * dt;
+
+      // Throttle / brake / reverse.
+      if (input.accelerate && !input.brake) {
+        speed = Math.min(config.maxSpeed, speed + config.accel * dt);
+      } else if (input.brake && !input.accelerate) {
+        speed = speed > 0.2
+          ? Math.max(0, speed - config.brakeDecel * dt)               // braking
+          : Math.max(-config.maxReverse, speed - config.reverseAccel * dt); // reversing
+      } else {
+        speed = VehicleController.coast(speed, config.rollingResist * dt);
+      }
+
+      // Vertical (flight): lift vs gravity + ascend input, drag while powered.
+      velocityY += (config.hoverLift - config.gravity + input.vertical * config.ascendAccel) * dt;
+      velocityY *= Math.max(0, 1 - config.drag * dt);
     } else {
-      velocity.y -= config.gravity * dt; // no pilot: gravity wins (it falls)
+      // Abandoned: coast to a stop, gravity pulls it down (it falls + crashes).
+      speed = VehicleController.coast(speed, config.rollingResist * dt);
+      velocityY -= config.gravity * dt;
     }
-    // Drag: horizontal always; vertical only while powered (engine-off free-fall).
-    const dragFactor = Math.max(0, 1 - config.drag * dt);
-    velocity.x *= dragFactor;
-    velocity.z *= dragFactor;
-    if (engineOn) velocity.y *= dragFactor;
-    // Cap horizontal speed.
-    const horiz = Math.hypot(velocity.x, velocity.z);
-    if (horiz > config.maxSpeed) {
-      const s = config.maxSpeed / horiz;
-      velocity.x *= s;
-      velocity.z *= s;
-    }
-    return velocity;
+
+    // World velocity from heading + speed (+ vertical). heading 0 faces +Z; the
+    // facing convention atan2(vx,vz) === heading is preserved.
+    const velocity = new Vector3(Math.sin(heading) * speed, velocityY, Math.cos(heading) * speed);
+    return { heading, speed, velocityY, velocity };
   }
 
   /**
-   * Pure flight integration. With the engine on: camera-relative thrust + lift.
-   * With it off: only gravity (the bike falls). Drag damps velocity, horizontal
-   * speed is capped, altitude is clamped to [floor, ceiling] — floor is the
-   * hover height while powered, the ground rest height while unpowered.
+   * Pure car-driving integration for one step. With the engine on: the steering
+   * wheel (A/D) rotates `heading`, W/S drive `speed` along it (S brakes, then
+   * reverses once stopped), and Space/Ctrl raise/lower altitude (it's a flying
+   * car). With it off (abandoned): the car coasts to a stop and free-falls.
+   * Altitude is clamped to [floor, ceiling] above the surface directly under the
+   * car (`surfaceFloor`, so it hovers over / rests on rooftops), with a downward
+   * floor crossing reported as a landing (impact speed → crash damage). X/Z are
+   * confined to the playable area; hitting a wall zeroes forward speed.
    */
-  static computeFlightStep(
-    state: VehicleFlightState,
-    input: VehicleFlightInput,
-    cameraYaw: number,
+  static computeDriveStep(
+    state: VehicleDriveState,
+    input: VehicleDriveInput,
     dt: number,
     config: VehicleConfig = DEFAULT_VEHICLE_CONFIG,
-    surfaceFloor = 0
-  ): VehicleFlightResult {
+    surfaceFloor = 0,
+  ): VehicleDriveResult {
+    const k = VehicleController.stepKinematics(state, input, dt, config);
+    const { heading, velocity } = k;
+    let { speed, velocityY } = k;
     const engineOn = input.engineOn !== false;
-    const velocity = VehicleController.computeDesiredVelocity(state.velocity, input, cameraYaw, dt, config);
-
-    // Integrate position
     const position = state.position.add(velocity.scale(dt));
 
-    // Clamp altitude; detect a landing (downward crossing of the floor). The
-    // floor sits relative to whatever surface is directly under the nave
-    // (`surfaceFloor`, 0 = street level) so it can hover over / rest on a
-    // rooftop instead of phasing through it. Powered → hover clearance; off →
-    // ground rest clearance above that surface.
+    // Altitude clamp + landing detection.
     const floor = surfaceFloor + (engineOn ? config.hoverHeight : config.groundRestHeight);
     let landed = false;
     let impactSpeed = 0;
     if (position.y < floor) {
-      if (velocity.y < 0) {
-        impactSpeed = -velocity.y;
-        landed = true;
-      }
+      if (velocityY < 0) { impactSpeed = -velocityY; landed = true; }
       position.y = floor;
+      velocityY = 0;
       velocity.y = 0;
     } else if (position.y > config.maxAltitude) {
       position.y = config.maxAltitude;
-      if (velocity.y > 0) velocity.y = 0;
+      if (velocityY > 0) { velocityY = 0; velocity.y = 0; }
     }
 
-    // Confine to the closed street: clamp X/Z to the half-extent (stops the nave
-    // from flying out of the playable area over the walls — out-of-bounds state
-    // was crashing the game). Zero the velocity into the wall so it doesn't stick.
+    // Confine X/Z to the playable area; stop forward motion against a wall.
+    if (VehicleController.clampHorizontal(position, config)) {
+      speed = 0;
+      velocity.x = 0;
+      velocity.z = 0;
+    }
+
+    return { position, heading, speed, velocityY, velocity, landed, impactSpeed };
+  }
+
+  /** Decay a signed speed toward 0 by `amount` (rolling resistance / coasting). */
+  private static coast(speed: number, amount: number): number {
+    if (speed > 0) return Math.max(0, speed - amount);
+    if (speed < 0) return Math.min(0, speed + amount);
+    return 0;
+  }
+
+  /**
+   * Clamp `position` X/Z to the closed playable area (out-of-bounds state was
+   * crashing the game). Mutates `position`; returns true if a wall was hit.
+   */
+  private static clampHorizontal(position: Vector3, config: VehicleConfig): boolean {
+    let hit = false;
     const b = config.horizontalBounds;
     if (b) {
-      if (position.x > b.maxX) { position.x = b.maxX; if (velocity.x > 0) velocity.x = 0; }
-      else if (position.x < b.minX) { position.x = b.minX; if (velocity.x < 0) velocity.x = 0; }
-      if (position.z > b.maxZ) { position.z = b.maxZ; if (velocity.z > 0) velocity.z = 0; }
-      else if (position.z < b.minZ) { position.z = b.minZ; if (velocity.z < 0) velocity.z = 0; }
+      if (position.x > b.maxX) { position.x = b.maxX; hit = true; }
+      else if (position.x < b.minX) { position.x = b.minX; hit = true; }
+      if (position.z > b.maxZ) { position.z = b.maxZ; hit = true; }
+      else if (position.z < b.minZ) { position.z = b.minZ; hit = true; }
     } else {
       const h = config.horizontalHalfExtent;
       if (Number.isFinite(h)) {
-        if (position.x > h) { position.x = h; if (velocity.x > 0) velocity.x = 0; }
-        else if (position.x < -h) { position.x = -h; if (velocity.x < 0) velocity.x = 0; }
-        if (position.z > h) { position.z = h; if (velocity.z > 0) velocity.z = 0; }
-        else if (position.z < -h) { position.z = -h; if (velocity.z < 0) velocity.z = 0; }
+        if (position.x > h) { position.x = h; hit = true; }
+        else if (position.x < -h) { position.x = -h; hit = true; }
+        if (position.z > h) { position.z = h; hit = true; }
+        else if (position.z < -h) { position.z = -h; hit = true; }
       }
     }
-
-    return { position, velocity, landed, impactSpeed };
+    return hit;
   }
 
   /**
@@ -259,8 +308,11 @@ export class VehicleController {
     this.parts.forEach((m) => { if (!m.parent) m.parent = this.visualPivot; });
     this.state = {
       position: new Vector3(position.x, this.config.groundRestHeight, position.z),
-      velocity: Vector3.Zero(),
+      heading: 0,
+      speed: 0,
+      velocityY: 0,
     };
+    this.facing = 0;
     this.root.position = this.state.position.clone();
 
     // In Electron, swap the placeholder for the real model once it loads. If the
@@ -305,40 +357,40 @@ export class VehicleController {
   }
 
   /**
-   * Advance one frame. Simulates while piloted, or while airborne/moving even
-   * when unpiloted (so an abandoned hovering bike falls and crashes).
+   * Advance one frame. Drives while piloted, or coasts/falls while unpiloted (so
+   * an abandoned hovering car rolls to a stop, falls and crashes).
    */
-  update(dt: number, input: VehicleFlightInput, cameraYaw: number): void {
+  update(dt: number, input: VehicleDriveInput): void {
     if (this.destroyed) return;
     /* istanbul ignore next — the dynamic Havok path is browser/Electron only */
-    if (this.body) { this.updateDynamic(dt, input, cameraYaw); return; }
+    if (this.body) { this.updateDynamic(dt, input); return; }
     const engineOn = this.occupied;
-    // Surface directly under the nave (rooftop or street); flat ground headlessly.
+    // Surface directly under the car (rooftop or street); flat ground headlessly.
     const surfaceY = this.floorProvider
       ? this.floorProvider(this.state.position.x, this.state.position.z)
       : 0;
     const restFloor = surfaceY + this.config.groundRestHeight;
     const airborne = this.state.position.y > restFloor + 1e-3;
-    const movingVertically = Math.abs(this.state.velocity.y) > 1e-4;
-    if (!engineOn && !airborne && !movingVertically) return; // parked at rest
+    const movingVertically = Math.abs(this.state.velocityY) > 1e-4;
+    const coasting = Math.abs(this.state.speed) > 1e-4;
+    if (!engineOn && !airborne && !movingVertically && !coasting) return; // parked at rest
 
-    const stepInput: VehicleFlightInput = engineOn
-      ? { axis: input.axis, vertical: input.vertical, engineOn: true }
-      : { axis: { x: 0, z: 0 }, vertical: 0, engineOn: false };
+    const stepInput: VehicleDriveInput = engineOn
+      ? { ...input, engineOn: true }
+      : { accelerate: false, brake: false, steer: 0, vertical: 0, engineOn: false };
 
-    const result = VehicleController.computeFlightStep(
-      this.state, stepInput, cameraYaw, dt, this.config, surfaceY
-    );
-    this.state = { position: result.position, velocity: result.velocity };
+    const result = VehicleController.computeDriveStep(this.state, stepInput, dt, this.config, surfaceY);
+    this.state = {
+      position: result.position,
+      heading: result.heading,
+      speed: result.speed,
+      velocityY: result.velocityY,
+    };
+    this.facing = result.heading;
     this.root.position = this.state.position.clone();
-
-    const horiz = Math.hypot(this.state.velocity.x, this.state.velocity.z);
-    if (horiz > 0.05) {
-      this.facing = Math.atan2(this.state.velocity.x, this.state.velocity.z);
-      // The model is yawed by VEHICLE_MODEL_YAW (it faces away by default); compensate
-      // so the nose LEADS the travel direction instead of moonwalking backward.
-      this.root.rotation.y = this.facing - VEHICLE_MODEL_YAW;
-    }
+    // The car always points where the wheel is aimed (even at rest); the model is
+    // yawed by VEHICLE_MODEL_YAW (it faces away by default), so compensate.
+    this.root.rotation.y = result.heading - VEHICLE_MODEL_YAW;
 
     if (result.landed && result.impactSpeed > this.config.safeImpactSpeed) {
       this.lastImpactDamage = (result.impactSpeed - this.config.safeImpactSpeed) * this.config.damagePerSpeed;
@@ -372,24 +424,26 @@ export class VehicleController {
     // (the hero can't shove it around) — flight is unaffected since we set the body's
     // velocity directly each frame (mass-independent). inertia 0 → no tumble.
     body.setMassProperties({ mass: 400, inertia: Vector3.Zero() });
-    body.setGravityFactor(0); // we apply gravity in computeDesiredVelocity (keeps the tuned feel)
+    body.setGravityFactor(0); // we apply gravity in the drive math (keeps the tuned feel)
     body.setLinearVelocity(Vector3.Zero());
     this.body = body;
   }
 
   /**
-   * Dynamic flight: feed the body the (tuned) desired velocity each frame; Havok
+   * Dynamic driving: feed the body the (tuned) car velocity each frame; Havok
    * integrates + resolves all contacts (no penetration → no crash; rests on roofs;
-   * blocks the hero). We still clamp to the world bounds / altitude ceiling and
-   * detect a hard landing from the arrested vertical velocity.
+   * blocks the hero). Heading/speed are tracked on our state (the steering wheel is
+   * authoritative, not the body's deflected velocity); the body's vertical velocity
+   * seeds altitude so a real landing arrests the fall. We still clamp to the world
+   * bounds / altitude ceiling and detect a hard landing from the arrested vy.
    */
   /* istanbul ignore next — Havok physics is browser/Electron only; verified manually */
-  private updateDynamic(dt: number, input: VehicleFlightInput, cameraYaw: number): void {
+  private updateDynamic(dt: number, input: VehicleDriveInput): void {
     const body = this.body!;
     const engineOn = this.occupied;
-    const stepInput: VehicleFlightInput = engineOn
-      ? { axis: input.axis, vertical: input.vertical, engineOn: true }
-      : { axis: { x: 0, z: 0 }, vertical: 0, engineOn: false };
+    const stepInput: VehicleDriveInput = engineOn
+      ? { ...input, engineOn: true }
+      : { accelerate: false, brake: false, steer: 0, vertical: 0, engineOn: false };
     const current = body.getLinearVelocity();
 
     // Hard-landing detection: was falling fast last frame, arrested this frame.
@@ -401,7 +455,16 @@ export class VehicleController {
     }
     this.vyPrev = current.y;
 
-    const v = VehicleController.computeDesiredVelocity(current, stepInput, cameraYaw, dt, this.config);
+    // Seed velocityY from the body so a Havok-arrested fall (rooftop/ground) is seen
+    // by the integration; heading/speed come from our own (steering) state.
+    const driveState: VehicleDriveState = {
+      position: this.root.position.clone(),
+      heading: this.state.heading,
+      speed: this.state.speed,
+      velocityY: current.y,
+    };
+    const k = VehicleController.stepKinematics(driveState, stepInput, dt, this.config);
+    const v = k.velocity;
     // Altitude ceiling.
     if (this.root.position.y >= this.config.maxAltitude && v.y > 0) v.y = 0;
     // World bounds: zero any velocity heading further out of the playable area.
@@ -415,16 +478,15 @@ export class VehicleController {
     body.setLinearVelocity(v);
     body.setAngularVelocity(Vector3.Zero()); // belt-and-braces against any spin
 
-    // Mirror Havok's authoritative transform into our state (camera/streaming/getPosition).
+    // Mirror Havok's authoritative transform + our steering state.
     this.state.position = this.root.position.clone();
-    this.state.velocity = v;
+    this.state.heading = k.heading;
+    this.state.speed = k.speed;
+    this.state.velocityY = v.y;
+    this.facing = k.heading;
 
-    // Face the travel direction (yaw the VISUAL, not the body).
-    const horiz = Math.hypot(v.x, v.z);
-    if (horiz > 0.5) {
-      this.facing = Math.atan2(v.x, v.z);
-      this.visualPivot.rotation.y = this.facing - VEHICLE_MODEL_YAW;
-    }
+    // Point the car where the wheel is aimed (yaw the VISUAL, not the level body).
+    this.visualPivot.rotation.y = k.heading - VEHICLE_MODEL_YAW;
   }
 
   /** Smoke at critical HP, explode (destroy) at zero. */
@@ -439,13 +501,15 @@ export class VehicleController {
   enter(): void {
     if (this.destroyed) return;
     this.occupied = true;
-    this.state.velocity = Vector3.Zero();
+    this.state.speed = 0;
+    this.state.velocityY = 0;
   }
 
-  /** Leave the vehicle; it stays where it is (and will fall if airborne). */
+  /** Leave the vehicle; it stays where it is (and will coast/fall if airborne). */
   exit(): void {
     this.occupied = false;
-    this.state.velocity = Vector3.Zero();
+    this.state.speed = 0;
+    this.state.velocityY = 0;
   }
 
   isOccupied(): boolean { return this.occupied; }
@@ -476,7 +540,18 @@ export class VehicleController {
 
   getPosition(): Vector3 { return this.state.position.clone(); }
   getFacing(): number { return this.facing; }
+  /** Current forward speed (units/sec) — for the cockpit LCD readout. */
+  getSpeed(): number { return this.state.speed; }
+  /** Effective top speed (includes the Pilotagem skill bonus) — for the LCD gauge. */
+  getMaxSpeed(): number { return this.config.maxSpeed; }
+  /** Altitude ceiling — for the LCD gauge. */
+  getMaxAltitude(): number { return this.config.maxAltitude; }
   getRoot(): TransformNode { return this.root; }
+  /**
+   * The visual pivot that yaws to the travel direction (the body/root stays level
+   * under Havok). Parent a rider here so they turn WITH the car, not just translate.
+   */
+  getVisualRoot(): TransformNode { return this.visualPivot; }
   getPartCount(): number { return this.parts.length; }
 
   private startSmoke(): void {
@@ -490,7 +565,8 @@ export class VehicleController {
     this.destroyed = true;
     this.smoking = false;
     this.occupied = false;
-    this.state.velocity = Vector3.Zero();
+    this.state.speed = 0;
+    this.state.velocityY = 0;
     // The wreck stops being flight-controlled (update() early-returns); let Havok
     // gravity drop it so it doesn't freeze mid-air.
     /* istanbul ignore next — physics body only exists in browser/Electron */

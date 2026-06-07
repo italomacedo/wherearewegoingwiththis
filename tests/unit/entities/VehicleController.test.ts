@@ -1,190 +1,159 @@
 import { NullEngine, Scene, Vector3 } from '@babylonjs/core';
 import {
-  VehicleController, DEFAULT_VEHICLE_CONFIG, VehicleFlightState,
+  VehicleController, DEFAULT_VEHICLE_CONFIG, VehicleDriveInput, VehicleDriveState,
 } from '../../../src/entities/VehicleController';
 
-const zeroState = (): VehicleFlightState => ({ position: Vector3.Zero(), velocity: Vector3.Zero() });
+const zero = (): VehicleDriveState => ({ position: Vector3.Zero(), heading: 0, speed: 0, velocityY: 0 });
+const drive = (o: Partial<VehicleDriveInput> = {}): VehicleDriveInput =>
+  ({ accelerate: false, brake: false, steer: 0, vertical: 0, ...o });
 
-describe('VehicleController.computeFlightStep (pure flight model)', () => {
-  it('forward thrust accelerates along +z at yaw 0', () => {
-    const next = VehicleController.computeFlightStep(
-      zeroState(), { axis: { x: 0, z: 1 }, vertical: 0 }, 0, 0.1
-    );
+describe('VehicleController.computeDriveStep (pure car model)', () => {
+  it('W accelerates forward along the heading (heading 0 → +Z)', () => {
+    const next = VehicleController.computeDriveStep(zero(), drive({ accelerate: true }), 0.1);
+    expect(next.speed).toBeGreaterThan(0);
     expect(next.velocity.z).toBeGreaterThan(0);
     expect(next.position.z).toBeGreaterThan(0);
-    expect(next.velocity.x).toBeCloseTo(0);
+    expect(next.velocity.x).toBeCloseTo(0, 5);
   });
 
-  it('camera yaw rotates the thrust direction', () => {
-    // Same convention as PlayerController: at yaw +90°, forward (z) maps onto -x.
-    const next = VehicleController.computeFlightStep(
-      zeroState(), { axis: { x: 0, z: 1 }, vertical: 0 }, Math.PI / 2, 0.1
-    );
-    expect(next.velocity.x).toBeLessThan(0);
-    expect(next.velocity.z).toBeCloseTo(0, 5);
+  it('A/D steer the heading (right = +, left = −) — and turn even at rest (arcade)', () => {
+    const right = VehicleController.computeDriveStep(zero(), drive({ steer: 1 }), 0.1);
+    const left = VehicleController.computeDriveStep(zero(), drive({ steer: -1 }), 0.1);
+    expect(right.heading).toBeGreaterThan(0);
+    expect(left.heading).toBeLessThan(0);
+    // speed stayed at 0 — it steered while stationary.
+    expect(right.speed).toBe(0);
+  });
+
+  it('reverse inverts the steering feel', () => {
+    const reversing: VehicleDriveState = { ...zero(), speed: -2 };
+    const next = VehicleController.computeDriveStep(reversing, drive({ steer: 1 }), 0.1);
+    // While going backward, steer=right turns the heading the OTHER way.
+    expect(next.heading).toBeLessThan(0);
+  });
+
+  it('S brakes while moving forward, then reverses once stopped', () => {
+    const moving: VehicleDriveState = { ...zero(), speed: 5 };
+    const braked = VehicleController.computeDriveStep(moving, drive({ brake: true }), 0.1);
+    expect(braked.speed).toBeGreaterThan(0);
+    expect(braked.speed).toBeLessThan(5); // decelerating
+
+    const stopped: VehicleDriveState = { ...zero(), speed: 0.1 };
+    const reversed = VehicleController.computeDriveStep(stopped, drive({ brake: true }), 0.1);
+    expect(reversed.speed).toBeLessThan(0); // now backing up
+    expect(reversed.position.z).toBeLessThan(0);
+  });
+
+  it('caps forward speed at maxSpeed and reverse at maxReverse', () => {
+    const cfg = { ...DEFAULT_VEHICLE_CONFIG, accel: 500, reverseAccel: 500 };
+    const fwd = VehicleController.computeDriveStep({ ...zero(), speed: 100 }, drive({ accelerate: true }), 0.1, cfg);
+    expect(fwd.speed).toBeLessThanOrEqual(cfg.maxSpeed + 1e-6);
+    const rev = VehicleController.computeDriveStep({ ...zero(), speed: -100 }, drive({ brake: true }), 0.1, cfg);
+    expect(rev.speed).toBeGreaterThanOrEqual(-cfg.maxReverse - 1e-6);
+  });
+
+  it('coasts (rolling resistance) toward 0 with no throttle input', () => {
+    const fwd = VehicleController.computeDriveStep({ ...zero(), speed: 5 }, drive(), 0.1);
+    expect(fwd.speed).toBeLessThan(5);
+    expect(fwd.speed).toBeGreaterThan(0);
+    const rev = VehicleController.computeDriveStep({ ...zero(), speed: -5 }, drive(), 0.1);
+    expect(rev.speed).toBeGreaterThan(-5);
+    expect(rev.speed).toBeLessThan(0);
   });
 
   it('holds altitude at neutral vertical input (hover)', () => {
-    const start: VehicleFlightState = { position: new Vector3(0, 10, 0), velocity: Vector3.Zero() };
-    const next = VehicleController.computeFlightStep(start, { axis: { x: 0, z: 0 }, vertical: 0 }, 0, 0.5);
+    const start: VehicleDriveState = { ...zero(), position: new Vector3(0, 10, 0) };
+    const next = VehicleController.computeDriveStep(start, drive(), 0.5);
     expect(next.position.y).toBeCloseTo(10, 5);
-    expect(next.velocity.y).toBeCloseTo(0, 5);
+    expect(next.velocityY).toBeCloseTo(0, 5);
   });
 
   it('ascend raises altitude, descend lowers it', () => {
-    const start: VehicleFlightState = { position: new Vector3(0, 10, 0), velocity: Vector3.Zero() };
-    const up = VehicleController.computeFlightStep(start, { axis: { x: 0, z: 0 }, vertical: 1 }, 0, 0.2);
-    const down = VehicleController.computeFlightStep(start, { axis: { x: 0, z: 0 }, vertical: -1 }, 0, 0.2);
+    const start: VehicleDriveState = { ...zero(), position: new Vector3(0, 10, 0) };
+    const up = VehicleController.computeDriveStep(start, drive({ vertical: 1 }), 0.2);
+    const down = VehicleController.computeDriveStep(start, drive({ vertical: -1 }), 0.2);
     expect(up.position.y).toBeGreaterThan(10);
     expect(down.position.y).toBeLessThan(10);
   });
 
-  it('clamps to the floor (hoverHeight) and kills downward velocity', () => {
-    const start: VehicleFlightState = {
-      position: new Vector3(0, DEFAULT_VEHICLE_CONFIG.hoverHeight, 0),
-      velocity: new Vector3(0, -5, 0),
+  it('clamps to the floor (hoverHeight) and reports a landing with impact speed', () => {
+    const start: VehicleDriveState = {
+      ...zero(), position: new Vector3(0, DEFAULT_VEHICLE_CONFIG.hoverHeight, 0), velocityY: -5,
     };
-    const next = VehicleController.computeFlightStep(start, { axis: { x: 0, z: 0 }, vertical: -1 }, 0, 0.2);
+    const next = VehicleController.computeDriveStep(start, drive({ vertical: -1 }), 0.2);
     expect(next.position.y).toBeCloseTo(DEFAULT_VEHICLE_CONFIG.hoverHeight);
+    expect(next.velocityY).toBe(0);
     expect(next.velocity.y).toBe(0);
+    expect(next.landed).toBe(true);
+    expect(next.impactSpeed).toBeGreaterThan(0);
   });
 
-  it('rests on a raised surface (rooftop) at surfaceFloor + clearance, not the global floor', () => {
-    const roof = 8;
-    // Engine off (no pilot), descending onto a rooftop at y=8.
-    const start: VehicleFlightState = {
-      position: new Vector3(0, roof + DEFAULT_VEHICLE_CONFIG.groundRestHeight, 0),
-      velocity: new Vector3(0, -5, 0),
+  it('clamps to the ceiling (maxAltitude) and kills upward velocity', () => {
+    const start: VehicleDriveState = {
+      ...zero(), position: new Vector3(0, DEFAULT_VEHICLE_CONFIG.maxAltitude, 0), velocityY: 5,
     };
-    const next = VehicleController.computeFlightStep(
-      start, { axis: { x: 0, z: 0 }, vertical: 0, engineOn: false }, 0, 0.2, DEFAULT_VEHICLE_CONFIG, roof
+    const next = VehicleController.computeDriveStep(start, drive({ vertical: 1 }), 0.2);
+    expect(next.position.y).toBeCloseTo(DEFAULT_VEHICLE_CONFIG.maxAltitude);
+    expect(next.velocityY).toBe(0);
+  });
+
+  it('rests on a raised surface (rooftop) at surfaceFloor + clearance, engine off', () => {
+    const roof = 8;
+    const start: VehicleDriveState = {
+      ...zero(), position: new Vector3(0, roof + DEFAULT_VEHICLE_CONFIG.groundRestHeight, 0), velocityY: -5,
+    };
+    const next = VehicleController.computeDriveStep(
+      start, drive({ engineOn: false }), 0.2, DEFAULT_VEHICLE_CONFIG, roof,
     );
     expect(next.position.y).toBeCloseTo(roof + DEFAULT_VEHICLE_CONFIG.groundRestHeight);
-    expect(next.velocity.y).toBe(0);
     expect(next.landed).toBe(true);
   });
 
-  it('confines to an offset horizontalBounds box (whole mosaic world, Fase 17)', () => {
+  it('hovers above a rooftop at surfaceFloor + hoverHeight while powered', () => {
+    const roof = 8;
+    const start: VehicleDriveState = { ...zero(), position: new Vector3(0, roof + 0.2, 0), velocityY: -3 };
+    const next = VehicleController.computeDriveStep(start, drive({ vertical: -1 }), 0.2, DEFAULT_VEHICLE_CONFIG, roof);
+    expect(next.position.y).toBeCloseTo(roof + DEFAULT_VEHICLE_CONFIG.hoverHeight);
+  });
+
+  it('engine off: free-falls and coasts to a stop', () => {
+    const start: VehicleDriveState = { ...zero(), position: new Vector3(0, 10, 0), speed: 5 };
+    const next = VehicleController.computeDriveStep(start, drive({ engineOn: false }), 0.2);
+    expect(next.velocityY).toBeLessThan(0);     // gravity
+    expect(next.position.y).toBeLessThan(10);
+    expect(next.speed).toBeLessThan(5);         // coasting
+  });
+
+  it('confines to an offset horizontalBounds box and zeroes speed at the wall', () => {
     const cfg = { ...DEFAULT_VEHICLE_CONFIG, horizontalBounds: { minX: -28, maxX: 1408, minZ: -28, maxZ: 1408 } };
-    // Past the east/north edge → clamped to maxX/maxZ, inward velocity zeroed.
-    const far = VehicleController.computeFlightStep(
-      { position: new Vector3(2000, 10, 2000), velocity: new Vector3(5, 0, 5) },
-      { axis: { x: 0, z: 0 }, vertical: 0 }, 0, 0.1, cfg,
+    const far = VehicleController.computeDriveStep(
+      { ...zero(), position: new Vector3(2000, 10, 2000), heading: Math.PI / 4, speed: 5 }, drive(), 0.1, cfg,
     );
     expect(far.position.x).toBe(1408);
     expect(far.position.z).toBe(1408);
+    expect(far.speed).toBe(0);
     expect(far.velocity.x).toBe(0);
     expect(far.velocity.z).toBe(0);
-    // The far +X corner is reachable (NOT clamped to ±30 around the origin).
-    const inside = VehicleController.computeFlightStep(
-      { position: new Vector3(900, 10, 600), velocity: Vector3.Zero() },
-      { axis: { x: 0, z: 0 }, vertical: 0 }, 0, 0.1, cfg,
+    // A far interior corner is reachable (NOT clamped to ±30 around the origin).
+    const inside = VehicleController.computeDriveStep(
+      { ...zero(), position: new Vector3(900, 10, 600) }, drive(), 0.1, cfg,
     );
     expect(inside.position.x).toBeCloseTo(900);
     expect(inside.position.z).toBeCloseTo(600);
   });
 
-  it('computeDesiredVelocity: thrust+lift powered, gravity when off, speed-capped', () => {
-    // Powered hover (vertical 0): lift cancels gravity → no vertical accel, drag only.
-    const hov = VehicleController.computeDesiredVelocity(
-      Vector3.Zero(), { axis: { x: 0, z: 1 }, vertical: 0 }, 0, 0.1,
-    );
-    expect(hov.z).toBeGreaterThan(0);          // forward thrust
-    expect(hov.y).toBeCloseTo(0, 5);            // hoverLift - gravity = 0
-    // Engine off → gravity pulls down.
-    const off = VehicleController.computeDesiredVelocity(
-      Vector3.Zero(), { axis: { x: 0, z: 0 }, vertical: 0, engineOn: false }, 0, 0.1,
-    );
-    expect(off.y).toBeLessThan(0);
-    // Horizontal speed is capped.
-    const fast = VehicleController.computeDesiredVelocity(
-      new Vector3(100, 0, 100), { axis: { x: 0, z: 0 }, vertical: 0 }, 0, 0.001,
-    );
-    expect(Math.hypot(fast.x, fast.z)).toBeLessThanOrEqual(DEFAULT_VEHICLE_CONFIG.maxSpeed + 1e-6);
-  });
-
-  it('computeFlightStep still integrates computeDesiredVelocity (parity)', () => {
-    const next = VehicleController.computeFlightStep(
-      zeroState(), { axis: { x: 0, z: 1 }, vertical: 0 }, 0, 0.1,
-    );
-    expect(next.velocity.z).toBeGreaterThan(0);
-    expect(next.position.z).toBeGreaterThan(0);
-  });
-
-  it('legacy symmetric horizontalHalfExtent still clamps both axes (no bounds)', () => {
+  it('legacy symmetric horizontalHalfExtent clamps both axes', () => {
     const cfg = { ...DEFAULT_VEHICLE_CONFIG, horizontalHalfExtent: 30 };
-    const pos = VehicleController.computeFlightStep(
-      { position: new Vector3(-100, 10, 100), velocity: new Vector3(-5, 0, 5) },
-      { axis: { x: 0, z: 0 }, vertical: 0 }, 0, 0.1, cfg,
+    const pos = VehicleController.computeDriveStep(
+      { ...zero(), position: new Vector3(-100, 10, 100), speed: 5 }, drive(), 0.1, cfg,
     );
     expect(pos.position.x).toBe(-30);
     expect(pos.position.z).toBe(30);
-    expect(pos.velocity.x).toBe(0);
-    expect(pos.velocity.z).toBe(0);
-  });
-
-  it('hovers above a rooftop at surfaceFloor + hoverHeight while powered', () => {
-    const roof = 8;
-    const start: VehicleFlightState = {
-      position: new Vector3(0, roof + 0.2, 0), // below the rooftop hover clearance
-      velocity: new Vector3(0, -3, 0),
-    };
-    const next = VehicleController.computeFlightStep(
-      start, { axis: { x: 0, z: 0 }, vertical: -1 }, 0, 0.2, DEFAULT_VEHICLE_CONFIG, roof
-    );
-    expect(next.position.y).toBeCloseTo(roof + DEFAULT_VEHICLE_CONFIG.hoverHeight);
-    expect(next.velocity.y).toBe(0);
-  });
-
-  it('defaults surfaceFloor to 0 (street-level floor unchanged)', () => {
-    const start: VehicleFlightState = {
-      position: new Vector3(0, DEFAULT_VEHICLE_CONFIG.hoverHeight, 0),
-      velocity: new Vector3(0, -5, 0),
-    };
-    const next = VehicleController.computeFlightStep(start, { axis: { x: 0, z: 0 }, vertical: -1 }, 0, 0.2);
-    expect(next.position.y).toBeCloseTo(DEFAULT_VEHICLE_CONFIG.hoverHeight);
-  });
-
-  it('clamps to the ceiling (maxAltitude) and kills upward velocity', () => {
-    const start: VehicleFlightState = {
-      position: new Vector3(0, DEFAULT_VEHICLE_CONFIG.maxAltitude, 0),
-      velocity: new Vector3(0, 5, 0),
-    };
-    const next = VehicleController.computeFlightStep(start, { axis: { x: 0, z: 0 }, vertical: 1 }, 0, 0.2);
-    expect(next.position.y).toBeCloseTo(DEFAULT_VEHICLE_CONFIG.maxAltitude);
-    expect(next.velocity.y).toBe(0);
-  });
-
-  it('caps horizontal speed at maxSpeed', () => {
-    const cfg = { ...DEFAULT_VEHICLE_CONFIG, drag: 0, maxSpeed: 2, thrust: 50, hoverHeight: 0 };
-    let state: VehicleFlightState = { position: new Vector3(0, 5, 0), velocity: Vector3.Zero() };
-    for (let i = 0; i < 30; i++) {
-      state = VehicleController.computeFlightStep(state, { axis: { x: 0, z: 1 }, vertical: 0 }, 0, 0.1, cfg);
-    }
-    const horiz = Math.hypot(state.velocity.x, state.velocity.z);
-    expect(horiz).toBeLessThanOrEqual(2 + 1e-6);
-  });
-
-  it('drag decays velocity toward zero when no input', () => {
-    const start: VehicleFlightState = { position: new Vector3(0, 5, 0), velocity: new Vector3(5, 0, 0) };
-    const next = VehicleController.computeFlightStep(start, { axis: { x: 0, z: 0 }, vertical: 0 }, 0, 0.2);
-    expect(Math.abs(next.velocity.x)).toBeLessThan(5);
-  });
-
-  it('confines X/Z to horizontalHalfExtent and zeroes the velocity into the wall', () => {
-    const cfg = { ...DEFAULT_VEHICLE_CONFIG, horizontalHalfExtent: 30 };
-    // Past the +X edge, moving outward → clamped to +30, x-velocity zeroed.
-    const out: VehicleFlightState = { position: new Vector3(35, 5, -40), velocity: new Vector3(5, 0, -5) };
-    const next = VehicleController.computeFlightStep(out, { axis: { x: 0, z: 0 }, vertical: 0 }, 0, 0.1, cfg);
-    expect(next.position.x).toBeLessThanOrEqual(30 + 1e-6);
-    expect(next.position.z).toBeGreaterThanOrEqual(-30 - 1e-6);
-    expect(next.velocity.x).toBe(0); // velocity into the +X wall is cancelled
-    expect(next.velocity.z).toBe(0); // velocity into the -Z wall is cancelled
+    expect(pos.speed).toBe(0);
   });
 
   it('does not confine when horizontalHalfExtent is Infinity (default)', () => {
-    const start: VehicleFlightState = { position: new Vector3(100, 5, 100), velocity: Vector3.Zero() };
-    const next = VehicleController.computeFlightStep(start, { axis: { x: 0, z: 0 }, vertical: 0 }, 0, 0.1);
+    const next = VehicleController.computeDriveStep({ ...zero(), position: new Vector3(100, 5, 100) }, drive(), 0.1);
     expect(next.position.x).toBeCloseTo(100, 5);
     expect(next.position.z).toBeCloseTo(100, 5);
   });
@@ -229,54 +198,56 @@ describe('VehicleController instance', () => {
     expect(vehicle.getPartCount()).toBeGreaterThan(0);
     expect(vehicle.getPosition().y).toBeCloseTo(DEFAULT_VEHICLE_CONFIG.groundRestHeight);
     expect(vehicle.getPosition().x).toBeCloseTo(2);
+    expect(vehicle.getFacing()).toBe(0);
   });
 
-  it('update is a no-op while unoccupied', () => {
+  it('update is a no-op while unoccupied and parked', () => {
     vehicle.spawn(new Vector3(0, 0, 0));
     const before = vehicle.getPosition();
-    vehicle.update(0.5, { axis: { x: 0, z: 1 }, vertical: 0 }, 0);
+    vehicle.update(0.5, drive({ accelerate: true }));
     expect(vehicle.getPosition().z).toBeCloseTo(before.z);
   });
 
-  it('moves when occupied and piloted forward', () => {
+  it('getSpeed reports the forward speed (0 at rest, rises when driving)', () => {
+    vehicle.spawn(new Vector3(0, 0, 0));
+    expect(vehicle.getSpeed()).toBe(0);
+    vehicle.enter();
+    vehicle.update(0.5, drive({ accelerate: true }));
+    expect(vehicle.getSpeed()).toBeGreaterThan(0);
+  });
+
+  it('moves forward when occupied and accelerating', () => {
     vehicle.spawn(new Vector3(0, 0, 0));
     vehicle.enter();
     expect(vehicle.isOccupied()).toBe(true);
-    for (let i = 0; i < 10; i++) {
-      vehicle.update(0.1, { axis: { x: 0, z: 1 }, vertical: 0 }, 0);
-    }
+    for (let i = 0; i < 10; i++) vehicle.update(0.1, drive({ accelerate: true }));
     expect(vehicle.getPosition().z).toBeGreaterThan(0);
     expect(vehicle.getRoot().position.z).toBeCloseTo(vehicle.getPosition().z);
   });
 
-  it('sets facing when moving', () => {
+  it('reverses when braking from a standstill', () => {
     vehicle.spawn(new Vector3(0, 0, 0));
     vehicle.enter();
-    for (let i = 0; i < 5; i++) {
-      vehicle.update(0.1, { axis: { x: 1, z: 0 }, vertical: 0 }, 0);
-    }
+    for (let i = 0; i < 10; i++) vehicle.update(0.1, drive({ brake: true }));
+    expect(vehicle.getPosition().z).toBeLessThan(0);
+  });
+
+  it('steering changes facing even at rest', () => {
+    vehicle.spawn(new Vector3(0, 0, 0));
+    vehicle.enter();
+    vehicle.update(0.1, drive({ steer: 1 }));
     expect(vehicle.getFacing()).not.toBe(0);
   });
 
-  it('exit stops the vehicle but keeps it parked', () => {
+  it('exit stops the vehicle and keeps it parked', () => {
     vehicle.spawn(new Vector3(0, 0, 0));
     vehicle.enter();
-    vehicle.update(0.1, { axis: { x: 0, z: 1 }, vertical: 0 }, 0);
+    vehicle.update(0.1, drive({ accelerate: true }));
     const parked = vehicle.getPosition();
     vehicle.exit();
     expect(vehicle.isOccupied()).toBe(false);
-    vehicle.update(0.5, { axis: { x: 0, z: 1 }, vertical: 0 }, 0);
+    vehicle.update(0.5, drive({ accelerate: true }));
     expect(vehicle.getPosition().z).toBeCloseTo(parked.z);
-  });
-
-  it('an abandoned bike rests on the surface from the floor provider (rooftop), not the ground', () => {
-    vehicle.spawn(new Vector3(0, 0, 0));
-    vehicle.setFloorProvider(() => 8); // a rooftop 8 units up under the nave
-    climb(40);
-    fall(160);
-    // Comes to rest on the rooftop (8 + ground rest clearance), never the street.
-    expect(vehicle.getPosition().y).toBeCloseTo(8 + DEFAULT_VEHICLE_CONFIG.groundRestHeight, 1);
-    expect(vehicle.getPosition().y).toBeGreaterThan(DEFAULT_VEHICLE_CONFIG.groundRestHeight + 1);
   });
 
   it('canEnter is true within radius and false outside', () => {
@@ -285,15 +256,24 @@ describe('VehicleController instance', () => {
     expect(vehicle.canEnter(new Vector3(20, 0, 20))).toBe(false);
   });
 
+  it('setPilotagem scales the forward speed cap', () => {
+    vehicle.spawn(new Vector3(0, 0, 0));
+    vehicle.enter();
+    vehicle.setPilotagem(100); // mastery → faster
+    for (let i = 0; i < 80; i++) vehicle.update(0.1, drive({ accelerate: true }));
+    const fast = vehicle.getPosition().z;
+    expect(fast).toBeGreaterThan(0);
+  });
+
   // ─── Health / crash / smoke / explosion ────────────────────────────────────
 
   function climb(steps: number): void {
     vehicle.enter();
-    for (let i = 0; i < steps; i++) vehicle.update(0.1, { axis: { x: 0, z: 0 }, vertical: 1 }, 0);
+    for (let i = 0; i < steps; i++) vehicle.update(0.1, drive({ vertical: 1 }));
   }
   function fall(steps: number): void {
     vehicle.exit();
-    for (let i = 0; i < steps; i++) vehicle.update(0.1, { axis: { x: 0, z: 0 }, vertical: 0 }, 0);
+    for (let i = 0; i < steps; i++) vehicle.update(0.1, drive());
   }
 
   it('starts at full health, not destroyed, not smoking', () => {
@@ -303,7 +283,7 @@ describe('VehicleController instance', () => {
     expect(vehicle.isSmoking()).toBe(false);
   });
 
-  it('an abandoned airborne bike falls and crashes, taking damage', () => {
+  it('an abandoned airborne car falls and crashes, taking damage', () => {
     vehicle.spawn(new Vector3(0, 0, 0));
     climb(40);
     const high = vehicle.getPosition().y;
@@ -314,13 +294,22 @@ describe('VehicleController instance', () => {
     expect(vehicle.getHealth().current).toBeLessThan(100); // crash damage
   });
 
+  it('an abandoned car rests on the surface from the floor provider (rooftop)', () => {
+    vehicle.spawn(new Vector3(0, 0, 0));
+    vehicle.setFloorProvider(() => 8); // a rooftop 8 units up under the car
+    climb(40);
+    fall(160);
+    expect(vehicle.getPosition().y).toBeCloseTo(8 + DEFAULT_VEHICLE_CONFIG.groundRestHeight, 1);
+    expect(vehicle.getPosition().y).toBeGreaterThan(DEFAULT_VEHICLE_CONFIG.groundRestHeight + 1);
+  });
+
   it('setHealthState at critical HP makes it smoke', () => {
     vehicle.spawn(new Vector3(0, 0, 0));
     vehicle.setHealthState({ current: 20, max: 100 });
     expect(vehicle.isSmoking()).toBe(true);
   });
 
-  it('setDestroyed wrecks the bike and blocks mounting', () => {
+  it('setDestroyed wrecks the car and blocks mounting', () => {
     vehicle.spawn(new Vector3(0, 0, 0));
     vehicle.setDestroyed(true);
     expect(vehicle.isDestroyed()).toBe(true);
@@ -338,11 +327,11 @@ describe('VehicleController instance', () => {
     expect(vehicle.getHealth().isDead()).toBe(true);
   });
 
-  it('a destroyed bike does not simulate further', () => {
+  it('a destroyed car does not simulate further', () => {
     vehicle.spawn(new Vector3(0, 0, 0));
     vehicle.setDestroyed(true);
     const before = vehicle.getPosition();
-    vehicle.update(0.5, { axis: { x: 0, z: 1 }, vertical: -1 }, 0);
+    vehicle.update(0.5, drive({ accelerate: true, vertical: -1 }));
     expect(vehicle.getPosition().equals(before)).toBe(true);
   });
 });
@@ -358,4 +347,3 @@ describe('VehicleController.effectiveMaxSpeed (Phase 19C)', () => {
     expect(VehicleController.effectiveMaxSpeed(14, 100)).toBeCloseTo(14 * 1.25);
   });
 });
-

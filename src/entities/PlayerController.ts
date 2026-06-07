@@ -50,6 +50,7 @@ export class PlayerController {
   private locoState: LocoState = 'idle';
   private playingState: LocoState | null = null;
   private idleOverride: string | null = null; // e.g. 'aim' while holding a flashlight
+  private poseOverride: string | null = null; // forced clip (e.g. 'sit_idle' while mounted)
   private lastGroundSpeed = 0; // units/sec last frame — drives the clip speedRatio
   private interacting = false;
   /** Havok collide-and-slide controller (browser + physics only; null in tests). */
@@ -242,8 +243,34 @@ export class PlayerController {
     this.playingState = null; // re-apply the (possibly idle) clip on the next update
   }
 
+  /**
+   * Hold a clip STATIC at one frame while mounted (a driving pose carved out of an
+   * existing clip), overriding locomotion. Pass null to release back to normal
+   * locomotion. Used when the player's per-frame update() is suspended (driving) so
+   * it applies immediately.
+   */
+  playPose(clip: string | null, freezeFrame = 0): void {
+    this.poseOverride = clip;
+    if (typeof document === 'undefined') return;
+    /* istanbul ignore next — AnimationGroup playback is browser/Electron only */
+    if (clip) this.freezeClipAt(clip, freezeFrame);
+    else { this.playingState = null; this.playLocoAnimation(this.locoState); }
+  }
+
+  /** Hold a clip static at one frame (e.g. the driving pose) and stop all others. */
+  /* istanbul ignore next — browser-only AnimationGroup playback */
+  private freezeClipAt(clipName: string, frame: number): void {
+    const groups = this.assembled?.getAnimationGroups?.() ?? [];
+    const key = clipName.toLowerCase();
+    for (const g of groups) {
+      if (g.name.toLowerCase() === key) { g.start(false); g.goToFrame(frame); g.pause(); }
+      else g.stop();
+    }
+  }
+
   /** Plays the active locomotion clip when it changes (browser-only playback). */
   private updateAnimation(): void {
+    if (this.poseOverride) return; // a forced pose (e.g. sitting) owns playback
     if (this.locoState === this.playingState) return;
     this.playingState = this.locoState;
     if (typeof document === 'undefined') return;
@@ -253,14 +280,24 @@ export class PlayerController {
 
   /* istanbul ignore next — browser-only AnimationGroup playback */
   private playLocoAnimation(state: LocoState): void {
-    const groups = this.assembled?.getAnimationGroups?.() ?? [];
     // Match the clip's cadence to the hero's ground speed so the feet stay planted.
     const ratio = computeLocoSpeedRatio(state, this.lastGroundSpeed);
     // While idle, a held tool (e.g. flashlight) can override the pose (aim).
     const matchKey = state === 'idle' && this.idleOverride ? this.idleOverride : state;
+    this.playClipExclusive(matchKey, ratio);
+  }
+
+  /**
+   * Start exactly the named clip (looping) and stop all others. EXACT name match,
+   * not substring: with extra clips loaded ('sit_idle', 'crouch_idle'), a substring
+   * test for 'idle' would also start those → several clips fight over the rig.
+   */
+  /* istanbul ignore next — browser-only AnimationGroup playback */
+  private playClipExclusive(clipName: string, ratio: number): void {
+    const groups = this.assembled?.getAnimationGroups?.() ?? [];
+    const key = clipName.toLowerCase();
     for (const g of groups) {
-      const match = g.name.toLowerCase().includes(matchKey);
-      if (match) {
+      if (g.name.toLowerCase() === key) {
         g.speedRatio = ratio;
         g.start(true); // loop
       } else {

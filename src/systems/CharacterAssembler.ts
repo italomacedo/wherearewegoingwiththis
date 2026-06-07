@@ -9,7 +9,7 @@ import {
 } from '@entities/CharacterData';
 import { CharacterAssets, resolveAssetPath, resolveBasePath, mapMorphName } from '@assets/AssetManifest';
 import {
-  LOCO_CLIPS, COMBAT_CLIPS, genderOfOutfit,
+  LOCO_CLIPS, COMBAT_CLIPS, POSE_CLIPS, genderOfOutfit,
   planModularLoad, partRegionOf, isStrippableMesh, tintRoleForMaterialInRegion, MeshRegion,
 } from '@assets/AvatarMeshCatalog';
 
@@ -222,10 +222,12 @@ export class CharacterAssembler {
       const donorRoot: Node | null =
         (donorContainer.rootNodes[0] as Node | undefined) ?? this.containerRoot(donorContainer.meshes);
 
-      // 2) Keep + rename the loco + combat clips on the donor; dispose the rest.
+      // 2) Keep + rename the loco + combat + pose-source clips on the donor; dispose the rest.
       const byName = new Map(donorContainer.animationGroups.map((g) => [g.name, g]));
       const kept: AnimationGroup[] = [];
-      for (const [state, clip] of [...Object.entries(LOCO_CLIPS), ...Object.entries(COMBAT_CLIPS)]) {
+      for (const [state, clip] of [
+        ...Object.entries(LOCO_CLIPS), ...Object.entries(COMBAT_CLIPS), ...Object.entries(POSE_CLIPS),
+      ]) {
         const g = byName.get(clip);
         if (!g) { console.warn(`[Avatar] clip "${clip}" (${state}) missing in ${donor.outfitKey}`); continue; }
         g.name = state;

@@ -1,6 +1,6 @@
 import {
   hasEmote, emoteTexts, isCheckTimeEmote, parseEmoteVerdict, narrateTime, DETERMINISTIC_PLACEHOLDER,
-  isSelfExamEmote, difficultyValue, parseActionClassification, DIFFICULTY_LEVELS,
+  difficultyValue, parseActionClassification, DIFFICULTY_LEVELS,
 } from '../../../../src/systems/npc/EmoteIntent';
 
 describe('EmoteIntent (pure)', () => {
@@ -41,17 +41,10 @@ describe('EmoteIntent (pure)', () => {
     });
   });
 
-  describe('isSelfExamEmote', () => {
-    it('matches checking your own condition (en + pt)', () => {
-      expect(isSelfExamEmote('*check my wounds*')).toBe(true);
-      expect(isSelfExamEmote('*avalio meu ferimento*')).toBe(true);
-      expect(isSelfExamEmote('*examino meus ferimentos*')).toBe(true); // pt-BR plural (Fase 20 fix)
-      expect(isSelfExamEmote('*how is my health*')).toBe(true);
-    });
-    it('does not match unrelated emotes', () => {
-      expect(isSelfExamEmote('*lights a cigarette*')).toBe(false);
-    });
-  });
+  // NOTE: the legacy `isSelfExamEmote` regex short-circuit was removed — checking
+  // vs treating wounds is now disambiguated by the classifier (medicine_check vs
+  // medicine_treat), which fixed "*treats his wounds*" mis-firing as a condition
+  // read. See parseActionClassification's legacy-alias normalization below.
 
   describe('difficultyValue', () => {
     it('maps levels to numbers, defaulting to medium', () => {
@@ -108,12 +101,16 @@ describe('EmoteIntent (pure)', () => {
       expect(r.effect).toBe('steal');
       expect(r.dir).toBe('up');
     });
-    it('accepts the new Fase 21 slim-vocab verbs (disarm/persuade/intimidate/examine_self/narrate_time/narrative)', () => {
-      const verbs = ['disarm', 'persuade', 'intimidate', 'examine_self', 'narrate_time', 'narrative'];
+    it('accepts the slim-vocab verbs (disarm/persuade/intimidate/medicine_check/medicine_treat/narrate_time/narrative)', () => {
+      const verbs = ['disarm', 'persuade', 'intimidate', 'medicine_check', 'medicine_treat', 'narrate_time', 'narrative'];
       verbs.forEach((v) => {
         const r = parseActionClassification(`VERDICT=DETERMINISTIC\nEFFECT=${v}`);
         expect(r.effect).toBe(v);
       });
+    });
+    it('normalizes legacy medicine names (heal→medicine_treat, examine_self→medicine_check)', () => {
+      expect(parseActionClassification('VERDICT=DETERMINISTIC\nEFFECT=heal').effect).toBe('medicine_treat');
+      expect(parseActionClassification('VERDICT=DETERMINISTIC\nEFFECT=examine_self').effect).toBe('medicine_check');
     });
     it('still accepts legacy verbs for backward compat (deprecated, removed in 21D-F)', () => {
       // The classifier no longer EMITS these (the new prompt teaches only the slim vocab),

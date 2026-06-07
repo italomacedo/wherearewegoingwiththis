@@ -21,7 +21,8 @@ import { CameraSystem, KEY_ORBIT_SPEED } from '@systems/CameraSystem';
 import { InputSystem } from '@systems/InputSystem';
 import { PhysicsService } from '@systems/PhysicsService';
 import { PlayerController } from '@entities/PlayerController';
-import { VehicleController } from '@entities/VehicleController';
+import { VehicleController, VehicleDriveInput, DRIVER_SEAT_OFFSET, DRIVER_SEAT_YAW, DRIVER_SEAT_PITCH } from '@entities/VehicleController';
+import { VehicleCockpit, gaugePercents, COCKPIT_TRANSFORM } from '@entities/VehicleCockpit';
 import { MercadoSombrasZone } from '@entities/zones/MercadoSombrasZone';
 import { WorldZone } from '@entities/WorldZone';
 import { GameClock, DayPeriod } from '@systems/GameClock';
@@ -62,7 +63,7 @@ import { PlayerAction, NPCDefinition, NPCAgent, friendlyFireDefection } from '@e
 import { CharacterAssembler, AssembledCharacter } from '@systems/CharacterAssembler';
 import { WorldSnapshot, PromptBuilder, NearbyNpcSnapshot } from '@systems/npc/PromptBuilder';
 import { resolveAddressee, AddressCandidate, stripShout } from '@systems/npc/Addressing';
-import { hasEmote, isCheckTimeEmote, isSelfExamEmote, narrateTime, ActionClassification } from '@systems/npc/EmoteIntent';
+import { hasEmote, isCheckTimeEmote, narrateTime, ActionClassification } from '@systems/npc/EmoteIntent';
 // Fase 21 unified action pipeline (verbal path wired here; emote + autonomy migration in 21G).
 import { PlayerActor, NpcActor } from '@systems/actions/Actor';
 import { resolveAction, ResolveOptions } from '@systems/actions/Resolver';
@@ -100,6 +101,11 @@ export const MAX_FRAME_DELTA = 0.1;
 
 /** Game-time advance per real second (12 → 1 game-day = 2 real hours). */
 export const TIME_SCALE = 12;
+
+/** Seated-driver pose: the embedded 'Death' clip (renamed 'death') frozen at a
+ *  frame that reads as sitting at the wheel — owner-picked via the scrub harness. */
+export const DRIVING_POSE_CLIP = 'death';
+export const DRIVING_POSE_FRAME = 20;
 
 /**
  * Convert an engine frame delta (ms) to seconds, CAPPED. When the window is
@@ -180,6 +186,7 @@ export class GameWorldScene extends BaseScene {
   private physics: PhysicsService | null = null;
   private player: PlayerController | null = null;
   private vehicle: VehicleController | null = null;
+  private cockpit: VehicleCockpit | null = null;
   private npcManager: NPCManager | null = null;
   private injectedService: ClaudeNPCService | null = null;
   private dialog: DialogSystem | null = null;
@@ -532,6 +539,7 @@ export class GameWorldScene extends BaseScene {
     // walls (small margin), since the world is offset, not centred at the origin.
     this.vehicle = new VehicleController(this.babylonScene, { horizontalBounds: worldBounds(2) });
     this.vehicle.spawn(zone.getSpawnPoint().add(new Vector3(4, 0, 0)));
+    this.cockpit = new VehicleCockpit(this.babylonScene); // built lazily on first mount
     this.vehicle.setHealthState(this.vehicleState.health);
     this.vehicle.setDestroyed(this.vehicleState.destroyed);
     ServiceLocator.register('vehicle', this.vehicle);
@@ -599,6 +607,7 @@ export class GameWorldScene extends BaseScene {
       onInventory: () => { this.sfx('ui_click'); this.inventoryOverlay?.openManage(this.playerInventory); },
       onCharacterSheet: () => { this.sfx('ui_open'); this.characterSheetOverlay?.show(this.playerStats); },
       onPda: () => { this.sfx('ui_open'); this.openPda(); },
+      onAdjustSeat: () => { this.sfx('ui_open'); this.openSeatAdjust(); },
     });
 
     // Turn-based combat overlay (triggered by a hostile NPC's attack intent).
@@ -1091,8 +1100,9 @@ export class GameWorldScene extends BaseScene {
       ? (this.player?.getAnimationGroups() ?? [])
       : (this.npcGroupsById.get(id) ?? []);
     return {
-      walk: groups.find((g) => g.name.toLowerCase().includes('walk')) ?? null,
-      idle: groups.find((g) => g.name.toLowerCase().includes('idle')) ?? null,
+      // EXACT match: extra clips ('sit_idle'/'crouch_idle') would substring-match 'idle'.
+      walk: groups.find((g) => g.name.toLowerCase() === 'walk') ?? null,
+      idle: groups.find((g) => g.name.toLowerCase() === 'idle') ?? null,
     };
   }
 
@@ -1188,6 +1198,7 @@ export class GameWorldScene extends BaseScene {
     this.assetCache?.clear();
     this.assetCache = null;
     this.player?.dispose();
+    this.cockpit?.dispose(); // LCD DynamicTexture isn't a pivot child — dispose explicitly
     this.vehicle?.dispose();
     this.zoneManager?.dispose();
     this.cameraSystem?.dispose();
@@ -1235,6 +1246,7 @@ export class GameWorldScene extends BaseScene {
     this.npcWalks.clear();
     this.gossiping.clear();
     this.player = null;
+    this.cockpit = null;
     this.vehicle = null;
     this.zoneManager = null;
     this.zone = null;
@@ -1343,6 +1355,7 @@ export class GameWorldScene extends BaseScene {
     if (!dialogOpen) {
       this.handleCameraKeys(dt);
       this.handleVehicleInput();
+      this.handleViewSwitch();
       const driving = this.vehicle?.isOccupied() ?? false;
       if (!driving) {
         // On foot: camera-relative movement + gravity (fall damage on landing).
@@ -1535,7 +1548,8 @@ export class GameWorldScene extends BaseScene {
       if (!m.parent) m.parent = holder;
     });
     const groups = assembled.getAnimationGroups?.() ?? [];
-    groups.find((g) => g.name.toLowerCase().includes('idle'))?.start(true);
+    (groups.find((g) => g.name.toLowerCase() === 'idle')
+      ?? groups.find((g) => g.name.toLowerCase().includes('idle')))?.start(true);
     this.npcVisuals.push(assembled);
     this.npcHolders.push(holder);
     this.npcHolderById.set(npc.id, holder);
@@ -1579,6 +1593,20 @@ export class GameWorldScene extends BaseScene {
 
   /* istanbul ignore next — browser-only Adjust live preview */
   private adjustPreview(slot: EquipSlot, attach: ItemAttach): void {
+    const adjId = this.adjustOverlay?.getAdjuster()?.itemId;
+    if (adjId === 'driver_seat') {
+      // Live-preview the seat position + facing while the player is in the vehicle.
+      if (this.vehicle?.isOccupied() && this.player) {
+        const r = this.player.getRoot();
+        r.position.set(attach.pos[0], attach.pos[1], attach.pos[2]);
+        r.rotation.set(attach.rot[0], attach.rot[1], attach.rot[2]);
+      }
+      return;
+    }
+    if (adjId === 'cockpit') {
+      this.cockpit?.applyCockpitOverride(attach); // live-preview the whole cockpit unit
+      return;
+    }
     const bone = attach.bone ?? boneFor(this.playerInventory.equippedIn(slot) ?? '', slot, this.heldAttach);
     void this.playerHeldRig?.applyLiveTransform(slot, attach, bone);
   }
@@ -1587,7 +1615,8 @@ export class GameWorldScene extends BaseScene {
   private adjustSave(itemId: string, attach: ItemAttach): void {
     this.heldAttach = { ...this.heldAttach, [itemId]: attach };
     this.persistSession();
-    void this.syncPlayerHeldItems();
+    // Cockpit/seat ids aren't held props — don't re-sync the hand rig for them.
+    if (itemId !== 'driver_seat' && itemId !== 'cockpit') void this.syncPlayerHeldItems();
   }
 
   /**
@@ -3116,24 +3145,6 @@ export class GameWorldScene extends BaseScene {
       return true;
     }
 
-    // Self-exam: a Medicina-gated read of your own condition (diegetic, no numbers).
-    if (isSelfExamEmote(message) && this.player) {
-      const value = checkValue(this.playerStats, 'medicina', 'inteligencia');
-      const result = resolveCheck({ value });
-      const pct = Math.round(result.probability * 100);
-      const roll = Math.round(result.roll);
-      this.logSkill(`emote examine_self · roll=${roll} vs P=${pct}% → ${result.success ? 'HIT' : 'MISS'} (Medicina)`);
-      if (result.success) {
-        const before = this.playerStats;
-        this.playerStats = applySkillUse(this.playerStats, 'medicina', SettingsService.get('skillGainMultiplier'));
-        this.applyPerkPointGrants(before, this.playerStats);
-      }
-      const condLine = describeCondition(this.player.getHealth().fraction(), result.success);
-      this.dialog.addNarrationLine(condLine);
-      this.speakNarration(condLine);
-      return true;
-    }
-
     this.dialog.setThinking(true);
     const cls = await this.npcManager.classifyAction(agent?.definition.id ?? 'world', message);
 
@@ -3232,6 +3243,18 @@ export class GameWorldScene extends BaseScene {
       const before = this.playerStats;
       this.playerStats = applySkillUse(this.playerStats, cls.skillId, SettingsService.get('skillGainMultiplier'));
       this.applyPerkPointGrants(before, this.playerStats);
+    }
+
+    // medicine_check: a self-read of your own condition (diegetic, no numbers).
+    // Unlike other effects the result is INFORMATION, not a world mutation, and it
+    // is shown on both outcomes — a coarse band always, precise only on success.
+    if (cls.effect === 'medicine_check' && this.player) {
+      const condLine = describeCondition(this.player.getHealth().fraction(), res.success);
+      this.logSkill(`narration: "${condLine}"`);
+      this.dialog.addNarrationLine(condLine);
+      this.speakNarration(condLine);
+      this.persistSession();
+      return true;
     }
 
     // Crafting picks its output weapon from the emote text (Fase 20H).
@@ -3678,17 +3701,36 @@ export class GameWorldScene extends BaseScene {
   private tickVehicle(dt: number): void {
     if (!this.vehicle || !this.cameraSystem) return;
     const driving = this.vehicle.isOccupied();
-    const input = driving && this.inputSystem
-      ? { axis: this.inputSystem.getMovementAxis(), vertical: this.inputSystem.getVerticalAxis() }
-      : { axis: { x: 0, z: 0 }, vertical: 0 };
-    this.vehicle.update(dt, input, this.cameraSystem.getYaw());
+    // Car driving: W=accelerate, S=brake/reverse, A/D=steer the wheel.
+    const input: VehicleDriveInput = driving && this.inputSystem
+      ? {
+          accelerate: this.inputSystem.isActionActive('move.forward'),
+          brake: this.inputSystem.isActionActive('move.backward'),
+          steer: (this.inputSystem.isActionActive('move.right') ? 1 : 0)
+               - (this.inputSystem.isActionActive('move.left') ? 1 : 0),
+          vertical: this.inputSystem.getVerticalAxis(),
+        }
+      : { accelerate: false, brake: false, steer: 0, vertical: 0 };
+    this.vehicle.update(dt, input);
+    if (driving) this.updateCockpit();
+
+    // Trailing camera: ease the orbit to sit behind the car as it steers, unless
+    // the player is actively looking around with Z/C (manual orbit wins; the view
+    // re-settles behind the car when they let go).
+    if (driving) {
+      const lookingAround = this.inputSystem?.isActionActive('camera.rotateLeft')
+        || this.inputSystem?.isActionActive('camera.rotateRight');
+      if (!lookingAround) {
+        this.cameraSystem.alignBehind(this.vehicle.getFacing(), Math.min(1, 2.5 * dt));
+      }
+    }
 
     // Procedural engine drone while piloting: a 180 Hz sine that glides to 220 Hz
     // when the player feeds movement input and back to 180 Hz when idle.
     const audio = (this.audio ??= ServiceLocator.tryGet<AudioManager>('audio'));
     if (driving) {
       audio?.startEngineTone();
-      const moving = input.axis.x !== 0 || input.axis.z !== 0 || input.vertical !== 0;
+      const moving = input.accelerate || input.brake || input.steer !== 0 || input.vertical !== 0;
       audio?.setEngineThrottle(moving);
     } else {
       audio?.stopEngineTone();
@@ -3705,25 +3747,88 @@ export class GameWorldScene extends BaseScene {
     if (!this.inputSystem.wasJustPressed('vehicle.enter')) return;
 
     if (this.vehicle.isOccupied()) {
-      // Dismount beside the bike at its current altitude, then fall (gravity +
-      // fall damage). The abandoned bike loses lift and falls too.
+      // Dismount beside the vehicle at its current altitude, then fall (gravity +
+      // fall damage). The abandoned vehicle loses lift and falls too.
       this.vehicle.exit();
       const p = this.vehicle.getPosition();
+      this.player.playPose(null); // release the sit pose → back to locomotion
+      // Detach player visual from the vehicle before teleporting, and undo the
+      // seat pose's pitch/roll so the hero stands upright on foot (locomotion only
+      // drives the Y facing — a leftover X tilt makes the avatar walk leaning).
+      this.player.getRoot().setParent(null);
+      this.player.getRoot().rotation.set(0, 0, 0);
       // teleport() also moves the physics capsule (a raw position.set is overridden
       // by the character controller → hero snapped back to its mount/spawn spot).
       this.player.teleport(new Vector3(p.x + 1.5, p.y, p.z));
-      this.player.getRoot().setEnabled(true);
       this.player.startFalling(p.y); // kinematic fall path (no-physics/tests)
+      this.cameraSystem.disableFirstPerson(); // never leave the drive stuck in FP
       this.cameraSystem.setTarget(this.player.getRoot());
       this.cameraSystem.exitVehicleMode();
     } else if (this.vehicle.canEnter(this.player.getPosition())) {
       this.vehicle.enter();
       // Apply the player's Piloting skill to vehicle max speed (Phase 19C).
       this.vehicle.setPilotagem(this.playerStats.skills['pilotagem'] ?? 10);
-      this.player.getRoot().setEnabled(false);
+      // Seat the player on the vehicle's VISUAL pivot (it yaws with the car under
+      // Havok; the body/root stays level) so the rider turns WITH the car instead of
+      // just translating. Use the saved seat override if calibrated, else the default.
+      const playerRoot = this.player.getRoot();
+      playerRoot.setParent(this.vehicle.getVisualRoot());
+      const savedSeat = this.heldAttach['driver_seat'];
+      const seatPos = savedSeat
+        ? new Vector3(savedSeat.pos[0], savedSeat.pos[1], savedSeat.pos[2])
+        : DRIVER_SEAT_OFFSET.clone();
+      playerRoot.position = seatPos;
+      playerRoot.rotation.set(
+        savedSeat ? savedSeat.rot[0] : DRIVER_SEAT_PITCH,
+        savedSeat ? savedSeat.rot[1] : DRIVER_SEAT_YAW,
+        savedSeat ? savedSeat.rot[2] : 0,
+      );
+      // Driving pose: a frozen frame of the embedded 'Death' clip reads as a seated
+      // driver (knees bent, torso forward, arms out like holding the wheel) — owner-
+      // picked in the scrub harness. No retarget needed; the fold sits at the hip.
+      this.player.playPose(DRIVING_POSE_CLIP, DRIVING_POSE_FRAME);
       this.cameraSystem.setTarget(this.vehicle.getRoot());
       this.cameraSystem.enterVehicleMode();
+      this.mountCockpit();
     }
+  }
+
+  /**
+   * Build the cockpit (dashboard/wheel/throttle/LCD) on the vehicle visual pivot and
+   * arm the first-person camera at the driver's head. Starts in 3rd person.
+   */
+  /* istanbul ignore next — browser-only cockpit + FP camera wiring */
+  private mountCockpit(): void {
+    if (!this.vehicle || !this.cameraSystem) return;
+    this.cockpit?.build(this.vehicle.getVisualRoot());
+    const saved = this.heldAttach['cockpit'];
+    if (saved) this.cockpit?.applyCockpitOverride(saved);
+    const headSaved = this.heldAttach['cockpit_head'];
+    const head = headSaved
+      ? new Vector3(headSaved.pos[0], headSaved.pos[1], headSaved.pos[2])
+      : (this.cockpit?.getHeadOffset() ?? new Vector3(-0.4, 1.15, -0.65));
+    this.cameraSystem.enableFirstPerson(this.vehicle.getVisualRoot(), head);
+  }
+
+  /** Cockpit reacts to driving: refresh the LCD readout. */
+  /* istanbul ignore next — browser-only cockpit LCD updates */
+  private updateCockpit(): void {
+    if (!this.vehicle || !this.cockpit?.isBuilt()) return;
+    const g = gaugePercents(
+      this.vehicle.getSpeed(), this.vehicle.getMaxSpeed(),
+      this.vehicle.getPosition().y, this.vehicle.getMaxAltitude(),
+      this.vehicle.getHealth().fraction(),
+    );
+    this.cockpit.setGauges(g.spd, g.alt, g.hull);
+  }
+
+  /** V toggles the first-person (driver) camera while piloting. */
+  /* istanbul ignore next — browser-only input/camera wiring */
+  private handleViewSwitch(): void {
+    if (!this.inputSystem || !this.cameraSystem) return;
+    if (!this.inputSystem.wasJustPressed('view.switch')) return;
+    if (!(this.vehicle?.isOccupied() ?? false)) return;
+    this.cameraSystem.setFirstPerson(!this.cameraSystem.isFirstPerson());
   }
 
   /** Hold Z / C to orbit the camera left / right around the hero (also MMB-drag). */
@@ -3834,6 +3939,8 @@ export class GameWorldScene extends BaseScene {
     if (this.dialog?.isOpen() || this.pauseMenu?.isOpen() || this.gameOverMenu?.isOpen()
       || this.inventoryOverlay?.isOpen()) return;
     if (!this.inputSystem.wasJustPressed('adjust.toggle')) return;
+    // While piloting, O calibrates the whole cockpit unit (dev tool to bake constants).
+    if (this.vehicle?.isOccupied()) { this.openCockpitAdjust(); return; }
     // Tune the main-hand prop if present, else the back prop.
     const equip = this.playerInventory.toState().equipped ?? {};
     const slot: EquipSlot = equip.main_hand ? 'main_hand' : 'back';
@@ -3850,6 +3957,37 @@ export class GameWorldScene extends BaseScene {
     const bones = (this.player?.getSkeleton()?.bones ?? []).map((b) => b.name);
     // Camera stays as the default close follow view — no zoom/orbit override.
     this.adjustOverlay.open(itemId, slot, base, bones);
+  }
+
+  /** Open the Adjust tool to calibrate the driver seat offset while piloting. */
+  /* istanbul ignore next — browser-only camera/overlay wiring */
+  private openSeatAdjust(): void {
+    if (!this.adjustOverlay || !(this.vehicle?.isOccupied())) return;
+    const saved = this.heldAttach['driver_seat'];
+    const base: ItemAttach = saved ?? {
+      pos: [DRIVER_SEAT_OFFSET.x, DRIVER_SEAT_OFFSET.y, DRIVER_SEAT_OFFSET.z],
+      rot: [DRIVER_SEAT_PITCH, DRIVER_SEAT_YAW, 0],
+      scale: 1,
+    };
+    // No bones needed — the player is parented to the vehicle, not bone-attached.
+    this.adjustOverlay.open('driver_seat', 'main_hand', base, []);
+  }
+
+  /**
+   * Open the Adjust tool to calibrate the whole cockpit unit (dashboard + yoke +
+   * LCD) while piloting. Used during dev to find the transform; the found values are
+   * then baked into COCKPIT_TRANSFORM.
+   */
+  /* istanbul ignore next — browser-only camera/overlay wiring */
+  private openCockpitAdjust(): void {
+    if (!this.adjustOverlay || !(this.vehicle?.isOccupied())) return;
+    const saved = this.heldAttach['cockpit'];
+    const base: ItemAttach = saved ?? {
+      pos: [COCKPIT_TRANSFORM.pos[0], COCKPIT_TRANSFORM.pos[1], COCKPIT_TRANSFORM.pos[2]],
+      rot: [COCKPIT_TRANSFORM.rot[0], COCKPIT_TRANSFORM.rot[1], COCKPIT_TRANSFORM.rot[2]],
+      scale: COCKPIT_TRANSFORM.scale,
+    };
+    this.adjustOverlay.open('cockpit', 'main_hand', base, []);
   }
 
   private wirePauseMenu(): void {
@@ -3894,27 +4032,28 @@ export class GameWorldScene extends BaseScene {
       || (this.pauseMenu?.isOpen() ?? false)
       || (this.gameOverMenu?.isOpen() ?? false)
       || this.gameOver
-      || !!this.surpriseTargeting
-      || (this.vehicle?.isOccupied() ?? false);
+      || !!this.surpriseTargeting;
     this.actionRibbon.setVisible(!busy);
+    const piloting = this.vehicle?.isOccupied() ?? false;
+    this.actionRibbon.setIsPiloting(piloting);
     const main = this.playerInventory.combatWeaponId;
     this.actionRibbon.setFirearmEquipped(!!main && isFirearm(main));
   }
 
-  /** Nave status line: destroyed / live HP% while relevant, else hidden. */
+  /** Car status line: destroyed / live HP% while relevant, else hidden. */
   private deriveVehicleStatus(): string | null {
     if (!this.vehicle) return null;
-    if (this.vehicle.isDestroyed()) return t('hud.naveDestroyed');
+    if (this.vehicle.isDestroyed()) return t('hud.carDestroyed');
     if (this.vehicle.isOccupied() || this.vehicle.isSmoking()) {
-      return t('hud.naveStatus', { pct: Math.round(this.vehicle.getHealth().fraction() * 100) });
+      return t('hud.carStatus', { pct: Math.round(this.vehicle.getHealth().fraction() * 100) });
     }
     return null;
   }
 
   private deriveActionPrompt(dialogOpen: boolean): string | null {
     if (dialogOpen) return null;
-    if (this.vehicle?.isOccupied()) return t('hud.exitBike');
-    if (this.player && this.vehicle?.canEnter(this.player.getPosition())) return t('hud.enterBike');
+    if (this.vehicle?.isOccupied()) return t('hud.exitCar');
+    if (this.player && this.vehicle?.canEnter(this.player.getPosition())) return t('hud.enterCar');
     if (this.npcManager && this.player) {
       const agent = this.npcManager.getConversableAgent(this.player.getPosition());
       // Don't leak the name in the prompt before the NPC introduces itself.

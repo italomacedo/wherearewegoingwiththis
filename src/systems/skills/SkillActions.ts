@@ -38,13 +38,15 @@ const EFFECT_POLICY: Record<SkillEffect, AwarenessPolicy> = {
   persuade: 'confront',   // emote charm; addressee is the target, aware by default
   intimidate: 'confront', // emote physical pressure; aware
   disarm: 'confront',     // physical attempt; target sees it coming
-  heal: 'self',           // healing self or another nearby — no opponent
+  medicine_treat: 'self', // healing self or another nearby — no opponent
   repair: 'self',
   craft: 'self',
-  examine_self: 'self',
+  medicine_check: 'self',
   narrate_time: 'self',
   narrative: 'self',
-  // Legacy (deprecated; removed in 21D-F).
+  // Legacy (deprecated; normalized by the parser, kept for type completeness).
+  heal: 'self',
+  examine_self: 'self',
   relationship: 'covert',
   disposition: 'confront',
   haggle: 'confront',
@@ -82,7 +84,7 @@ export function reachFor(effect: SkillEffect, skillId: string | null): number {
   // Sabotage via IT (hack) = corrupting their device over the network → remote (same-quadrant).
   if (effect === 'sabotage' && skillId !== 'tecnologia_informacao') return SKILL_CONTACT_RADIUS;
   // Healing ANOTHER person needs hands on them (self-heal is unresisted, no target).
-  if (effect === 'heal') return SKILL_CONTACT_RADIUS;
+  if (effect === 'medicine_treat') return SKILL_CONTACT_RADIUS;
   return SKILL_ACTION_RADIUS;
 }
 
@@ -122,7 +124,7 @@ export type SkillMutation =
   | { kind: 'alter_relationship'; targetId: string; otherId: string; dir: 'up' | 'down'; steps: number }
   | { kind: 'shift_disposition'; targetId: string; dir: 'up' | 'down'; steps: number }
   | { kind: 'coerce'; targetId: string; steps: number }
-  | { kind: 'heal'; targetId: string | null } // null = heal self
+  | { kind: 'heal'; targetId: string | null } // null = heal self (generic HP primitive)
   | { kind: 'mark_sabotage'; targetId: string }
   | { kind: 'repair' }
   | { kind: 'craft' }
@@ -194,7 +196,7 @@ export function resolveSkillAction(input: SkillActionInput, rng: RollFn = defaul
     if (input.effect === 'relationship' && !t.otherId) return blocked('no_target');
   }
   // Heal another person needs physical contact too (self-heal = no target, no check).
-  if (input.effect === 'heal' && t && t.distance > reachFor('heal', input.skillId)) {
+  if (input.effect === 'medicine_treat' && t && t.distance > reachFor('medicine_treat', input.skillId)) {
     return blocked('out_of_range');
   }
 
@@ -254,8 +256,10 @@ function mutationsFor(
       return [{ kind: 'shift_disposition', targetId: t!.id, dir, steps }];
     case 'coerce':
       return [{ kind: 'coerce', targetId: t!.id, steps }];
-    case 'heal':
+    case 'medicine_treat':
       return [{ kind: 'heal', targetId: t?.id ?? null }];
+    // medicine_check yields no world mutation — the scene narrates the condition
+    // band (coarse always, precise on success) directly from the check result.
     case 'sabotage':
       return [{ kind: 'mark_sabotage', targetId: t!.id }];
     case 'repair':

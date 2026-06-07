@@ -25,8 +25,8 @@
  * Decisions captured here come from the Fase 21 plan Q&A:
  *   - `narrative` is the fall-through "no-op" verb in all three vocabularies
  *     (decision #3 — pure no-op, no skill check, no XP, no mutation).
- *   - `examine_self` + `narrate_time` are EMOTE verbs (decision #1 —
- *     replace the legacy `isSelfExamEmote` / `isCheckTimeEmote`
+ *   - `medicine_check` (was `examine_self`) + `narrate_time` are EMOTE verbs
+ *     (decision #1 — replace the legacy `isSelfExamEmote` / `isCheckTimeEmote`
  *     short-circuits with first-class verbs).
  *   - `job_cancel` is a VERBAL verb (decision #14 — player can cancel an
  *     accepted contract at the cost of one disposition step).
@@ -62,20 +62,27 @@ export type VerbalVerb =
   // Fall-through.
   | 'narrative';
 
-/** Verbs the PC produces by writing an `*action*` (emote). */
+/**
+ * Verbs the PC produces by writing an `*action*` (emote).
+ *
+ * Skill-governed verbs read `<skill>_<use_case>` (mirrors the verbal
+ * `commerce_*` family): the Medicina pair is `medicine_check` (read your
+ * condition) / `medicine_treat` (restore HP). Generic action verbs stay
+ * single-word because they route through more than one skill.
+ */
 export type EmoteVerb =
   | 'attack'
   | 'steal'
   | 'info' // *scan*/*hack his data* — extracts from target's data (vs verbal `info` which asks).
   | 'coerce' // *grabs his collar — give me the chip*
-  | 'heal'
+  | 'medicine_treat' // *bandages my wounds* — restore HP (self or another) — Medicina.
   | 'sabotage'
   | 'repair'
   | 'craft'
   | 'persuade'
   | 'intimidate'
   | 'disarm'
-  | 'examine_self' // *check my wounds* — narrates HP band (decision #1).
+  | 'medicine_check' // *check my wounds* — narrates HP band — Medicina (decision #1).
   | 'narrate_time' // *check the time* — narrates current period (decision #1).
   | 'narrative';
 
@@ -93,7 +100,7 @@ export type AutonomyVerb =
   | 'steal'
   | 'info'
   | 'sabotage'
-  | 'heal' // can target self or another NPC.
+  | 'medicine_treat' // can target self or another NPC.
   | 'intimidate'
   | 'persuade'
   | 'manipulate'
@@ -111,13 +118,13 @@ export const VERBAL_VERBS: readonly VerbalVerb[] = [
 ] as const;
 
 export const EMOTE_VERBS: readonly EmoteVerb[] = [
-  'attack', 'steal', 'info', 'coerce', 'heal', 'sabotage', 'repair', 'craft',
-  'persuade', 'intimidate', 'disarm', 'examine_self', 'narrate_time', 'narrative',
+  'attack', 'steal', 'info', 'coerce', 'medicine_treat', 'sabotage', 'repair', 'craft',
+  'persuade', 'intimidate', 'disarm', 'medicine_check', 'narrate_time', 'narrative',
 ] as const;
 
 export const AUTONOMY_VERBS: readonly AutonomyVerb[] = [
   'move_to', 'flee_from', 'wait', 'talk_to', 'use_item',
-  'attack', 'steal', 'info', 'sabotage', 'heal',
+  'attack', 'steal', 'info', 'sabotage', 'medicine_treat',
   'intimidate', 'persuade', 'manipulate', 'commerce_pricing', 'narrative',
 ] as const;
 

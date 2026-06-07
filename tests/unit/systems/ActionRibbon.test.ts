@@ -15,6 +15,14 @@ describe('ribbonButtons (pure gating)', () => {
 
     expect(ribbonButtons(true).find((b) => b.key === 'attackRanged')!.enabled).toBe(true);
   });
+
+  it('while piloting returns only adjustSeat', () => {
+    const buttons = ribbonButtons(false, true);
+    expect(buttons.map((b) => b.key)).toEqual(['adjustSeat']);
+    expect(buttons[0].enabled).toBe(true);
+    // firearm flag irrelevant while piloting
+    expect(ribbonButtons(true, true).map((b) => b.key)).toEqual(['adjustSeat']);
+  });
 });
 
 describe('ActionRibbon (state + dispatch, headless)', () => {
@@ -46,6 +54,26 @@ describe('ActionRibbon (state + dispatch, headless)', () => {
     ribbon.setFirearmEquipped(true);
     ribbon.press('attackRanged'); // now enabled
     expect(fired).toContain('ranged');
+    ribbon.dispose();
+  });
+
+  it('while piloting, only adjustSeat fires; on-foot buttons are no-ops', () => {
+    const ribbon = new ActionRibbon(scene);
+    const fired: string[] = [];
+    ribbon.setHandlers({
+      onAttackMelee: () => fired.push('melee'),
+      onAdjustSeat: () => fired.push('adjustSeat'),
+    });
+
+    ribbon.setIsPiloting(true);
+    ribbon.press('attackMelee');   // on-foot button — no-op while piloting
+    ribbon.press('adjustSeat');    // only active button while piloting
+    expect(fired).toEqual(['adjustSeat']);
+
+    ribbon.setIsPiloting(false);
+    ribbon.press('attackMelee');   // back on foot — fires again
+    ribbon.press('adjustSeat');    // pilot-only — no-op on foot
+    expect(fired).toEqual(['adjustSeat', 'melee']);
     ribbon.dispose();
   });
 

@@ -100,19 +100,19 @@ describe('SkillActions — gating', () => {
     expect(tooFar.blockedReason).toBe('out_of_range');
   });
 
-  it('heal on another NPC requires physical contact (2m); self-heal has no target check', () => {
+  it('medicine_treat on another NPC requires physical contact (2m); self-treat has no target check', () => {
     const farHeal = resolveSkillAction(input({
-      effect: 'heal', skillId: 'medicina', hasCyberdeck: false,
+      effect: 'medicine_treat', skillId: 'medicina', hasCyberdeck: false,
       target: target({ distance: 5 }),
     }), rollLow);
     expect(farHeal.blockedReason).toBe('out_of_range');
     const closeHeal = resolveSkillAction(input({
-      effect: 'heal', skillId: 'medicina', hasCyberdeck: false,
+      effect: 'medicine_treat', skillId: 'medicina', hasCyberdeck: false,
       target: target({ distance: 1.5 }),
     }), rollLow);
     expect(closeHeal.allowed).toBe(true);
     const self = resolveSkillAction(input({
-      effect: 'heal', skillId: 'medicina', hasCyberdeck: false, target: null,
+      effect: 'medicine_treat', skillId: 'medicina', hasCyberdeck: false, target: null,
     }), rollLow);
     expect(self.allowed).toBe(true);
   });
@@ -122,7 +122,7 @@ describe('SkillActions — gating', () => {
     expect(reachFor('steal', 'tecnologia_informacao')).toBe(SKILL_ACTION_RADIUS); // wire = remote
     expect(reachFor('sabotage', 'engenharia')).toBe(SKILL_CONTACT_RADIUS);
     expect(reachFor('sabotage', 'tecnologia_informacao')).toBe(SKILL_ACTION_RADIUS); // hack = remote
-    expect(reachFor('heal', 'medicina')).toBe(SKILL_CONTACT_RADIUS);
+    expect(reachFor('medicine_treat', 'medicina')).toBe(SKILL_CONTACT_RADIUS);
     expect(reachFor('info', 'tecnologia_informacao')).toBe(SKILL_ACTION_RADIUS);
     expect(reachFor('disposition', 'persuasao')).toBe(SKILL_ACTION_RADIUS);
   });
@@ -245,11 +245,18 @@ describe('SkillActions — direction + critical steps', () => {
 });
 
 describe('SkillActions — self / misc effects', () => {
-  it('heal with a target heals that NPC; without a target heals self', () => {
-    const withT = resolveSkillAction(input({ effect: 'heal', skillId: 'medicina', hasCyberdeck: false, target: target({ distance: 1.5 }) }), rollLow);
+  it('medicine_treat with a target heals that NPC; without a target heals self (generic heal mutation)', () => {
+    const withT = resolveSkillAction(input({ effect: 'medicine_treat', skillId: 'medicina', hasCyberdeck: false, target: target({ distance: 1.5 }) }), rollLow);
     expect(withT.mutations).toEqual([{ kind: 'heal', targetId: 'npc1' }]);
-    const self = resolveSkillAction(input({ effect: 'heal', skillId: 'medicina', hasCyberdeck: false, target: null }), rollLow);
+    const self = resolveSkillAction(input({ effect: 'medicine_treat', skillId: 'medicina', hasCyberdeck: false, target: null }), rollLow);
     expect(self.mutations).toEqual([{ kind: 'heal', targetId: null }]);
+  });
+
+  it('medicine_check is a self-read: rolls a check but yields no world mutation', () => {
+    const r = resolveSkillAction(input({ effect: 'medicine_check', skillId: 'medicina', hasCyberdeck: false, target: null }), rollLow);
+    expect(r.allowed).toBe(true);
+    expect(r.rolled).toBe(true);
+    expect(r.mutations).toEqual([]);
   });
 
   it('sabotage marks the target gear', () => {

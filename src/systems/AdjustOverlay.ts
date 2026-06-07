@@ -111,7 +111,7 @@ export class AdjustOverlay {
     col.spacing = 4;
     panel.addControl(col);
 
-    const title = new TextBlock('adjust-title', 'ADJUST — held prop');
+    const title = new TextBlock('adjust-title', 'ADJUST');
     title.color = UI.accent;
     title.height = '22px';
     title.fontSize = 14;

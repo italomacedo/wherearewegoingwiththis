@@ -171,8 +171,8 @@ describe('PromptBuilder', () => {
       const p = PromptBuilder.buildActionClassifierPrompt('*action*');
       // Slim vocab — these MUST appear in the EFFECT list.
       [
-        'attack', 'steal', 'info', 'coerce', 'heal', 'sabotage', 'repair', 'craft',
-        'persuade', 'intimidate', 'disarm', 'examine_self', 'narrate_time', 'narrative',
+        'attack', 'steal', 'info', 'coerce', 'medicine_treat', 'sabotage', 'repair', 'craft',
+        'persuade', 'intimidate', 'disarm', 'medicine_check', 'narrate_time', 'narrative',
       ].forEach((v) => expect(p).toContain(v));
     });
     it('no longer teaches the legacy verbs (Fase 21 slim — relationship/disposition/haggle/appraise/traverse/none)', () => {

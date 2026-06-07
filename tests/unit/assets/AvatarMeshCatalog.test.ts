@@ -3,7 +3,7 @@ import {
   LOCO_CLIP_GROUND_SPEED, LOCO_SPEED_RATIO_MIN, LOCO_SPEED_RATIO_MAX, computeLocoSpeedRatio,
   outfitsForGender, outfitByKey, genderOfOutfit, tintRoleForMaterial,
   partRegionOf, isStrippableMesh, tintRoleForMaterialInRegion, HAIR_MATERIAL_OVERRIDES,
-  planModularLoad, outfitProvidesPart, OUTFIT_MISSING_PARTS,
+  planModularLoad, outfitProvidesPart, OUTFIT_MISSING_PARTS, POSE_CLIPS,
 } from '../../../src/assets/AvatarMeshCatalog';
 
 describe('AvatarMeshCatalog — Quaternius Ultimate Modular outfits (pure)', () => {
@@ -61,6 +61,10 @@ describe('AvatarMeshCatalog — Quaternius Ultimate Modular outfits (pure)', () 
     });
     expect(combatClipFor('melee')).toBe('punch');
     expect(combatClipFor('ranged')).toBe('shoot');
+  });
+
+  it('POSE_CLIPS keeps embedded clips as static-pose sources (e.g. Roll → roll)', () => {
+    expect(POSE_CLIPS).toEqual({ roll: 'Roll' });
   });
 
   it('attackClipFor: slash when armed melee, punch bare-fisted, shoot when ranged', () => {
