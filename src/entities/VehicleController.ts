@@ -127,6 +127,16 @@ export class VehicleController {
    */
   private body: PhysicsBody | null = null;
   private bodyShape: PhysicsShapeBox | null = null;
+  /**
+   * The collision box's local extents + centre, measured ONCE from the model at
+   * heading 0. The body sits on `root` (which never rotates — only `visualPivot`
+   * yaws), so to keep the box aligned with the visible car at any heading we rotate
+   * the SHAPE to the heading (see `orientCollider`) rather than the body.
+   */
+  private localBoxExt: Vector3 | null = null;
+  private localBoxCenter: Vector3 | null = null;
+  /** Heading the collision box is currently oriented to (NaN = needs orienting). */
+  private colliderYaw = Number.NaN;
   /** Previous body vertical velocity, to detect a hard landing (fall damage). */
   private vyPrev = 0;
   private health = new Health(100);
@@ -410,16 +420,21 @@ export class VehicleController {
   enableDynamicPhysics(): void {
     if (!this.scene.isPhysicsEnabled()) return;
     if (this.body) { this.body.dispose(); this.body = null; }
+    // Measure the model's footprint at heading 0 (unrotated). The box must match the
+    // visible car at ANY heading, but the body sits on the never-rotating root, so we
+    // store the local extents here and rotate the SHAPE to the heading (orientCollider).
+    const savedYaw = this.visualPivot.rotation.y;
+    this.visualPivot.rotation.y = 0;
     this.root.computeWorldMatrix(true);
     const { min, max } = this.root.getHierarchyBoundingVectors(true);
+    this.visualPivot.rotation.y = savedYaw; // restore the visible orientation
     const ext = max.subtract(min);
     // Reject a degenerate OR non-finite bbox: a NaN/Infinity extent slips past
     // `< 0.05` (NaN < 0.05 is false) into a NaN Havok shape that ABORTS the process.
     if (![ext.x, ext.y, ext.z].every((v) => Number.isFinite(v) && v >= 0.05)) return;
-    const center = min.add(max).scale(0.5).subtract(this.root.getAbsolutePosition());
-    this.bodyShape = new PhysicsShapeBox(center, Quaternion.Identity(), ext, this.scene);
+    this.localBoxExt = ext;
+    this.localBoxCenter = min.add(max).scale(0.5).subtract(this.root.getAbsolutePosition());
     const body = new PhysicsBody(this.root, PhysicsMotionType.DYNAMIC, false, this.scene);
-    body.shape = this.bodyShape;
     // Heavy mass so the hero's character controller barely nudges the parked nave
     // (the hero can't shove it around) — flight is unaffected since we set the body's
     // velocity directly each frame (mass-independent). inertia 0 → no tumble.
@@ -427,6 +442,32 @@ export class VehicleController {
     body.setGravityFactor(0); // we apply gravity in the drive math (keeps the tuned feel)
     body.setLinearVelocity(Vector3.Zero());
     this.body = body;
+    this.colliderYaw = Number.NaN;
+    this.orientCollider(this.facing); // build the box aligned to the current heading
+  }
+
+  /**
+   * Rotate the collision box to `yaw` so it stays aligned with the visible car
+   * (the body sits on the never-rotating root). Swaps just the shape (keeps the
+   * body + its velocity) — cheap enough to call as the car turns. No-op without a
+   * body / measured extents (headless/tests).
+   */
+  /* istanbul ignore next — Havok physics is browser/Electron only; verified manually */
+  private orientCollider(yaw: number): void {
+    if (!this.body || !this.localBoxExt || !this.localBoxCenter) return;
+    const cos = Math.cos(yaw);
+    const sin = Math.sin(yaw);
+    const c = new Vector3(
+      this.localBoxCenter.x * cos + this.localBoxCenter.z * sin,
+      this.localBoxCenter.y,
+      -this.localBoxCenter.x * sin + this.localBoxCenter.z * cos,
+    );
+    const shape = new PhysicsShapeBox(c, Quaternion.FromEulerAngles(0, yaw, 0), this.localBoxExt, this.scene);
+    const old = this.bodyShape;
+    this.bodyShape = shape;
+    this.body.shape = shape;
+    if (old) old.dispose();
+    this.colliderYaw = yaw;
   }
 
   /**
@@ -487,6 +528,11 @@ export class VehicleController {
 
     // Point the car where the wheel is aimed (yaw the VISUAL, not the level body).
     this.visualPivot.rotation.y = k.heading - VEHICLE_MODEL_YAW;
+
+    // Keep the collision box aligned with the visible car as it turns (it sits on
+    // the level body, so the SHAPE is rotated). Only when the heading moved enough.
+    const dYaw = Math.atan2(Math.sin(k.heading - this.colliderYaw), Math.cos(k.heading - this.colliderYaw));
+    if (!Number.isFinite(this.colliderYaw) || Math.abs(dYaw) > 0.08) this.orientCollider(k.heading);
   }
 
   /** Smoke at critical HP, explode (destroy) at zero. */
@@ -510,6 +556,9 @@ export class VehicleController {
     this.occupied = false;
     this.state.speed = 0;
     this.state.velocityY = 0;
+    // Re-align the collision box to the parked heading so the hero can't walk into
+    // the body when the car was left turned (no-op headlessly / with no body).
+    this.orientCollider(this.facing);
   }
 
   isOccupied(): boolean { return this.occupied; }

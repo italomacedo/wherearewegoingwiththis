@@ -147,17 +147,18 @@ describe('CameraSystem', () => {
     expect(CameraSystem.shortestAngleDelta(0, (3 * Math.PI) / 2)).toBeCloseTo(-Math.PI / 2, 6);
   });
 
-  it('alignBehind eases the orbit to sit behind the car (alpha → heading + π/2)', () => {
+  it('alignBehind eases the orbit so the camera looks along the car heading (getYaw → −heading)', () => {
     const cam = new CameraSystem(scene);
     const heading = 1.0;
-    const target = heading + Math.PI / 2;
+    const target = -heading - Math.PI / 2;
     const before = Math.abs(CameraSystem.shortestAngleDelta(cam.getCamera().alpha, target));
     cam.alignBehind(heading, 0.5);
     const after = Math.abs(CameraSystem.shortestAngleDelta(cam.getCamera().alpha, target));
     expect(after).toBeLessThan(before); // moved toward sitting behind the car
-    // factor 1 snaps the orbit onto the behind-the-car angle.
+    // factor 1 snaps the orbit onto the behind-the-car angle: the camera looks the
+    // way the car drives (getYaw == −heading).
     cam.alignBehind(heading, 1);
-    expect(CameraSystem.shortestAngleDelta(cam.getCamera().alpha, target)).toBeCloseTo(0, 5);
+    expect(CameraSystem.shortestAngleDelta(cam.getYaw(), -heading)).toBeCloseTo(0, 5);
   });
 
   it('following the target preserves the orbit angle (MMB rotation is not reset each frame)', () => {

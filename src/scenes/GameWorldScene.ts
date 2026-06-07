@@ -123,6 +123,13 @@ export function clampFrameDelta(deltaMs: number, maxSeconds = MAX_FRAME_DELTA): 
 }
 
 /**
+ * Trailing-camera follow rate (per second) used to ease the orbit behind a driven
+ * vehicle. High enough that a sustained turn (≈1.8 rad/s steering) leaves only a
+ * small, quickly-recovered lag instead of a persistent ~40° offset.
+ */
+export const CAMERA_TRAIL_RATE = 10;
+
+/**
  * Capsule dimensions from a holder's bbox extents (x,y,z), GUARDED. A skinned
  * mesh can report NaN/Infinity bounds for a frame mid modular-rebind; feeding that
  * to a Havok capsule makes `{height:NaN, radius:NaN}`, and Havok's WASM `abort()`s
@@ -3714,14 +3721,16 @@ export class GameWorldScene extends BaseScene {
     this.vehicle.update(dt, input);
     if (driving) this.updateCockpit();
 
-    // Trailing camera: ease the orbit to sit behind the car as it steers, unless
+    // Trailing camera: ease the orbit to stay behind the car as it steers, unless
     // the player is actively looking around with Z/C (manual orbit wins; the view
-    // re-settles behind the car when they let go).
+    // re-settles behind the car when they let go). The rate must be high enough to
+    // keep up with a sustained turn (a low gain leaves the camera ~40° off to the
+    // side during curves — exactly the "I have to fix it with Z/C" symptom).
     if (driving) {
       const lookingAround = this.inputSystem?.isActionActive('camera.rotateLeft')
         || this.inputSystem?.isActionActive('camera.rotateRight');
       if (!lookingAround) {
-        this.cameraSystem.alignBehind(this.vehicle.getFacing(), Math.min(1, 2.5 * dt));
+        this.cameraSystem.alignBehind(this.vehicle.getFacing(), Math.min(1, CAMERA_TRAIL_RATE * dt));
       }
     }
 

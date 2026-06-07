@@ -115,14 +115,17 @@ export class CameraSystem {
 
   /**
    * Trailing camera: ease the orbit so the camera sits BEHIND the car and looks
-   * the way it drives (you see its rear + the road ahead). The car's forward sits
-   * opposite the camera orbit angle, so the behind-the-car alpha is `heading + π/2`
-   * (the `−π/2` variant put the camera in FRONT looking back — a reverse cam).
-   * `factor` (0..1) is the lerp weight this frame; the eased path takes the
-   * shortest way around the circle.
+   * the way it drives (you see its rear + the road ahead). The camera's look
+   * direction (getYaw) is built from (−sin, cos) while the car's forward is
+   * (sin, cos) — opposite X sign — so to look along the car's heading the orbit
+   * must satisfy `getYaw == −heading`, i.e. `alpha = −heading − π/2`. (Using
+   * `+heading` happens to match only when driving dead straight; through a curve
+   * it rotated the wrong way, so the camera never settled behind and felt like a
+   * reverse cam.) `factor` (0..1) is the per-frame lerp weight; the eased path
+   * takes the shortest way around the circle.
    */
   alignBehind(heading: number, factor: number): void {
-    const targetAlpha = heading + Math.PI / 2;
+    const targetAlpha = -heading - Math.PI / 2;
     this.camera.alpha += CameraSystem.shortestAngleDelta(this.camera.alpha, targetAlpha) * factor;
   }
 
