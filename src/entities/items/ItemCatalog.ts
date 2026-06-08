@@ -104,7 +104,7 @@ export const ITEM_REGISTRY: Readonly<Record<string, ItemDef>> = Object.freeze({
   axe:     { id: 'axe',     nameKey: 'item.axe',     category: 'melee', weight: 2.4, stackable: false, maxStack: 1, modelPath: 'items/axe.glb', attach: hold(0.03) },
   shovel:  { id: 'shovel',  nameKey: 'item.shovel',  category: 'melee', weight: 2.6, stackable: false, maxStack: 1, modelPath: 'items/shovel.glb', attach: hold(0.5) },
   // ── Firearms (Phase 10: COSMETIC only — attach to hand, no shooting/ammo yet) ──
-  pistol:  { id: 'pistol',  nameKey: 'item.pistol',  category: 'misc', weight: 1.0, stackable: false, maxStack: 1, equipSlot: 'main_hand', modelPath: 'items/pistol_1.glb', attach: hold(0.14) },
+  pistol:  { id: 'pistol',  nameKey: 'item.pistol',  category: 'misc', weight: 1.0, stackable: false, maxStack: 1, equipSlot: 'main_hand', modelPath: 'items/pistol_1.glb', attach: hold(0.14, [0, 0.14, -0.02], [0, 0, Math.PI / 2]) },
   revolver:{ id: 'revolver',nameKey: 'item.revolver',category: 'misc', weight: 1.2, stackable: false, maxStack: 1, equipSlot: 'main_hand', modelPath: 'items/revolver_1.glb', attach: hold(0.14) },
   shotgun: { id: 'shotgun', nameKey: 'item.shotgun', category: 'misc', weight: 3.5, stackable: false, maxStack: 1, equipSlot: 'main_hand', modelPath: 'items/shotgun_1.glb', attach: hold(0.18) },
   // ── Equipment ──

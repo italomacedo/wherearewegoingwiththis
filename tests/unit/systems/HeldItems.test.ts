@@ -1,6 +1,6 @@
 import {
   attachBoneNameFor, resolveAttach, resolveAttachWith, boneFor, heldPropsFor,
-  DEFAULT_ATTACH, VISIBLE_SLOTS, AttachOverrides, flashlightActive, holdsAimPose,
+  DEFAULT_ATTACH, VISIBLE_SLOTS, AttachOverrides, flashlightActive, holdsAimPose, idleOverrideClip,
 } from '../../../src/systems/HeldItems';
 
 describe('HeldItems (pure decision logic)', () => {
@@ -59,6 +59,14 @@ describe('HeldItems (pure decision logic)', () => {
     expect(holdsAimPose({ main_hand: 'shotgun' })).toBe(true);
     expect(holdsAimPose({ main_hand: 'knife' })).toBe(false);   // melee → no aim pose
     expect(holdsAimPose(undefined)).toBe(false);
+  });
+
+  it('idleOverrideClip: flashlight aims, firearm holds the relaxed gun idle, else none', () => {
+    expect(idleOverrideClip({ main_hand: 'flashlight' })).toBe('aim');
+    expect(idleOverrideClip({ main_hand: 'pistol' })).toBe('idle_gun');
+    expect(idleOverrideClip({ main_hand: 'shotgun' })).toBe('idle_gun');
+    expect(idleOverrideClip({ main_hand: 'knife' })).toBeNull();   // melee → normal idle
+    expect(idleOverrideClip(undefined)).toBeNull();
   });
 
   describe('save overrides (Adjust tool)', () => {

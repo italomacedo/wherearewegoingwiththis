@@ -41,7 +41,7 @@ import {
   Mission, RewardOffer, completeMission,
 } from '@systems/economy/Missions';
 import { InventoryOverlay } from '@systems/InventoryOverlay';
-import { HeldItemRig, resolveAttachWith, boneFor, AttachOverrides, flashlightActive, holdsAimPose } from '@systems/HeldItems';
+import { HeldItemRig, resolveAttachWith, boneFor, AttachOverrides, flashlightActive, idleOverrideClip } from '@systems/HeldItems';
 import { AdjustOverlay } from '@systems/AdjustOverlay';
 import { ActionRibbon } from '@systems/ActionRibbon';
 import { AimTarget, nearestToPoint } from '@systems/SurpriseTargeting';
@@ -1642,8 +1642,8 @@ export class GameWorldScene extends BaseScene {
   private updateHeldEffects(): void {
     if (typeof document === 'undefined' || !this.player) return;
     const equipped = this.playerInventory.toState().equipped;
-    // Aim pose for a flashlight OR a firearm held in the main hand; light only for the flashlight.
-    this.player.setIdleOverride(holdsAimPose(equipped) ? 'aim' : null);
+    // Flashlight → aim pose; firearm → relaxed gun-in-hand idle; light only for the flashlight.
+    this.player.setIdleOverride(idleOverrideClip(equipped));
     const on = flashlightActive(equipped);
     if (on) {
       if (!this.flashlightLight) {

@@ -100,6 +100,19 @@ export function holdsAimPose(equipped: Partial<Record<EquipSlot, string>> | unde
   return main === 'flashlight' || (!!main && isFirearm(main));
 }
 
+/**
+ * The looping idle-pose clip to play while the given main-hand item is held, or null
+ * for the normal empty-handed idle. A flashlight uses the aimed pose; a firearm uses
+ * the relaxed gun-in-hand idle (`idle_gun`) — the aimed pose is reserved for the
+ * ranged shoot animation during combat.
+ */
+export function idleOverrideClip(equipped: Partial<Record<EquipSlot, string>> | undefined): string | null {
+  const main = equipped?.main_hand;
+  if (main === 'flashlight') return 'aim';
+  if (main && isFirearm(main)) return 'idle_gun';
+  return null;
+}
+
 /* istanbul ignore next — entire browser rig is GPU/Electron only */
 interface AttachedEntry { itemId: string; root: AbstractMesh; }
 

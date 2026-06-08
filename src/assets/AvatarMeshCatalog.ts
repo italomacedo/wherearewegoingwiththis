@@ -86,14 +86,16 @@ export const COMBAT_CLIPS: Record<'punch' | 'kick' | 'shoot' | 'aim' | 'hit' | '
 export type CombatClipState = keyof typeof COMBAT_CLIPS;
 
 /**
- * Embedded clips kept on the rig PURELY as static-pose sources (frozen at a frame
- * via `PlayerController.playPose(clip, frame)`), not played as motion. Without an
- * entry here the assembler discards the clip (only LOCO/COMBAT are kept). Value =
+ * Embedded clips kept on the rig as static-pose sources (frozen at a frame via
+ * `PlayerController.playPose(clip, frame)`) OR as alternate looping idles (e.g.
+ * `idle_gun` while a firearm is held — see `HeldItems.idleOverrideClip`). Without
+ * an entry here the assembler discards the clip (only LOCO/COMBAT are kept). Value =
  * exact embedded clip name; key = the renamed in-game name. Frames are catalogued
  * in `tools/README.md` (e.g. `roll`@65 = sit-on-ground, `roll`@70 = passenger).
  */
 export const POSE_CLIPS = {
   roll: 'Roll',
+  idle_gun: 'Idle_Gun', // relaxed gun-in-hand idle (looped while a firearm is equipped)
 } as const;
 
 export type PoseClipState = keyof typeof POSE_CLIPS;

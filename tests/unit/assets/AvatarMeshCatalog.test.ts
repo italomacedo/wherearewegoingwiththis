@@ -63,8 +63,8 @@ describe('AvatarMeshCatalog — Quaternius Ultimate Modular outfits (pure)', () 
     expect(combatClipFor('ranged')).toBe('shoot');
   });
 
-  it('POSE_CLIPS keeps embedded clips as static-pose sources (e.g. Roll → roll)', () => {
-    expect(POSE_CLIPS).toEqual({ roll: 'Roll' });
+  it('POSE_CLIPS keeps embedded clips as pose/alternate-idle sources (Roll → roll, Idle_Gun → idle_gun)', () => {
+    expect(POSE_CLIPS).toEqual({ roll: 'Roll', idle_gun: 'Idle_Gun' });
   });
 
   it('attackClipFor: slash when armed melee, punch bare-fisted, shoot when ranged', () => {
