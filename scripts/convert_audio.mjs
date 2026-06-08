@@ -7,7 +7,8 @@
  * committed.
  *
  * Each entry: { src (basename in ~/Downloads), dest (cue path under audio/),
- * mono, trimSec? (hard cap length), loop? (skip silence-trim) }.
+ * startSec? (seek in before extracting), trimSec? (hard cap length),
+ * fadeOutSec? (tail fade to avoid a click on a mid-clip cut) }.
  * Loudness is normalized (EBU R128 loudnorm) so the mix is even.
  *
  * Usage: node scripts/convert_audio.mjs
@@ -26,7 +27,8 @@ const OUT_DIR = join(ROOT, 'public', 'assets', 'audio');
 
 /** Source basename (in ~/Downloads) → cue spec. */
 const SFX = [
-  { src: '406750__kretopi__steponwood-014.wav', dest: 'sfx/footstep.ogg' },
+  // The source is 8 footsteps in a row; extract a single step (one impact + tail).
+  { src: '702399__ienba__generic-footsteps.wav', dest: 'sfx/footstep.ogg', startSec: 0.46, trimSec: 0.42, fadeOutSec: 0.06 },
   { src: '573378__johnloser__cyber-punch-03.wav', dest: 'sfx/punch.ogg' },
   { src: '413497__inspectorj__stab-metal-knife-in-lettuce-e.wav', dest: 'sfx/stab.ogg' },
   { src: '840717__nomagician__sword-swing-3.mp3', dest: 'sfx/swing.ogg' },
@@ -72,10 +74,17 @@ for (const cue of SFX) {
   }
   const out = join(OUT_DIR, cue.dest);
   mkdirSync(dirname(out), { recursive: true });
-  const args = ['-y', '-i', src, '-ac', '1'];
+  const args = ['-y'];
+  if (cue.startSec) args.push('-ss', String(cue.startSec)); // seek in (accurate after -i below)
+  args.push('-i', src, '-ac', '1');
   if (cue.trimSec) args.push('-t', String(cue.trimSec));
-  // EBU R128 loudnorm to even the mix; Vorbis q4 ≈ ~96 kbps.
-  args.push('-af', 'loudnorm=I=-18:TP=-1.5:LRA=11', '-c:a', 'libvorbis', '-q:a', '4', out);
+  // EBU R128 loudnorm to even the mix; optional tail fade so a mid-clip cut doesn't click.
+  const filters = ['loudnorm=I=-18:TP=-1.5:LRA=11'];
+  if (cue.fadeOutSec && cue.trimSec) {
+    filters.push(`afade=t=out:st=${cue.trimSec - cue.fadeOutSec}:d=${cue.fadeOutSec}`);
+  }
+  // Vorbis q4 ≈ ~96 kbps.
+  args.push('-af', filters.join(','), '-c:a', 'libvorbis', '-q:a', '4', out);
   execFileSync(ffmpegPath, args, { stdio: 'pipe' });
   ok++;
   console.log(`✓ ${cue.dest}`);

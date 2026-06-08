@@ -41,7 +41,7 @@ onnxruntime-web). The model is fetched from the Hugging Face hub on first run
 
 | Cue | Source | Author |
 |---|---|---|
-| Footsteps | https://freesound.org/people/kretopi/sounds/406750/ | kretopi |
+| Footsteps | https://freesound.org/people/ienba/sounds/702399/ | IENBA |
 | Sword swing | https://freesound.org/people/Nomagician/sounds/840717/ | Nomagician |
 | Melee miss whoosh | https://freesound.org/people/sypherzent/sounds/420668/ | SypherZent |
 | UI click | https://freesound.org/people/vacuumfan7072/sounds/394159/ | vacuumfan7072 |
