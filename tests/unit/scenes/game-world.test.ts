@@ -863,3 +863,32 @@ describe('safeCapsuleDims (NPC capsule sizing — Havok-abort safety)', () => {
     expect(d.radius).toBe(2);
   });
 });
+
+describe('GameWorldScene.sanitizeSpawn (corrupt-save fall-out rescue)', () => {
+  const zoneSpawn = new Vector3(0, 1, 0);
+
+  it('returns the zone spawn when there is no override', () => {
+    expect(GameWorldScene.sanitizeSpawn(null, zoneSpawn)).toEqual(zoneSpawn);
+  });
+  it('keeps a valid saved position untouched', () => {
+    const ok = new Vector3(12, 0.5, 33);
+    const out = GameWorldScene.sanitizeSpawn(ok, zoneSpawn);
+    expect([out.x, out.y, out.z]).toEqual([12, 0.5, 33]);
+  });
+  it('snaps a below-floor Y to the zone ground height but keeps X/Z (the real bug: y=-82817)', () => {
+    const out = GameWorldScene.sanitizeSpawn(new Vector3(12.01, -82817.48, 32.93), zoneSpawn);
+    expect(out.x).toBeCloseTo(12.01);
+    expect(out.z).toBeCloseTo(32.93);
+    expect(out.y).toBe(1); // zone ground
+  });
+  it('rescues a non-finite Y / X / Z', () => {
+    const out = GameWorldScene.sanitizeSpawn(new Vector3(NaN, Infinity, 5), new Vector3(0, 2, 0));
+    expect(out.x).toBe(0); // zone X
+    expect(out.y).toBe(2); // zone ground
+    expect(out.z).toBe(5); // valid saved Z kept
+  });
+  it('preserves a legitimate elevated Y (e.g. a rooftop save)', () => {
+    const out = GameWorldScene.sanitizeSpawn(new Vector3(5, 30, 5), zoneSpawn);
+    expect(out.y).toBe(30);
+  });
+});

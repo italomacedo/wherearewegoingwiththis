@@ -178,6 +178,12 @@ export class GameWorldScene extends BaseScene {
   /** Scenery preload radius (5×5) vs NPC radius (3×3). */
   private static readonly SCENERY_RADIUS = 2;
   private static readonly NPC_RADIUS = 1;
+  /** Below this Y the hero has fallen out of the world (the floor top is y=0). Used
+   *  both to sanitize a corrupt saved spawn and as a runtime out-of-world catch. */
+  private static readonly WORLD_FLOOR_Y = -5;
+  /** Runtime: if the hero's Y drops below this, snap it back to ground (prevents the
+   *  infinite free-fall that corrupts the save — e.g. a dt spike tunnels the floor). */
+  private static readonly FALL_OUT_Y = -50;
   /** Prop instantiations per scenery-pump (time-slice → no burst hitch). */
   private static readonly TILE_LOAD_BUDGET = 2;
   /** How close (metres) the player must be to pick up a dropped pile (Fase 18). */
@@ -408,6 +414,22 @@ export class GameWorldScene extends BaseScene {
     }
   }
 
+  /**
+   * Pure: resolve a safe spawn from a (possibly corrupt) saved override and the
+   * zone's ground spawn. Keeps the saved X/Z (the tile is valid) but replaces a
+   * non-finite or below-floor Y with the zone's ground height — rescuing a save
+   * whose hero fell out of the world (e.g. y=-82817). No override → zone spawn.
+   */
+  static sanitizeSpawn(override: Vector3 | null, zoneSpawn: Vector3): Vector3 {
+    if (!override) return zoneSpawn;
+    const x = Number.isFinite(override.x) ? override.x : zoneSpawn.x;
+    const z = Number.isFinite(override.z) ? override.z : zoneSpawn.z;
+    const y = Number.isFinite(override.y) && override.y > GameWorldScene.WORLD_FLOOR_Y
+      ? override.y
+      : zoneSpawn.y;
+    return new Vector3(x, y, z);
+  }
+
   /** Writes world position + NPC memory + health (player & bike) back to disk. */
   private persistSession(): void {
     if (!this.saveId) return;
@@ -482,7 +504,12 @@ export class GameWorldScene extends BaseScene {
       // so the overlay (created here) sits below it and is revealed as the scene
       // fades in — the player sees progress + a tip instead of a black void.
       this.buildLoadingOverlay();
-      this.loadPromise = this.doLoad();
+      // Surface a swallowed throw in doLoad — a mid-load failure was leaving the
+      // world half-built with a black screen and no error (esp. far-from-origin
+      // saves that exercise spawnOverride + procedural streaming). Lições 34/46.
+      this.loadPromise = this.doLoad().catch((e) => {
+        console.error('[WorldLoad] doLoad FAILED — world left half-built:', e);
+      });
       void this.loadPromise;
     } else {
       // Test / headless: await directly so the scene is fully initialised when
@@ -531,7 +558,13 @@ export class GameWorldScene extends BaseScene {
 
     this.updateLoadingProgress(40, 'loading.label.player');
     this.player = new PlayerController(this.babylonScene, this.inputSystem!);
-    await this.player.spawn(this.spawnOverride ?? zone.getSpawnPoint(), this.appearance);
+    // Rescue a corrupt saved position: a hero who tunnelled through the world floor
+    // (a dt spike on Alt+Tab, Lesson 45, or a rooftop-edge drop) gets its Y saved in
+    // free-fall (e.g. y=-82817), and on reload the camera follows it into the void →
+    // black screen. Keep the saved X/Z (the tile is valid) but snap a below-floor /
+    // non-finite Y back to the zone's ground spawn height.
+    const safeSpawn = GameWorldScene.sanitizeSpawn(this.spawnOverride, zone.getSpawnPoint());
+    await this.player.spawn(safeSpawn, this.appearance);
     // Apply skill-driven movement speed (Phase 19C).
     this.player.setAtletismo(this.playerStats.skills['atletismo'] ?? 10);
     ServiceLocator.register('player', this.player);
@@ -1005,6 +1038,23 @@ export class GameWorldScene extends BaseScene {
     this.npcGroupsById.delete(id);
   }
 
+  /**
+   * Runtime catch: if the hero fell out of the world (Y below FALL_OUT_Y — e.g. a
+   * dt spike tunnelled the 1-unit floor box), snap it back to ground above its
+   * current X/Z instead of free-falling forever (which is what corrupted the save).
+   */
+  /* istanbul ignore next — needs a live physics fall; the threshold logic is trivial */
+  private catchFallOutOfWorld(): void {
+    if (!this.player) return;
+    const p = this.player.getPosition();
+    if (Number.isFinite(p.y) && p.y > GameWorldScene.FALL_OUT_Y) return;
+    const groundY = this.zone?.getSpawnPoint().y ?? 0;
+    const x = Number.isFinite(p.x) ? p.x : 0;
+    const z = Number.isFinite(p.z) ? p.z : 0;
+    console.warn('[WorldLoad] hero fell out of world — recovering', { from: [p.x, p.y, p.z] });
+    this.player.teleport(new Vector3(x, groundY, z));
+  }
+
   /** Feed the player's world position to the streamer each frame (browser only). */
   /* istanbul ignore next — thin browser glue over the unit-tested WorldStreamer */
   private streamWorld(): void {
@@ -1378,6 +1428,7 @@ export class GameWorldScene extends BaseScene {
           this.player.setCameraYaw(this.cameraSystem.getYaw());
         }
         this.player?.update(dt);
+        this.catchFallOutOfWorld();
         this.tickFootsteps(dt);
         // A fresh hard landing (fall damage just applied) thuds like a body fall.
         const fd = this.player?.getLastFallDamage() ?? 0;

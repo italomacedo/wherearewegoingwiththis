@@ -66,7 +66,11 @@ export class TileScenery {
     const p = this.pending.shift();
     if (!p || this.disposed) return;
     const entries = await cache.instantiate(p.model, this.scene);
-    if (!entries || this.disposed) { entries?.dispose(); return; }
+    if (!entries || this.disposed) {
+      if (!entries && !this.disposed) console.warn('[WorldLoad] prop asset failed to instantiate', p.model);
+      entries?.dispose();
+      return;
+    }
     const holder = new TransformNode(p.key, this.scene);
     holder.position.set(p.position[0], p.position[1], p.position[2]);
     holder.rotation.y = p.rotationY ?? 0;
