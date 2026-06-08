@@ -27,6 +27,15 @@ export interface WorldSnapshot {
   language?: string;
   /** Extra per-turn context (e.g. Phase-16 commerce levers). Appended verbatim. */
   extraContext?: string;
+  /**
+   * High-priority, one-shot stage direction for THIS reply — the SPECIFIC
+   * outcome a deterministic action just decided (e.g. a contract offer's target
+   * + reward, an accepted/claimed mission). Unlike `extraContext` (soft latent
+   * levers, "only if the conversation leads there"), this MUST be obeyed and is
+   * rendered LAST, right after the player's line, so it isn't diluted by the
+   * persona or the chitchat. (Fase 21.)
+   */
+  replyDirective?: string;
 }
 
 export interface PromptInputs {
@@ -104,6 +113,14 @@ export class PromptBuilder {
     lines.push('');
     lines.push(`Player: ${playerMessage}`);
 
+    // High-priority stage direction — rendered LAST so the model acts on it.
+    // This is the deterministic outcome the engine already decided; the reply
+    // must voice it concretely (name the target, state the reward, etc.).
+    if (world.replyDirective) {
+      lines.push('');
+      lines.push(`[DIRECTOR — your reply MUST do this, in your own voice, right now: ${world.replyDirective} Do not deflect, stall, or ask who sent them.]`);
+    }
+
     return lines.join('\n');
   }
 
@@ -177,13 +194,17 @@ export class PromptBuilder {
     npcName: string,
     sellableIds: readonly string[],
     rivalIds: readonly string[],
-    pendings: readonly { kind: 'trade' | 'mission'; itemId?: string; targetId?: string }[] = [],
+    pendings: readonly { kind: 'trade' | 'mission'; status?: 'pending' | 'active'; itemId?: string; targetId?: string }[] = [],
   ): string {
+    const describe = (p: { kind: 'trade' | 'mission'; status?: 'pending' | 'active'; itemId?: string; targetId?: string }) => {
+      if (p.kind === 'trade') return `pending trade offer(${p.itemId ?? '?'})`;
+      return p.status === 'active'
+        ? `ACTIVE contract you accepted (kill ${p.targetId ?? '?'}) — claimable/cancellable`
+        : `pending mission offer(kill ${p.targetId ?? '?'})`;
+    };
     const pendingLine = pendings.length === 0
-      ? 'No pending offers from this NPC.'
-      : 'Pending offers from this NPC: ' + pendings.map((p) =>
-        p.kind === 'trade' ? `trade(${p.itemId ?? '?'})` : `mission(kill ${p.targetId ?? '?'})`,
-      ).join(', ') + '.';
+      ? 'No pending offers or active contracts with this NPC.'
+      : 'On file with this NPC: ' + pendings.map(describe).join(', ') + '.';
     return [
       `Classify the player's SPOKEN line (no emote) to ${npcName} in a cyberpunk RPG.`,
       'Output EXACTLY these five lines, nothing else:',
@@ -193,7 +214,7 @@ export class PromptBuilder {
       'PRICE=<integer the player proposes when haggling, or none>',
       'DIR=up or down or none',
       '',
-      'job_request: player asks for work/contract. job_claim: player reports a target dead. job_accept/decline/cancel: refers to a PENDING offer.',
+      'job_request: player asks for work/contract. job_accept/decline: respond to a PENDING mission offer. job_claim: player reports they killed the target of an ACTIVE contract (pay me / it is done / the target is dead). job_cancel: player backs out of an ACTIVE contract.',
       'commerce_discovery: player asks what is for sale. commerce_pricing: player asks the price of a specific item.',
       'commerce_haggle: player proposes a different price or pushes for a discount. commerce_buy: player commits to buy. commerce_sell: player offers to sell something.',
       'manipulate: gossip or social engineering to change how this NPC feels about a THIRD person (TARGET). DIR=down to worsen, up to mend.',
@@ -381,10 +402,16 @@ export class PromptBuilder {
 
   /** Compact per-turn message in session mode (CLI carries the history). */
   static buildSessionTurn(world: WorldSnapshot, playerMessage: string): string {
-    return [
+    const lines = [
       `[Player is ${Math.round(world.distanceMeters)}m away, action: ${world.playerAction}]`,
       `Player: ${playerMessage}`,
-    ].join('\n');
+    ];
+    // The deterministic stage direction must ride session turns too (see
+    // buildDynamicContext) — otherwise a graduated NPC ignores the offer.
+    if (world.replyDirective) {
+      lines.push(`[DIRECTOR — your reply MUST do this, in your own voice, right now: ${world.replyDirective} Do not deflect, stall, or ask who sent them.]`);
+    }
+    return lines.join('\n');
   }
 
   /**

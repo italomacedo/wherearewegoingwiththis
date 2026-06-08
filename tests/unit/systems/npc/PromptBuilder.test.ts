@@ -313,6 +313,23 @@ describe('PromptBuilder', () => {
       });
       expect(p).not.toContain('Also physically present');
     });
+
+    it('renders a replyDirective LAST, after the player line, as a high-priority DIRECTOR note', () => {
+      const p = PromptBuilder.buildDynamicContext({
+        ...baseInputs,
+        world: { ...baseInputs.world, replyDirective: 'Offer them the contract on Mback for 100 credits.' },
+      });
+      expect(p).toContain('[DIRECTOR');
+      expect(p).toContain('Offer them the contract on Mback for 100 credits.');
+      expect(p).toContain('Do not deflect');
+      // It must come AFTER the player's message so the model acts on it.
+      expect(p.indexOf('[DIRECTOR')).toBeGreaterThan(p.indexOf('Got any data chips?'));
+    });
+
+    it('omits the DIRECTOR note when there is no directive', () => {
+      const p = PromptBuilder.buildDynamicContext(baseInputs);
+      expect(p).not.toContain('[DIRECTOR');
+    });
   });
 
   describe('buildCommerceContext (Phase 16)', () => {
@@ -389,16 +406,25 @@ describe('PromptBuilder', () => {
     it('reports pending offers from the NPC so accept/decline disambiguate', () => {
       const p = PromptBuilder.buildVerbalClassifierPrompt(
         "I'm in", 'Zara', ['knife'], ['npc_mback'],
-        [{ kind: 'mission', targetId: 'npc_mback' }, { kind: 'trade', itemId: 'knife' }],
+        [{ kind: 'mission', status: 'pending', targetId: 'npc_mback' }, { kind: 'trade', itemId: 'knife' }],
       );
-      expect(p).toContain('Pending offers from this NPC');
-      expect(p).toContain('mission(kill npc_mback)');
-      expect(p).toContain('trade(knife)');
+      expect(p).toContain('On file with this NPC');
+      expect(p).toContain('pending mission offer(kill npc_mback)');
+      expect(p).toContain('pending trade offer(knife)');
+    });
+
+    it('reports an ACTIVE accepted contract so claim/cancel disambiguate', () => {
+      const p = PromptBuilder.buildVerbalClassifierPrompt(
+        'It is done, pay up', 'Zara', [], ['npc_mback'],
+        [{ kind: 'mission', status: 'active', targetId: 'npc_mback' }],
+      );
+      expect(p).toContain('ACTIVE contract you accepted (kill npc_mback)');
+      expect(p).toContain('claimable/cancellable');
     });
 
     it('reports "No pending offers" when the list is empty', () => {
       const p = PromptBuilder.buildVerbalClassifierPrompt('Hi.', 'Zara', [], []);
-      expect(p).toContain('No pending offers from this NPC');
+      expect(p).toContain('No pending offers or active contracts with this NPC');
     });
   });
 
@@ -455,6 +481,15 @@ describe('PromptBuilder', () => {
       expect(turn).toContain('where are the chips');
       expect(turn).toContain('idle');
       expect(turn.length).toBeLessThan(200);
+    });
+
+    it('carries a replyDirective so a graduated NPC still obeys the staged outcome', () => {
+      const turn = PromptBuilder.buildSessionTurn(
+        { ...world, replyDirective: 'Confirm the contract on Mback is on.' },
+        'I am in',
+      );
+      expect(turn).toContain('[DIRECTOR');
+      expect(turn).toContain('Confirm the contract on Mback is on.');
     });
   });
 

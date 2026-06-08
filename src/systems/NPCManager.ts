@@ -189,7 +189,7 @@ export class NPCManager {
   async classifyVerbal(
     npcId: string, npcName: string, message: string,
     sellableIds: string[], rivalIds: string[],
-    pendings: { kind: 'trade' | 'mission'; itemId?: string; targetId?: string }[] = [],
+    pendings: { kind: 'trade' | 'mission'; status?: 'pending' | 'active'; itemId?: string; targetId?: string }[] = [],
   ): Promise<VerbalClassification> {
     if (!this.service) return { verb: 'narrative', target: null, itemId: null, proposedPrice: null, dir: null };
     return this.service.classifyVerbal(npcId, npcName, message, sellableIds, rivalIds, pendings);

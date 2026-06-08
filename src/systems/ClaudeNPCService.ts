@@ -169,7 +169,7 @@ export class ClaudeNPCService {
   async classifyVerbal(
     npcId: string, npcName: string, message: string,
     sellableIds: string[], rivalIds: string[],
-    pendings: { kind: 'trade' | 'mission'; itemId?: string; targetId?: string }[] = [],
+    pendings: { kind: 'trade' | 'mission'; status?: 'pending' | 'active'; itemId?: string; targetId?: string }[] = [],
   ): Promise<VerbalClassification> {
     try {
       const prompt = PromptBuilder.buildVerbalClassifierPrompt(message, npcName, sellableIds, rivalIds, pendings);

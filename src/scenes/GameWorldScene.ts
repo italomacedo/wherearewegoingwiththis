@@ -68,6 +68,7 @@ import { hasEmote, isCheckTimeEmote, narrateTime, ActionClassification } from '@
 import { PlayerActor, NpcActor } from '@systems/actions/Actor';
 import { resolveAction, ResolveOptions } from '@systems/actions/Resolver';
 import { applyMutations, ApplierContext } from '@systems/actions/Applier';
+import type { Mutation } from '@systems/actions/Mutations';
 import {
   CharacterStats, AttributeId, createDefaultStats, checkValue, applySkillUse,
   detectPerkPointGrants, grantPerkPoints,
@@ -330,6 +331,13 @@ export class GameWorldScene extends BaseScene {
   private missions: Mission[] = [];
   private pendingTrade: { npcId: string; itemId: string; price: number } | null = null;
   private pendingMission: Mission | null = null;
+  /**
+   * One-shot directive describing the outcome a verbal action just staged
+   * (e.g. "you offered the player a contract to kill X for Y cr"). Consumed
+   * once by the next buildWorldSnapshot so the NPC reply narrates the specific
+   * decision (target name + reward) instead of improvising blind. (Fase 21.)
+   */
+  private verbalActionContext: string | undefined;
   private gameTimeSeconds = 0;
   private saveId = '';
   private spawnOverride: Vector3 | null = null;
@@ -2793,10 +2801,17 @@ export class GameWorldScene extends BaseScene {
     const liveIds = this.npcManager.liveNpcIds();
     const rivals = liveIds.filter((other) => other !== npcId && agent.isAntagonisticToward(other));
     // Build a compact `pendings` snapshot for the classifier prompt (helps it
-    // route accept/decline against the right offer on file).
-    const pendings: { kind: 'trade' | 'mission'; itemId?: string; targetId?: string }[] = [];
+    // route accept/decline/claim/cancel against the right offer on file). A
+    // `pending` mission is an unaccepted OFFER (accept/decline); an `active`
+    // mission is an accepted contract in progress (claim/cancel) — without the
+    // latter the classifier can't tell that a "I did the job, pay me" line is a
+    // claim, and routes it to narrative (generic reply).
+    const pendings: { kind: 'trade' | 'mission'; status?: 'pending' | 'active'; itemId?: string; targetId?: string }[] = [];
     if (this.pendingTrade?.npcId === npcId) pendings.push({ kind: 'trade', itemId: this.pendingTrade.itemId });
-    if (this.pendingMission?.giverId === npcId) pendings.push({ kind: 'mission', targetId: this.pendingMission.targetId });
+    if (this.pendingMission?.giverId === npcId) pendings.push({ kind: 'mission', status: 'pending', targetId: this.pendingMission.targetId });
+    for (const m of this.missions) {
+      if (m.status === 'active' && m.giverId === npcId) pendings.push({ kind: 'mission', status: 'active', targetId: m.targetId });
+    }
 
     const cls = await this.npcManager.classifyVerbal(npcId, npcName, message, sellable, rivals, pendings);
     if (cls.verb === 'narrative') return false; // pure chitchat → legacy reply path
@@ -2864,6 +2879,11 @@ export class GameWorldScene extends BaseScene {
       this.logSkill(`verbal verb=${cls.verb} (no check) · ${result.mutations.length} mutation(s)`);
     }
     applyMutations(this.buildApplierContext(), result.mutations);
+    // Hand the NPC reply the SPECIFIC outcome this verbal action just decided
+    // (mission target + reward, accept/decline/claim) so it narrates it in
+    // character — names the target, states the price, acknowledges the deal —
+    // instead of improvising blind. Consumed once by the next buildWorldSnapshot.
+    this.verbalActionContext = this.verbalDirectiveFor(cls.verb, result.mutations, opts);
     // Visible failure feedback for haggle — the Resolver emits no discount
     // mutation on a miss, so the chat would be silent without this hint.
     if (cls.verb === 'commerce_haggle' && result.rolled && !result.success) {
@@ -2887,6 +2907,66 @@ export class GameWorldScene extends BaseScene {
   private missionRewardOf(m: Mission): RewardOffer {
     if (m.rewardKind === 'item' && m.rewardItemId) return { kind: 'item', itemId: m.rewardItemId };
     return { kind: 'credits', credits: m.rewardCredits ?? 0 };
+  }
+
+  /**
+   * Turn a just-applied verbal action into a one-shot instruction for the NPC
+   * reply prompt, so the in-character reply narrates the SPECIFIC decision
+   * (which rival to kill, the reward, the handshake) rather than improvising.
+   * The giver names its own rival by their real name (it's the giver's enemy);
+   * this is how the player learns the target's name. Returns undefined for
+   * verbs that need no extra colour (the commerce levers already cover those).
+   */
+  /* istanbul ignore next — browser-only directive assembly; pure deps tested elsewhere */
+  private verbalDirectiveFor(
+    verb: string,
+    mutations: readonly Mutation[],
+    opts: ResolveOptions,
+  ): string | undefined {
+    const realName = (id: string) => this.npcManager?.getAgent(id)?.definition.name ?? id;
+    const rewardText = (r: RewardOffer | undefined): string =>
+      !r ? 'a reward'
+        : r.kind === 'item' ? this.itemName(r.itemId ?? '')
+        : `${r.credits ?? 0} credits`;
+    const player = this.playerName;
+
+    switch (verb) {
+      case 'job_request': {
+        const m = mutations.find((x) => x.kind === 'stage_pending_mission');
+        if (!m || m.kind !== 'stage_pending_mission') return undefined;
+        return `Make the contract offer out loud and concrete: tell ${player} you want ${realName(m.targetId)} dealt with (kill), and that you will pay ${rewardText(m.reward)} for it. Name ${realName(m.targetId)} explicitly, state the ${rewardText(m.reward)} reward, then ask if they will take the job.`;
+      }
+      case 'job_accept': {
+        const pm = opts.pendingMission;
+        const who = pm ? realName(pm.targetId) : 'the target';
+        return `${player} just ACCEPTED your contract. Confirm the deal is on: acknowledge their commitment, restate that the target is ${who} and the payoff is ${rewardText(pm?.reward)}, and tell them to get it done.`;
+      }
+      case 'job_decline': {
+        const pm = opts.pendingMission;
+        const who = pm ? realName(pm.targetId) : 'the target';
+        return `${player} just TURNED DOWN your contract to kill ${who}. Acknowledge the refusal and let the offer drop.`;
+      }
+      case 'job_cancel': {
+        const active = (opts.activeMissions ?? [])[0];
+        const who = active ? realName(active.targetId) : 'the target';
+        return `${player} is BACKING OUT of the active contract to kill ${who}. React — you are not pleased they are walking away from a deal.`;
+      }
+      case 'job_claim': {
+        const stillAlive = mutations.find((x) => x.kind === 'narrate_target_still_alive');
+        if (stillAlive && stillAlive.kind === 'narrate_target_still_alive') {
+          return `${player} claims the job is done, but ${realName(stillAlive.targetId)} is STILL ALIVE. Call them out — no payment until the target is actually dead.`;
+        }
+        const done = mutations.find((x) => x.kind === 'claim_mission_completion');
+        if (done && done.kind === 'claim_mission_completion') {
+          const m = this.missions.find((x) => x.giverId === done.giver && x.targetId === done.targetId);
+          const reward = m ? rewardText(this.missionRewardOf(m)) : 'the agreed reward';
+          return `${player} DELIVERED — ${realName(done.targetId)} is dead and you are paying out ${reward} now. Acknowledge the contract is closed, hand over the ${reward}, and show some respect for the work.`;
+        }
+        return undefined;
+      }
+      default:
+        return undefined; // commerce/persuade/etc. — covered by existing context
+    }
   }
 
   /**
@@ -3605,8 +3685,22 @@ export class GameWorldScene extends BaseScene {
       recentEvents: agent.getRecentEvents(), // e.g. "X was killed" — so the NPC knows
       nearbyNpcs: this.nearbyNpcsFor(agent),
       language: languageName(getLocale()),
-      extraContext: this.commerceContextFor(agent),
+      extraContext: this.commerceContextFor(agent), // soft latent levers (commerce)
+      replyDirective: this.consumeReplyDirective(),  // hard one-shot stage direction
     };
+  }
+
+  /**
+   * Read-and-clear the one-shot directive a verbal action just staged
+   * (mission/trade outcome). Consumed once so it only colours the immediately-
+   * following NPC reply; routed to WorldSnapshot.replyDirective (rendered LAST,
+   * obeyed) — NOT extraContext (the soft commerce levers).
+   */
+  /* istanbul ignore next — browser-only transient read */
+  private consumeReplyDirective(): string | undefined {
+    const action = this.verbalActionContext;
+    this.verbalActionContext = undefined;
+    return action;
   }
 
   /**
