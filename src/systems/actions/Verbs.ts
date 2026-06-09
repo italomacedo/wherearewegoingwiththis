@@ -48,6 +48,11 @@ export type VerbalVerb =
   | 'job_accept'
   | 'job_decline'
   | 'job_cancel'
+  // Spice-trafficking job (Fase 22): buy a lot from a dealer, resell to addicts,
+  // report back to the dealer to earn a relationship step.
+  | 'spice_buy'
+  | 'spice_sell'
+  | 'spice_report'
   // Commerce lifecycle.
   | 'commerce_discovery'
   | 'commerce_pricing'
@@ -113,6 +118,7 @@ export type Verb = VerbalVerb | EmoteVerb | AutonomyVerb;
 /** Vocabulary enumeration helpers (for prompts + parser validation). */
 export const VERBAL_VERBS: readonly VerbalVerb[] = [
   'job_request', 'job_claim', 'job_accept', 'job_decline', 'job_cancel',
+  'spice_buy', 'spice_sell', 'spice_report',
   'commerce_discovery', 'commerce_pricing', 'commerce_haggle', 'commerce_buy', 'commerce_sell',
   'manipulate', 'persuade', 'intimidate', 'info', 'narrative',
 ] as const;

@@ -78,6 +78,14 @@ export type Mutation =
   | { kind: 'cancel_active_mission'; giver: ActorId; }
   | { kind: 'narrate_target_still_alive'; targetId: ActorId; }
 
+  // ─── Spice-trafficking job (Fase 22) ────────────────────────────────────
+  // buy: credits player→dealer + spice dealer→player + open a contract.
+  // sell: spice player→addict + credits addict→player (resale ~10×).
+  // report: improve the dealer's disposition + complete the contract.
+  | { kind: 'buy_spice'; dealer: ActorId; qty: number; unitPrice: number; }
+  | { kind: 'sell_spice'; buyer: ActorId; qty: number; unitPrice: number; }
+  | { kind: 'report_spice'; dealer: ActorId; }
+
   // ─── PDA ────────────────────────────────────────────────────────────────
   | {
       kind: 'add_pda';

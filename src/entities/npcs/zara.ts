@@ -64,6 +64,8 @@ export const ZARA_DEFINITION: NPCDefinition = {
     { id: 'cyberdeck', qty: 1 },
     { id: 'credstick', qty: 100 },
   ],
+  // Runs the nets till dawn on stims — an addict buyer for the spice job (Fase 22).
+  addict: true,
 };
 
 export function createZara(): NPCDefinition {

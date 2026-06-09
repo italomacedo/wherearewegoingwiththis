@@ -22,8 +22,10 @@ import { DEFAULT_COLORS } from '@entities/CharacterData';
 import { type WorldProp, moldScaleFor, doorPlacementForSlot, DOOR_MODELS } from '@assets/WorldAssetCatalog';
 import { type TileCoord, tileLocalToWorld } from '@systems/world/WorldGrid';
 import { type RollFn } from '@systems/SkillCheck';
-import { tileRng, pick, range, intRange, weightedPick } from '@systems/world/SeededRng';
+import { tileRng, hash32, pick, range, intRange, weightedPick } from '@systems/world/SeededRng';
 import { interiorBuildingSlots } from '@assets/world/CityFrame';
+import { rollSpiceTraits, SPICE_ID, SPICE_LOT } from '@systems/economy/SpiceTrade';
+import { CURRENCY_ID } from '@systems/economy/Economy';
 
 export type ThemeId = 'downtown' | 'park' | 'forest' | 'desert' | 'market';
 export type NpcRole =
@@ -423,8 +425,25 @@ function scatterProps(rng: RollFn, arch: Archetype, c: TileCoord): TileProp[] {
   return out;
 }
 
+/**
+ * Merge spice-job inventory onto an NPC's authored loadout: a dealer carries a few
+ * lots of spice to sell; an addict carries credits to pay for it. Pure — returns a
+ * new array (the pool's `loadout` is never mutated).
+ */
+function withSpiceLoadout(base: InventoryStack[] | undefined, dealer: boolean, addict: boolean): InventoryStack[] | undefined {
+  if (!dealer && !addict) return base;
+  const out: InventoryStack[] = base ? base.map((s) => ({ ...s })) : [];
+  const bump = (id: string, qty: number) => {
+    const found = out.find((s) => s.id === id);
+    if (found) found.qty += qty; else out.push({ id, qty });
+  };
+  if (dealer) bump(SPICE_ID, SPICE_LOT * 3); // stock for ~3 contracts
+  if (addict) bump(CURRENCY_ID, 600);        // enough to buy a lot at resale prices
+  return out;
+}
+
 /** Build this tile's NPC definitions with UNIQUE per-tile ids + world positions. */
-function genNpcs(rng: RollFn, arch: Archetype, c: TileCoord, theme: ThemeId): NPCDefinition[] {
+function genNpcs(rng: RollFn, arch: Archetype, c: TileCoord, theme: ThemeId, worldSeed: number): NPCDefinition[] {
   const count = intRange(rng, arch.npcCount.min, arch.npcCount.max);
   const defs: NPCDefinition[] = [];
   for (let i = 0; i < count; i++) {
@@ -434,6 +453,9 @@ function genNpcs(rng: RollFn, arch: Archetype, c: TileCoord, theme: ThemeId): NP
     if (!pool || pool.length === 0) continue;
     const e = pick(rng, pool);
     const [x, , z] = tileLocalToWorld(c.tx, c.tz, [range(rng, -18, 18), 0, range(rng, -5, 5)]);
+    // Spice traits roll from a SEPARATE deterministic seed (not the tile rng stream)
+    // so adding them never shifts the layout/NPC picks of existing seeds.
+    const { dealer, addict } = rollSpiceTraits(hash32(worldSeed, c.tx, c.tz, i, 7));
     defs.push({
       id: `${role}_t${c.tx}_${c.tz}_${i}`,
       name: e.name,
@@ -449,7 +471,9 @@ function genNpcs(rng: RollFn, arch: Archetype, c: TileCoord, theme: ThemeId): NP
       routine: e.routine,
       relationships: e.relationships,
       initialDisposition: e.initialDisposition,
-      loadout: e.loadout,
+      loadout: withSpiceLoadout(e.loadout, dealer, addict),
+      dealer,
+      addict,
     });
   }
   return defs;
@@ -468,6 +492,6 @@ export function generateTile(tx: number, tz: number, worldSeed: number): Generat
   const urban = arch.layout === 'urban';
   const solids = urban ? layBuildings(rng, arch, coord) : scatterSolids(rng, arch, coord);
   const props = [...solids, ...scatterProps(rng, arch, coord)];
-  const npcDefs = genNpcs(rng, arch, coord, theme);
+  const npcDefs = genNpcs(rng, arch, coord, theme, worldSeed);
   return { coord, theme, urban, ground: arch.ground, props, npcDefs };
 }

@@ -66,6 +66,17 @@ describe('ThemeRegistry (pure)', () => {
       for (const theme of ALL_THEMES) expect(seen.has(theme)).toBe(true);
     });
 
+    it('seeds spice dealers/addicts with matching loadout (Fase 22)', () => {
+      const npcs = tiles.flatMap((t) => t.npcDefs);
+      const dealers = npcs.filter((d) => d.dealer);
+      const addicts = npcs.filter((d) => d.addict);
+      expect(dealers.length).toBeGreaterThan(0);
+      expect(addicts.length).toBeGreaterThan(0);
+      // A dealer carries spice to sell; an addict carries credits to pay.
+      expect(dealers.every((d) => (d.loadout ?? []).some((s) => s.id === 'spice'))).toBe(true);
+      expect(addicts.every((d) => (d.loadout ?? []).some((s) => s.id === 'credstick'))).toBe(true);
+    });
+
     it('NPC ids are unique within a tile + carry a real appearance/name', () => {
       for (const t of tiles) {
         const ids = t.npcDefs.map((d) => d.id);

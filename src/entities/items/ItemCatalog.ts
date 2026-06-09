@@ -134,6 +134,9 @@ export const ITEM_REGISTRY: Readonly<Record<string, ItemDef>> = Object.freeze({
   armor_spc_legs: { id: 'armor_spc_legs', nameKey: 'item.armor_spc_legs', category: 'armor', weight: 5.0, stackable: false, maxStack: 1, equipSlot: 'bottom', armorTier: 'space',    armorRegion: 'bottom' },
   // ── Loot / misc (no mechanic yet — seeds future economy) ──
   scrap:  { id: 'scrap',  nameKey: 'item.scrap',  category: 'misc', weight: 0.3, stackable: true, maxStack: 20 },
+  // Spice (Fase 22): the merchandise of the trafficking job — bought from a dealer,
+  // resold to addicts at ~10×. A light, stackable contraband good.
+  spice:  { id: 'spice',  nameKey: 'item.spice',  category: 'misc', weight: 0.1, stackable: true, maxStack: 50 },
   // Credstick = the digital wallet balance (1 cr each). Weightless + huge stack
   // cap (effectively unlimited) because it is a wallet entry, not a physical chip.
   credstick: { id: 'credstick', nameKey: 'item.credstick', category: 'misc', weight: 0, stackable: true, maxStack: 999999 },
@@ -222,6 +225,8 @@ export const ITEM_VALUES: Readonly<Record<string, number>> = Object.freeze({
   armor_tac_head: 40, armor_tac_top: 70, armor_tac_legs: 55,
   armor_spc_head: 90, armor_spc_top: 140, armor_spc_legs: 110,
   scrap: 2,
+  // Spice buy value (Fase 22). Resale to addicts is ~10× this (see SpiceTrade).
+  spice: 8,
 });
 
 const ITEM_BY_ID = new Map<string, ItemDef>(Object.values(ITEM_REGISTRY).map((d) => [d.id, d]));

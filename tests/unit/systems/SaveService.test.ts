@@ -86,6 +86,28 @@ describe('SaveService', () => {
     expect(SaveService.load(save.saveId)!.world.worldSeed).toBe(loaded.world.worldSeed);
   });
 
+  it('createNewSave starts with no spice contracts; load migrates a legacy save (Fase 22)', () => {
+    const save = SaveService.createNewSave(testCharacter);
+    expect(save.spiceContracts).toEqual([]);
+    delete (save as Partial<SaveGame>).spiceContracts;
+    SaveService.save(save);
+    expect(SaveService.load(save.saveId)!.spiceContracts).toEqual([]);
+  });
+
+  it('updateSpiceContracts persists contracts and round-trips (Fase 22)', () => {
+    const save = SaveService.createNewSave(testCharacter);
+    SaveService.save(save);
+    SaveService.updateSpiceContracts(save.saveId, [
+      { id: 'spice_npc_d', dealerId: 'npc_d', qty: 5, status: 'active' },
+    ]);
+    const loaded = SaveService.load(save.saveId)!;
+    expect(loaded.spiceContracts).toEqual([{ id: 'spice_npc_d', dealerId: 'npc_d', qty: 5, status: 'active' }]);
+  });
+
+  it('updateSpiceContracts is a no-op for an unknown save id', () => {
+    expect(() => SaveService.updateSpiceContracts('does-not-exist', [])).not.toThrow();
+  });
+
   it('load migrates a legacy save missing the hunger field', () => {
     const save = SaveService.createNewSave(testCharacter);
     delete (save as Partial<SaveGame>).playerHunger;

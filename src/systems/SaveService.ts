@@ -7,6 +7,7 @@ import { NPCDisposition } from '@entities/NPCAgent';
 import { InventoryState, defaultInventoryState } from '@entities/Inventory';
 import type { AttachOverrides } from '@systems/HeldItems';
 import type { Mission, PendingOffer } from '@systems/economy/Missions';
+import type { SpiceContract } from '@systems/economy/SpiceTrade';
 import type { GroundItem } from '@systems/world/GroundItems';
 import type { PdaEntry } from '@systems/pda/Pda';
 
@@ -64,6 +65,8 @@ export interface SaveGame {
    *  declined. Persist cross-session (Fase 21, decision #11). 1 per (npcId, kind);
    *  a fresh offer overwrites the previous. */
   pendings: PendingOffer[];
+  /** Active/complete spice-trafficking contracts the player took from dealers (Fase 22). */
+  spiceContracts: SpiceContract[];
   /** Items the player dropped into the world, by tile (Fase 18). */
   groundItems: GroundItem[];
   /** Intel dossiers gathered by scanning/hacking NPCs (Fase 20 PDA). */
@@ -168,6 +171,7 @@ export class SaveService {
       heldAttach: {},
       missions: [],
       pendings: [],
+      spiceContracts: [],
       groundItems: [],
       pda: [],
       flags: {},
@@ -210,6 +214,13 @@ export class SaveService {
     const save = SaveService.load(saveId);
     if (!save) return;
     SaveService.save({ ...save, pendings });
+  }
+
+  /** Persist spice-trafficking contracts (Fase 22). */
+  static updateSpiceContracts(saveId: string, spiceContracts: SpiceContract[]): void {
+    const save = SaveService.load(saveId);
+    if (!save) return;
+    SaveService.save({ ...save, spiceContracts });
   }
 
   static save(saveGame: SaveGame): void {
@@ -341,6 +352,8 @@ export class SaveService {
     if (!save.missions) save.missions = [];
     // Fase 21: pendings cross-session (decision #11). Legacy saves get an empty list.
     if (!save.pendings) save.pendings = [];
+    // Fase 22: spice-trafficking contracts. Legacy saves get an empty list.
+    if (!save.spiceContracts) save.spiceContracts = [];
     if (!save.groundItems) save.groundItems = [];
     if (!save.pda) save.pda = [];
     // Fase 17: backfill the procedural-world seed (derived stably from the saveId

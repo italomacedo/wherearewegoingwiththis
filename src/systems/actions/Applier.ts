@@ -81,6 +81,14 @@ export interface ApplierContext {
   claimMissionCompletion(giver: string, targetId: string): void;
   cancelActiveMission(giver: string): void;
 
+  // ── Spice-trafficking job (Fase 22) ──────────────────────────────────
+  /** Buy `qty` spice from the dealer at `unitPrice` (credits→dealer, spice→player, open a contract). */
+  buySpice(dealer: string, qty: number, unitPrice: number): void;
+  /** Sell `qty` spice to the addict at `unitPrice` (spice→addict, credits→player). */
+  sellSpice(buyer: string, qty: number, unitPrice: number): void;
+  /** Report "sold it all" to the dealer — improve disposition + complete the contract (no verification). */
+  reportSpice(dealer: string): void;
+
   // ── Crafting ─────────────────────────────────────────────────────────
   craft(actor: string, weaponId: string, scrapCost: number): void;
   repair(actor: string, itemId?: string): void;
@@ -230,6 +238,17 @@ export function applyMutation(ctx: ApplierContext, m: Mutation): void {
       return;
     case 'narrate_target_still_alive':
       ctx.narrateTargetAlive(m.targetId);
+      return;
+
+    // ── Spice-trafficking job ──
+    case 'buy_spice':
+      ctx.buySpice(m.dealer, m.qty, m.unitPrice);
+      return;
+    case 'sell_spice':
+      ctx.sellSpice(m.buyer, m.qty, m.unitPrice);
+      return;
+    case 'report_spice':
+      ctx.reportSpice(m.dealer);
       return;
 
     // ── Crafting ──

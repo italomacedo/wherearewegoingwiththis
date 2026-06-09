@@ -161,6 +161,7 @@ export const STRINGS: Record<string, Entry> = {
   'item.bat': e('Baseball Bat', 'Taco de Beisebol'),
   'item.medkit': e('Medkit', 'Kit Médico'),
   'item.scrap': e('Scrap', 'Sucata'),
+  'item.spice': e('Spice', 'Spice'),
   'item.cyberdeck': e('Cyberdeck', 'Cyberdeck'),
   'item.credstick': e('Credstick', 'Cartão de Créditos'),
   // Armor pieces (Phase 15) — tactical (25% set) / space (50% set).
@@ -210,6 +211,17 @@ export const STRINGS: Record<string, Entry> = {
   'pda.sellsFor': e('Sells {item} for {price} cr.', 'Vende {item} por {price} cr.'),
   'economy.itemNotForSale': e("They don't carry that — no deal.", 'Eles não têm isso à venda — nada feito.'),
   'economy.deceasedNpc': e("They don't answer. They're dead.", 'Eles não respondem. Estão mortos.'),
+  // Spice-trafficking job (Fase 22).
+  'spice.bought': e('Bought {qty}× spice for {price} credits.', 'Comprou {qty}× spice por {price} créditos.'),
+  'spice.sold': e('Sold {qty}× spice for {price} credits.', 'Vendeu {qty}× spice por {price} créditos.'),
+  'spice.noSpiceToSell': e("You have no spice to move.", 'Você não tem spice para passar adiante.'),
+  'spice.buyerBroke': e("They want it, but they're tapped out.", 'Eles querem, mas estão sem grana.'),
+  'spice.notDealer': e("They're not moving any spice for you.", 'Eles não vão te passar spice nenhuma.'),
+  'spice.notAddict': e("They're not a user — they won't touch it.", 'Eles não usam — não vão chegar perto disso.'),
+  'spice.outOfStock': e("They're out of spice right now.", 'Eles estão sem spice no momento.'),
+  'spice.cantAfford': e("You can't even cover one dose.", 'Você não cobre nem uma dose.'),
+  'spice.reported': e('You tell {giver} you moved it all. They respect that.', 'Você diz a {giver} que passou tudo. Eles respeitam isso.'),
+  'spice.noContract': e("You have no spice running for them.", 'Você não tem spice rolando pra eles.'),
 
   // ─── Dialog ────────────────────────────────────────────────────────────────
   'dialog.openChannel': e('Open channel', 'Canal aberto'),

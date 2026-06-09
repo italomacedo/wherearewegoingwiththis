@@ -5,6 +5,7 @@ import {
   DEFAULT_MISSION_REWARD,
 } from '@systems/actions/Resolver';
 import { PlayerActor, NpcActor } from '@systems/actions/Actor';
+import { spiceBuyPrice } from '@systems/economy/SpiceTrade';
 import { Inventory } from '@entities/Inventory';
 import { Health } from '@entities/Health';
 import { createDefaultStats } from '@entities/CharacterStats';
@@ -148,6 +149,141 @@ describe('Resolver — verbal: job_*', () => {
       defeatedNpcIds: [],
     });
     expect(r.mutations).toEqual([{ kind: 'narrate_target_still_alive', targetId: 'npc_mback' }]);
+  });
+});
+
+describe('Resolver — verbal: spice_* (trafficking job)', () => {
+  const dealer = makeNpc('npc_dealer');
+
+  function richPlayer(credits = 1000, spice = 0) {
+    const inv = new Inventory();
+    if (credits) inv.add('credstick', credits);
+    if (spice) inv.add('spice', spice);
+    const stats = createDefaultStats();
+    stats.skills.comercio = 90; // high → resale check succeeds on a low roll
+    return makePlayer({ inv, stats });
+  }
+
+  // ── spice_buy ──
+  it('spice_buy buys a lot (credits→dealer, spice→player), clamped by stock + funds', () => {
+    const r = resolveAction(richPlayer(1000), 'spice_buy', dealer, {
+      targetIsDealer: true, targetDisposition: 'neutral', spiceQtyAvailable: 5,
+    });
+    expect(r.allowed).toBe(true);
+    expect(r.mutations).toEqual([
+      { kind: 'buy_spice', dealer: 'npc_dealer', qty: 5, unitPrice: spiceBuyPrice('neutral') },
+    ]);
+  });
+
+  it('spice_buy/spice_sell block a defeated NPC', () => {
+    const agent = new NPCAgent({ ...ZARA_DEF, id: 'npc_dead' });
+    agent.markDefeated();
+    const dead = new NpcActor(agent, createDefaultStats());
+    expect(resolveAction(richPlayer(), 'spice_buy', dead, { targetIsDealer: true, spiceQtyAvailable: 5 }).blockedReason).toBe('dead_target');
+    expect(resolveAction(richPlayer(0, 5), 'spice_sell', dead, { targetIsAddict: true }).blockedReason).toBe('dead_target');
+  });
+
+  it('spice_buy honours an explicit lot size', () => {
+    const r = resolveAction(richPlayer(1000), 'spice_buy', dealer, {
+      targetIsDealer: true, targetDisposition: 'neutral', spiceQtyAvailable: 9, spiceLot: 3,
+    });
+    expect(r.mutations[0]).toMatchObject({ kind: 'buy_spice', qty: 3 });
+  });
+
+  it('spice_buy blocks when the NPC is not a dealer', () => {
+    expect(resolveAction(richPlayer(), 'spice_buy', dealer, { targetIsDealer: false }).blockedReason)
+      .toBe('not_dealer');
+  });
+
+  it('spice_buy blocks a dealer that dislikes the player (wary/hostile)', () => {
+    expect(resolveAction(richPlayer(), 'spice_buy', dealer, { targetIsDealer: true, targetDisposition: 'wary', spiceQtyAvailable: 5 }).blockedReason)
+      .toBe('not_dealer');
+  });
+
+  it('spice_buy blocks when the dealer is out of stock', () => {
+    expect(resolveAction(richPlayer(), 'spice_buy', dealer, { targetIsDealer: true, targetDisposition: 'neutral', spiceQtyAvailable: 0 }).blockedReason)
+      .toBe('no_spice');
+  });
+
+  it('spice_buy blocks when the player cannot afford a single unit', () => {
+    expect(resolveAction(richPlayer(0), 'spice_buy', dealer, { targetIsDealer: true, targetDisposition: 'neutral', spiceQtyAvailable: 5 }).blockedReason)
+      .toBe('cannot_afford');
+  });
+
+  it('spice_buy clamps the lot to what the player can afford', () => {
+    const unit = spiceBuyPrice('neutral'); // 7
+    const r = resolveAction(richPlayer(unit * 2), 'spice_buy', dealer, {
+      targetIsDealer: true, targetDisposition: 'neutral', spiceQtyAvailable: 5,
+    });
+    expect(r.mutations[0]).toMatchObject({ kind: 'buy_spice', qty: 2 });
+  });
+
+  // ── spice_sell ──
+  it('spice_sell sells to an addict and always earns Comércio XP', () => {
+    const buyer = makeNpc('npc_addict');
+    (buyer.getStats().attributes as Record<string, number>).carisma = 10;
+    const r = resolveAction(richPlayer(0, 5), 'spice_sell', buyer, {
+      targetIsAddict: true, targetDisposition: 'neutral', buyerCreditBalance: 100000,
+    }, rollLow);
+    expect(r.rolled).toBe(true);
+    expect(r.mutations).toContainEqual({ kind: 'apply_skill_use', actor: 'player', skillId: 'comercio' });
+    const sale = r.mutations.find((m) => m.kind === 'sell_spice') as { qty: number; buyer: string } | undefined;
+    expect(sale).toMatchObject({ kind: 'sell_spice', buyer: 'npc_addict', qty: 5 });
+  });
+
+  it('spice_sell blocks a non-addict', () => {
+    expect(resolveAction(richPlayer(0, 5), 'spice_sell', dealer, { targetIsAddict: false }).blockedReason)
+      .toBe('not_addict');
+  });
+
+  it('spice_sell blocks when the player holds no spice', () => {
+    expect(resolveAction(richPlayer(0, 0), 'spice_sell', dealer, { targetIsAddict: true }).blockedReason)
+      .toBe('no_spice');
+  });
+
+  it('spice_sell clamps the qty to what the addict can pay for (no sale = XP only)', () => {
+    const buyer = makeNpc('npc_addict');
+    const r = resolveAction(richPlayer(0, 5), 'spice_sell', buyer, {
+      targetIsAddict: true, targetDisposition: 'neutral', buyerCreditBalance: 0,
+    }, rollLow);
+    expect(r.mutations).toEqual([{ kind: 'apply_skill_use', actor: 'player', skillId: 'comercio' }]);
+  });
+
+  function npcWithLoadout(id: string, loadout: { id: string; qty: number }[]): NpcActor {
+    return new NpcActor(new NPCAgent({ ...ZARA_DEF, id, loadout }), createDefaultStats());
+  }
+
+  // ── option fallbacks (read live actor inventories when options are omitted) ──
+  it('spice_buy falls back to the dealer inventory + neutral disposition + default lot', () => {
+    const dealerInv = npcWithLoadout('npc_dealer', [{ id: 'spice', qty: 8 }]);
+    const r = resolveAction(richPlayer(1000), 'spice_buy', dealerInv, { targetIsDealer: true });
+    expect(r.mutations).toEqual([
+      { kind: 'buy_spice', dealer: 'npc_dealer', qty: 5, unitPrice: spiceBuyPrice('neutral') },
+    ]);
+  });
+
+  it('spice_sell falls back to the player + buyer inventories when counts are omitted', () => {
+    const buyer = npcWithLoadout('npc_addict', [{ id: 'credstick', qty: 100000 }]);
+    const r = resolveAction(richPlayer(0, 5), 'spice_sell', buyer, { targetIsAddict: true }, rollLow);
+    const sale = r.mutations.find((m) => m.kind === 'sell_spice') as { qty: number } | undefined;
+    expect(sale).toMatchObject({ kind: 'sell_spice', qty: 5 });
+  });
+
+  // ── spice_report ──
+  it('spice_report falls back to an empty contract list (blocks)', () => {
+    expect(resolveAction(richPlayer(), 'spice_report', dealer, {}).blockedReason).toBe('no_spice_contract');
+  });
+
+  it('spice_report completes the contract with this dealer (no verification)', () => {
+    const r = resolveAction(richPlayer(), 'spice_report', dealer, {
+      activeSpiceContracts: [{ dealerId: 'npc_dealer' }],
+    });
+    expect(r.mutations).toEqual([{ kind: 'report_spice', dealer: 'npc_dealer' }]);
+  });
+
+  it('spice_report blocks when there is no active contract from this dealer', () => {
+    expect(resolveAction(richPlayer(), 'spice_report', dealer, { activeSpiceContracts: [] }).blockedReason)
+      .toBe('no_spice_contract');
   });
 });
 

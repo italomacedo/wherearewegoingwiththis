@@ -208,7 +208,7 @@ export class PromptBuilder {
     return [
       `Classify the player's SPOKEN line (no emote) to ${npcName} in a cyberpunk RPG.`,
       'Output EXACTLY these five lines, nothing else:',
-      'VERB=<one of: job_request job_claim job_accept job_decline job_cancel commerce_discovery commerce_pricing commerce_haggle commerce_buy commerce_sell manipulate persuade intimidate info narrative>',
+      'VERB=<one of: job_request job_claim job_accept job_decline job_cancel spice_buy spice_sell spice_report commerce_discovery commerce_pricing commerce_haggle commerce_buy commerce_sell manipulate persuade intimidate info narrative>',
       'TARGET=<the THIRD-party npc id the player refers to (manipulate/info), or none>',
       'ITEM=<the item id mentioned, or none>',
       'PRICE=<integer the player proposes when haggling, or none>',
@@ -217,6 +217,7 @@ export class PromptBuilder {
       'job_request: player asks for work/contract. job_accept/decline: respond to a PENDING mission offer. job_claim: player reports they killed the target of an ACTIVE contract (pay me / it is done / the target is dead). job_cancel: player backs out of an ACTIVE contract.',
       'commerce_discovery: player asks what is for sale. commerce_pricing: player asks the price of a specific item.',
       'commerce_haggle: player proposes a different price or pushes for a discount. commerce_buy: player commits to buy. commerce_sell: player offers to sell something.',
+      'spice_buy: player takes the dealer up on a SPICE shipment (buy spice to traffic). spice_sell: player offers SPICE to this NPC (a user). spice_report: player tells the dealer they SOLD ALL the spice (sold out / moved it all / done).',
       'manipulate: gossip or social engineering to change how this NPC feels about a THIRD person (TARGET). DIR=down to worsen, up to mend.',
       'persuade: charm/reason this NPC into helping (no third party). intimidate: threaten THIS NPC (no third party).',
       'info: player asks what this NPC knows about a third person (TARGET). narrative: chitchat / anything else.',
@@ -351,6 +352,40 @@ export class PromptBuilder {
     }
     if (lines.length === 0) return '';
     lines.push('Only bring up selling or a contract if the conversation leads there (the player asks to buy or looks for work). Stay in character.');
+    return lines.join('\n');
+  }
+
+  /**
+   * Spice-trafficking "levers" injected into a dealer/addict NPC's turn (Fase 22).
+   * Latent, NOT pushed — the NPC only brings spice up if the conversation leads
+   * there. A dealer (`offer`) floats a shipment to traffic; an addict (`crave`)
+   * hints they'd buy; a dealer with an open contract (`awaitingReport`) nudges the
+   * player to report back. Pure; the caller decides which flags apply (dealer trait
+   * + ≥ neutral stance / addict trait / active contract).
+   */
+  static buildSpiceContext(inputs: {
+    offer: boolean;            // dealer trait + ≥ neutral stance → may offer a shipment
+    crave: boolean;            // addict trait → may buy spice off the player
+    awaitingReport: boolean;   // an active contract from this dealer is unsettled
+    buyPrice: number;          // per-unit price the dealer charges (disposition-adjusted)
+    lot: number;               // shipment size
+  }): string {
+    const lines: string[] = [];
+    if (inputs.offer) {
+      lines.push(
+        `On the side you move SPICE. You can front the player a shipment of ${inputs.lot} doses at ` +
+        `${inputs.buyPrice} cr each to run and resell to users on the street. Pitch it plainly only if ` +
+        `they seem game; don't invent territories, quotas, or deadlines.`,
+      );
+    }
+    if (inputs.awaitingReport) {
+      lines.push('The player still owes you word on the last spice batch — if it comes up, ask whether they moved it all.');
+    }
+    if (inputs.crave) {
+      lines.push('You use spice and would quietly buy any the player is holding. Only bring it up if the moment fits.');
+    }
+    if (lines.length === 0) return '';
+    lines.push('Stay in character — spice talk surfaces only if the conversation leads there.');
     return lines.join('\n');
   }
 

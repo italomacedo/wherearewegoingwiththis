@@ -362,8 +362,29 @@ describe('PromptBuilder', () => {
     });
   });
 
+  describe('buildSpiceContext (Fase 22)', () => {
+    it('floats a shipment for a willing dealer with the price + lot', () => {
+      const p = PromptBuilder.buildSpiceContext({ offer: true, crave: false, awaitingReport: false, buyPrice: 7, lot: 5 });
+      expect(p).toContain('SPICE');
+      expect(p).toContain('5 doses');
+      expect(p).toContain('7 cr');
+      expect(p).toContain('leads there');
+    });
+    it('nudges for a report when a contract is unsettled', () => {
+      const p = PromptBuilder.buildSpiceContext({ offer: false, crave: false, awaitingReport: true, buyPrice: 0, lot: 0 });
+      expect(p).toMatch(/moved it all/i);
+    });
+    it('hints an addict would buy', () => {
+      const p = PromptBuilder.buildSpiceContext({ offer: false, crave: true, awaitingReport: false, buyPrice: 0, lot: 0 });
+      expect(p).toMatch(/buy any the player is holding/i);
+    });
+    it('is empty when no lever applies', () => {
+      expect(PromptBuilder.buildSpiceContext({ offer: false, crave: false, awaitingReport: false, buyPrice: 0, lot: 0 })).toBe('');
+    });
+  });
+
   describe('buildVerbalClassifierPrompt (Fase 21)', () => {
-    it('asks for the 5 fixed lines and lists the full 15-verb vocabulary', () => {
+    it('asks for the 5 fixed lines and lists the full verb vocabulary', () => {
       const p = PromptBuilder.buildVerbalClassifierPrompt(
         'Got any work?', 'Zara', ['knife'], ['npc_mback'],
       );
@@ -373,9 +394,10 @@ describe('PromptBuilder', () => {
       expect(p).toContain('ITEM=');
       expect(p).toContain('PRICE=');
       expect(p).toContain('DIR=');
-      // All 15 verbs listed
+      // All verbs listed (incl. the Fase 22 spice job)
       const verbs = [
         'job_request', 'job_claim', 'job_accept', 'job_decline', 'job_cancel',
+        'spice_buy', 'spice_sell', 'spice_report',
         'commerce_discovery', 'commerce_pricing', 'commerce_haggle', 'commerce_buy', 'commerce_sell',
         'manipulate', 'persuade', 'intimidate', 'info', 'narrative',
       ];

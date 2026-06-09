@@ -39,6 +39,9 @@ import { SkillEffect } from '@systems/npc/EmoteIntent';
 import { resolveCheck, RollFn, defaultRoll } from '@systems/SkillCheck';
 import { checkValue } from '@entities/CharacterStats';
 import { itemValue } from '@entities/items/ItemCatalog';
+import { creditBalance } from '@systems/economy/Economy';
+import { SPICE_ID, SPICE_LOT, canOfferSpice, spiceBuyPrice, spiceResaleUnit } from '@systems/economy/SpiceTrade';
+import type { NPCDisposition } from '@entities/NPCAgent';
 
 /**
  * A natural d100 below this on a successful check = CRITICAL (doubles social
@@ -73,7 +76,12 @@ export type BlockedReason =
   | 'no_rivals'           // job_request when the giver has no rival to offer
   | 'no_credits_to_pay'   // job_request when the giver has nothing to pay with
   | 'unknown_item'        // commerce verb references unknown item
-  | 'unknown_npc';        // referenced npc id not in the world
+  | 'unknown_npc'         // referenced npc id not in the world
+  | 'not_dealer'          // spice_buy when the NPC is not a (willing) dealer
+  | 'not_addict'          // spice_sell when the NPC is not an addict buyer
+  | 'no_spice'            // spice_buy (dealer out of stock) / spice_sell (player holds none)
+  | 'no_spice_contract'   // spice_report with no active contract from this dealer
+  | 'cannot_afford';      // spice_buy when the player can't afford a single unit
 
 export interface ResolveResult {
   allowed: boolean;
@@ -151,6 +159,24 @@ export interface ResolveOptions {
   defeatedNpcIds?: readonly string[];
   /** Credit balance available in the giver's inventory (for reward clamp). */
   giverCreditBalance?: number;
+
+  // ── Spice-trafficking job (Fase 22) ──────────────────────────────────────
+  /** The addressed NPC carries the dealer trait (offers/sells spice to the player). */
+  targetIsDealer?: boolean;
+  /** The addressed NPC carries the addict trait (buys spice from the player). */
+  targetIsAddict?: boolean;
+  /** The addressed NPC's disposition toward the player (scene-provided; gates the offer + prices). */
+  targetDisposition?: NPCDisposition;
+  /** Player's active spice contracts (used by `spice_report`). */
+  activeSpiceContracts?: readonly { dealerId: string }[];
+  /** Spice units the dealer holds (defaults to the target's inventory count). */
+  spiceQtyAvailable?: number;
+  /** Spice units the player holds (defaults to the actor's inventory count). */
+  playerSpiceCount?: number;
+  /** Credit balance available to an addict buyer (defaults to the target's inventory). */
+  buyerCreditBalance?: number;
+  /** Lot size to buy per `spice_buy` (default `SPICE_LOT`). */
+  spiceLot?: number;
 
   // ── Locomotion (autonomy) ───────────────────────────────────────────────
   /** A coordinate `move_to` targets (instead of a target Actor). */
@@ -451,6 +477,53 @@ function resolveVerbal(
         ...ok(),
         mutations: [{ kind: 'claim_mission_completion', giver: target.id, targetId: active.targetId }],
       };
+    }
+
+    case 'spice_buy': {
+      if (!target) return blocked('no_target');
+      if (target.isDefeated()) return blocked('dead_target');
+      const disp: NPCDisposition = o.targetDisposition ?? 'neutral';
+      // Dealer trait AND a non-negative stance toward the player (≥ neutral).
+      if (!o.targetIsDealer || !canOfferSpice(disp)) return blocked('not_dealer');
+      const stock = o.spiceQtyAvailable ?? target.getInventory().count(SPICE_ID);
+      const lot = Math.min(o.spiceLot ?? SPICE_LOT, stock);
+      if (lot <= 0) return blocked('no_spice'); // dealer out of stock
+      const unitPrice = spiceBuyPrice(disp);
+      const playerCredits = creditBalance(actor.getInventory());
+      if (playerCredits < unitPrice) return blocked('cannot_afford');
+      const qty = Math.min(lot, Math.floor(playerCredits / unitPrice));
+      return { ...ok(), mutations: [{ kind: 'buy_spice', dealer: target.id, qty, unitPrice }] };
+    }
+
+    case 'spice_sell': {
+      if (!target) return blocked('no_target');
+      if (target.isDefeated()) return blocked('dead_target');
+      if (!o.targetIsAddict) return blocked('not_addict');
+      const have = o.playerSpiceCount ?? actor.getInventory().count(SPICE_ID);
+      if (have <= 0) return blocked('no_spice');
+      const disp: NPCDisposition = o.targetDisposition ?? 'neutral';
+      const comercio = checkValue(actor.getStats(), 'comercio', 'carisma');
+      /* istanbul ignore next — `?? 30` defensive; createDefaultStats always populates carisma */
+      const carisma = target.getStats().attributes.carisma ?? 30;
+      const resale = spiceResaleUnit(disp, comercio, carisma, rng);
+      // Sell as many as the player holds AND the addict can pay for.
+      const buyerCredits = o.buyerCreditBalance ?? creditBalance(target.getInventory());
+      const qty = Math.max(0, Math.min(have, Math.floor(buyerCredits / resale.unit)));
+      const mutations: Mutation[] = [{ kind: 'apply_skill_use', actor: actor.id, skillId: 'comercio' }];
+      if (qty > 0) mutations.push({ kind: 'sell_spice', buyer: target.id, qty, unitPrice: resale.unit });
+      return {
+        allowed: true, surprise: false, rolled: true,
+        success: resale.success, critical: resale.critical,
+        probability: resale.probability, roll: resale.roll, mutations,
+      };
+    }
+
+    case 'spice_report': {
+      if (!target) return blocked('no_target');
+      const active = (o.activeSpiceContracts ?? []).find((c) => c.dealerId === target.id);
+      if (!active) return blocked('no_spice_contract');
+      // No verification — the report handshake just earns the relationship step.
+      return { ...ok(), mutations: [{ kind: 'report_spice', dealer: target.id }] };
     }
 
     case 'commerce_discovery': {

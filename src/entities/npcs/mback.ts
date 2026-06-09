@@ -56,11 +56,15 @@ export const MBACK_DEFINITION: NPCDefinition = {
   npcRelationships: { npc_zara_vendor_01: 'wary' },
   // Carries a concealed blade + a medkit and a stack of credsticks (lootable).
   // 1000 credsticks — corpo archetype baseline (decision: deep pockets to buy people off).
+  // Also moves spice on the side (dealer trait, Fase 22) — neutral stance means he
+  // offers the trafficking job from the first conversation.
   loadout: [
     { id: 'knife', qty: 1 },
     { id: 'medkit', qty: 1 },
     { id: 'credstick', qty: 1000 },
+    { id: 'spice', qty: 15 },
   ],
+  dealer: true,
 };
 
 export function createMback(): NPCDefinition {

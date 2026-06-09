@@ -105,6 +105,14 @@ export interface NPCDefinition {
    * player can loot from its corpse. The first weapon is auto-equipped.
    */
   loadout?: InventoryStack[];
+  /**
+   * Spice-trafficking traits (Fase 22). A `dealer` (with a ≥ neutral stance toward
+   * the player) offers spice contracts + sells spice; an `addict` buys spice from
+   * the player at ~10×. Procedural NPCs roll these deterministically from the world
+   * seed (`rollSpiceTraits`); authored NPCs set them explicitly. Both default false.
+   */
+  dealer?: boolean;
+  addict?: boolean;
 }
 
 /**

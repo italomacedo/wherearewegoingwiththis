@@ -40,6 +40,10 @@ import {
 import {
   Mission, RewardOffer, completeMission,
 } from '@systems/economy/Missions';
+import {
+  SpiceContract, SPICE_ID, SPICE_LOT, canOfferSpice, spiceBuyPrice,
+  makeSpiceContract, completeSpiceReport,
+} from '@systems/economy/SpiceTrade';
 import { InventoryOverlay } from '@systems/InventoryOverlay';
 import { HeldItemRig, resolveAttachWith, boneFor, AttachOverrides, flashlightActive, idleOverrideClip } from '@systems/HeldItems';
 import { AdjustOverlay } from '@systems/AdjustOverlay';
@@ -335,6 +339,8 @@ export class GameWorldScene extends BaseScene {
   private playerInventory: Inventory = new Inventory();
   // Economy (Phase 16): active/complete kill-contracts + the last pending in-chat offer.
   private missions: Mission[] = [];
+  /** Active/complete spice-trafficking contracts (Fase 22). */
+  private spiceContracts: SpiceContract[] = [];
   private pendingTrade: { npcId: string; itemId: string; price: number } | null = null;
   private pendingMission: Mission | null = null;
   /**
@@ -400,6 +406,7 @@ export class GameWorldScene extends BaseScene {
     this.playerHealthState = session.playerHealth ?? { ...DEFAULT_PLAYER_HEALTH };
     this.playerHunger = Hunger.fromState(session.playerHunger);
     this.missions = session.missions ?? [];
+    this.spiceContracts = session.spiceContracts ?? [];
     this.groundItems = session.groundItems ?? [];
     this.pda = session.pda ?? [];
     this.vehicleState = session.vehicle ?? {
@@ -460,7 +467,8 @@ export class GameWorldScene extends BaseScene {
     const playerHunger = this.playerHunger.toState();
     SaveService.save({
       ...save, character, world, gameTimeSeconds: this.gameTimeSeconds, npcMemory: memory, playerHealth, vehicle, inventory,
-      heldAttach: this.heldAttach, playerHunger, missions: this.missions, groundItems: this.groundItems, pda: this.pda,
+      heldAttach: this.heldAttach, playerHunger, missions: this.missions, spiceContracts: this.spiceContracts,
+      groundItems: this.groundItems, pda: this.pda,
     });
 
     const session = ServiceLocator.tryGet<GameSession>('gameSession');
@@ -475,6 +483,7 @@ export class GameWorldScene extends BaseScene {
       session.heldAttach = this.heldAttach;
       session.playerHunger = playerHunger;
       session.missions = this.missions;
+      session.spiceContracts = this.spiceContracts;
       session.groundItems = this.groundItems;
       session.pda = this.pda;
     }
@@ -2908,6 +2917,16 @@ export class GameWorldScene extends BaseScene {
       defeatedNpcIds: this.npcManager.getAgents()
         .filter((a) => a.isDefeated()).map((a) => a.definition.id),
       giverCreditBalance: creditBalance(agent.getInventory()),
+      // ── Spice-trafficking job (Fase 22) ──
+      targetIsDealer: !!agent.definition.dealer,
+      targetIsAddict: !!agent.definition.addict,
+      targetDisposition: disp,
+      activeSpiceContracts: this.spiceContracts
+        .filter((c) => c.status === 'active')
+        .map((c) => ({ dealerId: c.dealerId })),
+      spiceQtyAvailable: agent.getInventory().count(SPICE_ID),
+      playerSpiceCount: this.playerInventory.count(SPICE_ID),
+      buyerCreditBalance: creditBalance(agent.getInventory()),
     };
     const result = resolveAction(playerActor, cls.verb, npcActor, opts, undefined, 'verbal');
     if (!result.allowed) {
@@ -2917,6 +2936,15 @@ export class GameWorldScene extends BaseScene {
       // nothing happened (no item, no debit).
       if (result.blockedReason === 'unknown_item' && cls.verb.startsWith('commerce_')) {
         this.dialog?.addSystemLine(t('economy.itemNotForSale'));
+      }
+      // Surface spice-job blocks so the player understands why nothing moved.
+      const spiceBlock: Record<string, string> = {
+        not_dealer: 'spice.notDealer', not_addict: 'spice.notAddict',
+        no_spice: cls.verb === 'spice_sell' ? 'spice.noSpiceToSell' : 'spice.outOfStock',
+        cannot_afford: 'spice.cantAfford', no_spice_contract: 'spice.noContract',
+      };
+      if (cls.verb.startsWith('spice_') && result.blockedReason && spiceBlock[result.blockedReason]) {
+        this.dialog?.addSystemLine(t(spiceBlock[result.blockedReason]!));
       }
       return false; // fall through to legacy reply path
     }
@@ -3030,6 +3058,21 @@ export class GameWorldScene extends BaseScene {
           .map((id) => `${this.itemName(id)} (${opts.priceFor ? opts.priceFor(id) : itemValue(id)} cr)`)
           .join(', ');
         return `${player} is asking what you sell. List ONLY these wares, with these EXACT prices, and nothing else: ${list}. Do not invent, imply, or mention any other merchandise; if they ask for something not on this list, say you don't carry it.`;
+      }
+      case 'spice_buy': {
+        const m = mutations.find((x) => x.kind === 'buy_spice');
+        if (!m || m.kind !== 'buy_spice') return undefined;
+        return `${player} just bought ${m.qty} doses of SPICE off you to run. Close the deal in character — take the credits, hand over the product, and tell them to come back when they've moved it. Do not invent territories or quotas.`;
+      }
+      case 'spice_sell': {
+        const m = mutations.find((x) => x.kind === 'sell_spice');
+        if (!m || m.kind !== 'sell_spice') return `${player} offered you spice, but the deal didn't close. React briefly in character.`;
+        return `${player} just sold you ${m.qty} doses of SPICE. React as a user getting their fix — take it, pay up, stay in character.`;
+      }
+      case 'spice_report': {
+        const m = mutations.find((x) => x.kind === 'report_spice');
+        if (!m || m.kind !== 'report_spice') return undefined;
+        return `${player} reports they MOVED ALL the spice you fronted them. You're pleased — the product is gone and the credits flowed. Acknowledge the good work and warm up to them a notch.`;
       }
       default:
         return undefined; // persuade/etc. — covered by existing context
@@ -3185,6 +3228,53 @@ export class GameWorldScene extends BaseScene {
           self.dialog?.addSystemLine(t('economy.missionCancelled', { giver: giverName }));
           self.persistSession();
         }
+      },
+      // ── Spice-trafficking job (Fase 22) ──────────────────────────────
+      buySpice(dealer, qty, unitPrice) {
+        const a = agentById(dealer);
+        if (!a || qty <= 0) return;
+        const npcInv = a.getInventory();
+        const moveQty = Math.min(qty, npcInv.count(SPICE_ID));
+        if (moveQty <= 0) { self.dialog?.addSystemLine(t('spice.outOfStock')); return; }
+        const total = moveQty * unitPrice;
+        if (creditBalance(self.playerInventory) < total) { self.dialog?.addSystemLine(t('spice.cantAfford')); return; }
+        payCredits(self.playerInventory, total);
+        grantCredits(npcInv, total);
+        npcInv.transferTo(self.playerInventory, SPICE_ID, moveQty);
+        // Open (or top up) the active contract with this dealer.
+        const existing = self.spiceContracts.find((c) => c.dealerId === dealer && c.status === 'active');
+        if (existing) existing.qty += moveQty;
+        else self.spiceContracts.push(makeSpiceContract(dealer, moveQty));
+        self.dialog?.addSystemLine(t('spice.bought', { qty: moveQty, price: total }));
+        self.persistSession();
+      },
+      sellSpice(buyer, qty, unitPrice) {
+        const a = agentById(buyer);
+        if (!a || qty <= 0) return;
+        const buyerInv = a.getInventory();
+        const sellQty = Math.min(qty, self.playerInventory.count(SPICE_ID), Math.floor(creditBalance(buyerInv) / Math.max(1, unitPrice)));
+        if (sellQty <= 0) { self.dialog?.addSystemLine(t('spice.buyerBroke')); return; }
+        const total = sellQty * unitPrice;
+        payCredits(buyerInv, total);
+        grantCredits(self.playerInventory, total);
+        self.playerInventory.transferTo(buyerInv, SPICE_ID, sellQty);
+        self.dialog?.addSystemLine(t('spice.sold', { qty: sellQty, price: total }));
+        self.persistSession();
+      },
+      reportSpice(dealer) {
+        const contract = self.spiceContracts.find((c) => c.dealerId === dealer && c.status === 'active');
+        if (!contract) { self.dialog?.addSystemLine(t('spice.noContract')); return; }
+        contract.status = completeSpiceReport(contract).status;
+        const a = agentById(dealer);
+        if (a) {
+          const before = a.getDisposition();
+          a.improveDisposition();
+          a.rememberEvent('The player moved all the spice you fronted them.');
+          const name = a.getDisplayName();
+          self.dialog?.addNarrationLine(t('spice.reported', { giver: name }));
+          if (a.getDisposition() !== before) self.dialog?.addSystemLine(t('economy.standingImproved', { giver: name }));
+        }
+        self.persistSession();
       },
       // ── Crafting ─────────────────────────────────────────────────────
       craft(_actor, _weaponId, _scrapCost) { /* TODO — handled by existing craft branch in scene */ },
@@ -3753,7 +3843,7 @@ export class GameWorldScene extends BaseScene {
       recentEvents: agent.getRecentEvents(), // e.g. "X was killed" — so the NPC knows
       nearbyNpcs: this.nearbyNpcsFor(agent),
       language: languageName(getLocale()),
-      extraContext: this.commerceContextFor(agent), // soft latent levers (commerce)
+      extraContext: this.extraContextFor(agent), // soft latent levers (commerce + spice)
       replyDirective: this.consumeReplyDirective(),  // hard one-shot stage direction
     };
   }
@@ -3835,6 +3925,34 @@ export class GameWorldScene extends BaseScene {
       return ctx ? `${ctx}\n${note}` : note;
     }
     return ctx || undefined;
+  }
+
+  /**
+   * Spice-trafficking levers (Fase 22) for a dealer/addict NPC: a willing dealer
+   * floats a shipment, an addict hints they'd buy, an open contract nudges a report.
+   * Browser-only (the pure formatter `buildSpiceContext` is tested).
+   */
+  /* istanbul ignore next — browser-only spice context assembly */
+  private spiceContextFor(agent: NPCAgent): string | undefined {
+    const def = agent.definition;
+    if (!def.dealer && !def.addict) return undefined;
+    const disp = agent.getDisposition();
+    const offer = !!def.dealer && canOfferSpice(disp) && agent.getInventory().count(SPICE_ID) > 0;
+    const awaitingReport = !!def.dealer
+      && this.spiceContracts.some((c) => c.dealerId === def.id && c.status === 'active');
+    // An addict only pipes up about buying when the player actually has spice to
+    // sell — keeps the latent lever (and the prompt) out of every idle exchange.
+    const crave = !!def.addict && this.playerInventory.count(SPICE_ID) > 0;
+    return PromptBuilder.buildSpiceContext({
+      offer, crave, awaitingReport, buyPrice: spiceBuyPrice(disp), lot: SPICE_LOT,
+    }) || undefined;
+  }
+
+  /** Combine the soft latent levers (commerce + spice) for the NPC turn. */
+  /* istanbul ignore next — browser-only context join (pure parts tested) */
+  private extraContextFor(agent: NPCAgent): string | undefined {
+    const parts = [this.commerceContextFor(agent), this.spiceContextFor(agent)].filter(Boolean);
+    return parts.length ? parts.join('\n') : undefined;
   }
 
   /** Player position + facing for the addressing resolver. */

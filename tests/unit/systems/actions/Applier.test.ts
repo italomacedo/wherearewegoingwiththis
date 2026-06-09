@@ -34,6 +34,9 @@ function makeSpyCtx(): ApplierContext & { calls: { method: string; args: unknown
     declinePendingMission: record('declinePendingMission'),
     claimMissionCompletion: record('claimMissionCompletion'),
     cancelActiveMission: record('cancelActiveMission'),
+    buySpice: record('buySpice'),
+    sellSpice: record('sellSpice'),
+    reportSpice: record('reportSpice'),
     craft: record('craft'),
     repair: record('repair'),
     moveTo: record('moveTo'),
@@ -163,6 +166,18 @@ describe('applyMutation dispatcher (Fase 21)', () => {
     expect(ctx.calls.map((c) => c.method)).toEqual([
       'acceptPendingMission', 'declinePendingMission', 'claimMissionCompletion',
       'cancelActiveMission', 'narrateTargetAlive',
+    ]);
+  });
+
+  // ── Spice-trafficking ──
+  it('buy_spice / sell_spice / report_spice → corresponding ctx methods', () => {
+    applyMutation(ctx, { kind: 'buy_spice', dealer: 'npc_d', qty: 5, unitPrice: 7 });
+    applyMutation(ctx, { kind: 'sell_spice', buyer: 'npc_a', qty: 5, unitPrice: 104 });
+    applyMutation(ctx, { kind: 'report_spice', dealer: 'npc_d' });
+    expect(ctx.calls).toEqual([
+      { method: 'buySpice', args: ['npc_d', 5, 7] },
+      { method: 'sellSpice', args: ['npc_a', 5, 104] },
+      { method: 'reportSpice', args: ['npc_d'] },
     ]);
   });
 
