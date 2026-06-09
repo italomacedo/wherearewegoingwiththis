@@ -140,4 +140,4 @@ export function isAutonomyVerb(v: string): v is AutonomyVerb {
 }
 
 /** Fallback for an unparseable / unknown verb — `narrative` in every vocab. */
-export const FALLBACK_VERB: 'narrative' = 'narrative';
+export const FALLBACK_VERB = 'narrative' as const;

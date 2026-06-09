@@ -3015,8 +3015,24 @@ export class GameWorldScene extends BaseScene {
         }
         return undefined;
       }
+      case 'commerce_discovery': {
+        // Engine = source of truth for the wares list (Lesson 59). Without an
+        // authoritative directive the NPC's freeform reply invents stock it does
+        // not own — and when it carries nothing, the soft commerce lever is
+        // omitted entirely, so Claude conjures a whole shop. Force the reply to
+        // list EXACTLY the inventory (with disposition-discounted prices) or to
+        // admit it has nothing.
+        const ids = opts.npcSellableIds ?? [];
+        if (ids.length === 0) {
+          return `${player} is asking what you have for sale, but you are carrying NO merchandise. Tell them plainly you have nothing to sell right now — do not invent, imply, or mention any stock.`;
+        }
+        const list = ids
+          .map((id) => `${this.itemName(id)} (${opts.priceFor ? opts.priceFor(id) : itemValue(id)} cr)`)
+          .join(', ');
+        return `${player} is asking what you sell. List ONLY these wares, with these EXACT prices, and nothing else: ${list}. Do not invent, imply, or mention any other merchandise; if they ask for something not on this list, say you don't carry it.`;
+      }
       default:
-        return undefined; // commerce/persuade/etc. — covered by existing context
+        return undefined; // persuade/etc. — covered by existing context
     }
   }
 
@@ -3027,6 +3043,7 @@ export class GameWorldScene extends BaseScene {
    */
   /* istanbul ignore next — browser-only scene-bound applier (each branch wires an existing scene method) */
   private buildApplierContext(): ApplierContext {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
     const self = this;
     const agentById = (id: string) => self.npcManager?.getAgent(id) ?? null;
     return {
@@ -3810,6 +3827,13 @@ export class GameWorldScene extends BaseScene {
       payableCredits: creditBalance(inv),
       payableItems,
     });
+    // Harden the legacy reply path (when the message is NOT classified as a
+    // verbal commerce verb): if this trader carries no merchandise, say so
+    // explicitly so Claude does not invent a shop out of thin air.
+    if (sellable.length === 0) {
+      const note = 'You are NOT carrying any merchandise to sell. If asked what you sell, say you have nothing for sale — never invent stock.';
+      return ctx ? `${ctx}\n${note}` : note;
+    }
     return ctx || undefined;
   }
 

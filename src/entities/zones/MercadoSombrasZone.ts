@@ -417,7 +417,7 @@ export class MercadoSombrasZone extends WorldZone {
       if (size.x < 0.05 || size.y < 0.05 || size.z < 0.05) continue;
       this.addBoxCollider(scene, `col-${h.name}`, min.add(max).scale(0.5), size);
     }
-    let count = this.aggregates.length;
+    const count = this.aggregates.length;
     console.warn(`[Mercado] colliders: ${count}`);
   }
 
