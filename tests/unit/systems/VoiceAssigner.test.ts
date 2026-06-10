@@ -15,6 +15,12 @@ describe('VoiceAssigner', () => {
     expect(voiceForSubject({ id: 'mback', gender: 'male' })).toBe(FIXED_VOICES.mback);
   });
 
+  it('Roxane (car AI) has a fixed female voice regardless of the passed gender', () => {
+    // She has no avatar, so the scene may pass either gender — the fixed id wins.
+    expect(voiceForSubject({ id: 'roxane_car_ai', gender: 'male' })).toBe(FIXED_VOICES.roxane_car_ai);
+    expect(FEMALE_VOICES).toContain(FIXED_VOICES.roxane_car_ai);
+  });
+
   it('picks a female voice for female speakers and male for male', () => {
     const f = voiceForSubject({ id: 'someNpc', gender: 'female' });
     const m = voiceForSubject({ id: 'someNpc', gender: 'male' });

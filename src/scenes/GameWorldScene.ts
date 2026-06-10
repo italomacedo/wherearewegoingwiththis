@@ -22,7 +22,9 @@ import { InputSystem } from '@systems/InputSystem';
 import { PhysicsService } from '@systems/PhysicsService';
 import { PlayerController } from '@entities/PlayerController';
 import { VehicleController, VehicleDriveInput, DRIVER_SEAT_OFFSET, DRIVER_SEAT_YAW, DRIVER_SEAT_PITCH } from '@entities/VehicleController';
-import { VehicleCockpit, gaugePercents, COCKPIT_TRANSFORM } from '@entities/VehicleCockpit';
+import { VehicleCockpit, gaugePercents, COCKPIT_TRANSFORM, WAVEFORM_BARS } from '@entities/VehicleCockpit';
+import { createRoxane } from '@entities/npcs/roxane';
+import { downsampleBars } from '@systems/audio/Waveform';
 import { MercadoSombrasZone } from '@entities/zones/MercadoSombrasZone';
 import { WorldZone } from '@entities/WorldZone';
 import { GameClock, DayPeriod } from '@systems/GameClock';
@@ -208,7 +210,14 @@ export class GameWorldScene extends BaseScene {
   private npcManager: NPCManager | null = null;
   private injectedService: ClaudeNPCService | null = null;
   private dialog: DialogSystem | null = null;
-  private chatMode: 'npc' | 'global' = 'npc';
+  private chatMode: 'npc' | 'global' | 'roxane' = 'npc';
+  /** Roxane — the car's onboard AI. A standalone agent (NOT in the NPCManager, so
+   *  she never leaks into gossip/combat/save), reached only from the driver's seat. */
+  private roxaneAgent: NPCAgent | null = null;
+  /** The Claude service the manager uses; reused directly for Roxane's turns. */
+  private claudeService: ClaudeNPCService | null = null;
+  /** Scratch buffer for the TTS spectrum feeding the cockpit waveform. */
+  private waveSamples: Uint8Array | null = null;
   private pauseMenu: PauseMenu | null = null;
   private inventoryOverlay: InventoryOverlay | null = null;
   private characterSheetOverlay: CharacterSheetOverlay | null = null;
@@ -1452,10 +1461,12 @@ export class GameWorldScene extends BaseScene {
     this.cameraSystem?.update();
     this.updateNPCs(dt);
     this.updateTimeOfDay();
+    // On foot, E interacts with NPCs/pickups; while piloting it's suppressed.
     if (!(this.vehicle?.isOccupied() ?? false)) {
       this.handleInteractInput();
-      this.handleChatInput();
     }
+    // T opens chat in every mode: on foot → global/NPC, piloting → Roxane (the car AI).
+    this.handleChatInput();
     this.tickHunger(dt);
     this.updateHud(dialogOpen);
     this.inputSystem?.endFrame();
@@ -1585,7 +1596,13 @@ export class GameWorldScene extends BaseScene {
   private async setupNPCs(): Promise<void> {
     const service = this.injectedService ?? this.createClaudeService();
     this.npcManager = new NPCManager(service);
+    this.claudeService = service;
     ServiceLocator.register('npcManager', this.npcManager);
+
+    // Roxane, the car's AI: a standalone agent kept OUT of the manager (no holder,
+    // no autonomy, never serialized) — she lives in the dashboard and is reached
+    // only from the driver's seat. Her conversation is ephemeral per session.
+    this.roxaneAgent = new NPCAgent(createRoxane());
 
     const definitions = [createZara(), createMback()];
     this.zoneNpcIds = definitions.map((d) => d.id);
@@ -2691,7 +2708,8 @@ export class GameWorldScene extends BaseScene {
   private wireDialog(): void {
     if (!this.dialog) return;
     this.dialog.onSubmit((message) => {
-      if (this.chatMode === 'global') void this.sendGlobalMessage(message);
+      if (this.chatMode === 'roxane') void this.sendToRoxane(message);
+      else if (this.chatMode === 'global') void this.sendGlobalMessage(message);
       else void this.sendToActiveNPC(message);
     });
   }
@@ -2701,6 +2719,18 @@ export class GameWorldScene extends BaseScene {
     if (!this.inputSystem || !this.dialog || !this.player) return;
     if (!this.inputSystem.wasJustPressed('chat.open')) return;
     if (this.dialog.isOpen()) return;
+    // While piloting, T hails Roxane — the car's AI — in the cockpit. The camera
+    // stays first-person so her waveform is visible on the dashboard (no reframe).
+    if (this.vehicle?.isOccupied() && this.roxaneAgent) {
+      this.chatMode = 'roxane';
+      const rxSeed: DialogLine[] = this.roxaneAgent.conversation.getFullHistory().flatMap((ex) => [
+        { role: 'player' as const, text: ex.player },
+        { role: 'npc' as const, text: ex.npc },
+      ]);
+      this.dialog.open(this.roxaneAgent.definition.name, rxSeed);
+      this.sfx('ui_open');
+      return;
+    }
     this.chatMode = 'global';
     // Seed with any overheard NPC↔NPC gossip so it shows in the T history.
     const seed: DialogLine[] = this.gossipLog.map((text) => ({ role: 'narration' as const, text }));
@@ -2767,6 +2797,65 @@ export class GameWorldScene extends BaseScene {
     await this.tryVerbalAction(agent, spoken);
     const world = this.buildWorldSnapshot(agent, agent.distanceTo(this.player.getPosition()));
     await this.streamNpcReply(agent, world, spoken);
+  }
+
+  /**
+   * Roxane (car AI) turn: moderate → show the line → query Claude directly (she is
+   * NOT in the NPCManager) with the live vehicle telemetry as soft context → voice
+   * the reply (her fixed voice drives the dashboard waveform). No emote/verbal
+   * action pipeline — she doesn't trade, fight, or take cRPG actions.
+   */
+  async sendToRoxane(message: string): Promise<void> {
+    if (!this.roxaneAgent || !this.dialog || !this.claudeService) return;
+    const spoken = stripShout(message);
+    this.dialog.setThinking(true);
+    const allowed = await this.claudeService.moderate(this.roxaneAgent.definition.id, spoken);
+    if (!allowed) {
+      this.dialog.addSystemLine(t('dialog.cantSay'));
+      this.sfx('ui_error');
+      return;
+    }
+    this.dialog.addPlayerLine(spoken);
+    const world: WorldSnapshot = {
+      cityName: 'NeoBeiraRio',
+      gameTime: this.formatGameTime(),
+      playerName: this.playerName,
+      distanceMeters: 0,
+      playerAction: 'idle',
+      recentEvents: [],
+      language: languageName(getLocale()),
+      extraContext: this.buildRoxaneVehicleContext(),
+    };
+    this.dialog.setThinking(true);
+    try {
+      const reply = await this.claudeService.query(this.roxaneAgent, world, spoken, (chunk) =>
+        this.dialog?.appendChunk(chunk),
+      );
+      if (!reply) this.dialog.setNpcText(t('dialog.noReply'));
+      else {
+        this.dialog.setNpcText(reply);
+        this.speakNpc(this.roxaneAgent, reply); // her fixed voice → cockpit waveform
+      }
+    } catch {
+      /* istanbul ignore next — fail-soft on a CLI hiccup */
+      this.dialog.setNpcText(t('dialog.noReply'));
+    }
+  }
+
+  /**
+   * Live vehicle telemetry fed to Roxane as soft context so she can comment on her
+   * own condition (she IS the car). Pure read of the vehicle state.
+   */
+  private buildRoxaneVehicleContext(): string {
+    // Only called from sendToRoxane (post-onEnter), where the vehicle co-exists
+    // with the Roxane agent — both are created together in setupNPCs/spawn.
+    const v = this.vehicle!;
+    const hp = Math.round(v.getHealth().fraction() * 100);
+    const spd = Math.round(Math.abs(v.getSpeed()));
+    const alt = Math.round(v.getPosition().y);
+    const cond = v.isDestroyed() ? 'WRECKED' : hp <= 33 ? 'damaged, smoking' : 'nominal';
+    return `VEHICLE TELEMETRY (you ARE this car; mention it only if it fits): `
+      + `hull ${hp}% (${cond}), speed ${spd} m/s, altitude ${alt} m.`;
   }
 
   /**
@@ -3995,8 +4084,11 @@ export class GameWorldScene extends BaseScene {
   private tickVehicle(dt: number): void {
     if (!this.vehicle || !this.cameraSystem) return;
     const driving = this.vehicle.isOccupied();
+    // While the Roxane chat is open, freeze drive input so typing doesn't fly the
+    // car (the engine stays on, so it just hovers in place).
+    const chatting = this.dialog?.isOpen() ?? false;
     // Car driving: W=accelerate, S=brake/reverse, A/D=steer the wheel.
-    const input: VehicleDriveInput = driving && this.inputSystem
+    const input: VehicleDriveInput = driving && !chatting && this.inputSystem
       ? {
           accelerate: this.inputSystem.isActionActive('move.forward'),
           brake: this.inputSystem.isActionActive('move.backward'),
@@ -4116,6 +4208,19 @@ export class GameWorldScene extends BaseScene {
       this.vehicle.getHealth().fraction(),
     );
     this.cockpit.setGauges(g.spd, g.alt, g.hull);
+    // Roxane's voice waveform: while she speaks, sample the live TTS spectrum and
+    // map it to the dashboard bars; otherwise rest the bars and show her status.
+    const tts = (this.tts ??= ServiceLocator.tryGet<TTSService>('tts') ?? null);
+    if (tts?.isSpeaking()) {
+      const freq = (this.waveSamples ??= new Uint8Array(128));
+      tts.sampleFrequencies(freq);
+      this.cockpit.setWaveform(downsampleBars(freq, WAVEFORM_BARS));
+      this.cockpit.setLcdText(t('roxane.speaking'));
+    } else {
+      this.cockpit.setWaveformIdle();
+      const listening = (this.dialog?.isOpen() ?? false) && this.chatMode === 'roxane';
+      this.cockpit.setLcdText(listening ? t('roxane.listening') : t('roxane.online'));
+    }
   }
 
   /** V toggles the first-person (driver) camera while piloting. */

@@ -31,6 +31,9 @@ export const NARRATOR_VOICE = 'bm_george';
 export const FIXED_VOICES: Readonly<Record<string, string>> = {
   zara: 'af_bella',
   mback: 'am_onyx',
+  // Roxane, the car AI — a cool, composed British female (classic onboard-AI
+  // tone, less breathy than af_nicole). Keyed by her exact agent id.
+  roxane_car_ai: 'bf_emma',
 };
 
 /** A stable 32-bit hash of a string (FNV-1a) — used to pick a pool slot. */

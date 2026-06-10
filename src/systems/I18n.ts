@@ -233,6 +233,11 @@ export const STRINGS: Record<string, Entry> = {
     '( … sem resposta. O caminho do Claude CLI está definido em Opções → Jogo? )'
   ),
 
+  // ─── Roxane (car AI dashboard status) ──────────────────────────────────────
+  'roxane.online': e('ROXANE  ·  ONLINE', 'ROXANE  ·  ONLINE'),
+  'roxane.listening': e('ROXANE  ·  LISTENING…', 'ROXANE  ·  OUVINDO…'),
+  'roxane.speaking': e('ROXANE  ·  ▮▮▮ SPEAKING', 'ROXANE  ·  ▮▮▮ FALANDO'),
+
   // ─── Character creator ──────────────────────────────────────────────────
   'creator.title': e('CREATE YOUR OPERATIVE', 'CRIE SEU OPERATIVO'),
   'creator.bodySkin': e('BODY & SKIN', 'CORPO & PELE'),

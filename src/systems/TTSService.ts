@@ -62,6 +62,10 @@ export class TTSService {
   private scheduleSeq = 0;          // next seq allowed to schedule (preserves order)
   private scheduleCursor = 0;       // AudioContext time the next chunk starts at
   private liveSources = new Set<AudioBufferSourceNode>();
+  // All voice audio passes through this analyser before the destination, so the
+  // cockpit can draw a live waveform of whoever is speaking (Roxane, on the
+  // dashboard). Created lazily with the AudioContext.
+  private analyser: AnalyserNode | null = null;
 
   /** Speak an NPC's line in its assigned voice (emotes stripped). Fail-open. */
   speakSubject(subject: { id?: string; gender: Gender }, line: string): void {
@@ -78,6 +82,24 @@ export class TTSService {
     this.token++;
     /* istanbul ignore next — browser-only */
     this.resetPlayback();
+  }
+
+  /** True while at least one voice chunk is scheduled/playing. Browser-only. */
+  /* istanbul ignore next — browser-only Web Audio */
+  isSpeaking(): boolean {
+    return this.liveSources.size > 0;
+  }
+
+  /**
+   * Fill `out` with the current voice spectrum (bytes 0..255) for the cockpit
+   * waveform. No-op (leaves zeros) when no analyser exists yet. Browser-only.
+   */
+  /* istanbul ignore next — browser-only Web Audio */
+  sampleFrequencies(out: Uint8Array): void {
+    // The DOM lib types the buffer as Uint8Array<ArrayBuffer>; our scratch buffer
+    // is a plain Uint8Array — cast (the runtime contract is identical).
+    if (this.analyser) this.analyser.getByteFrequencyData(out as Uint8Array<ArrayBuffer>);
+    else out.fill(0);
   }
 
   /** Stop all scheduled clips + clear the queue (a new utterance supersedes). */
@@ -146,6 +168,14 @@ export class TTSService {
     if (!Ctor) return null;
     this.audioCtx = new Ctor();
     void this.audioCtx.resume?.();
+    // One analyser between the voice chain and the speakers; the cockpit taps it
+    // for Roxane's waveform. Small FFT — we only need a few dozen bars.
+    try {
+      this.analyser = this.audioCtx.createAnalyser();
+      this.analyser.fftSize = 256;
+      this.analyser.smoothingTimeConstant = 0.6;
+      this.analyser.connect(this.audioCtx.destination);
+    } catch { this.analyser = null; }
     return this.audioCtx;
   }
 
@@ -181,7 +211,9 @@ export class TTSService {
       src.buffer = buf;
       const gain = ctx.createGain();
       gain.gain.value = this.voiceGain(); // 0 when muted — still scheduled, just silent
-      src.connect(gain).connect(ctx.destination);
+      // Route through the analyser (→ destination) so the cockpit waveform reacts
+      // to the real voice audio; fall back to the destination if it failed to init.
+      src.connect(gain).connect(this.analyser ?? ctx.destination);
       const startAt = Math.max(ctx.currentTime, this.scheduleCursor);
       src.start(startAt);
       this.scheduleCursor = startAt + buf.duration;

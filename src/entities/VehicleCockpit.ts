@@ -52,8 +52,11 @@ export const COCKPIT_LAYOUT: Readonly<Record<'dashboard' | 'column' | 'yoke' | '
  *  (−Z is rearward; the car faces +Z), tuned for the in-cabin view. */
 export const DRIVER_HEAD_OFFSET = new Vector3(-0.4, 1.15, -0.65);
 
-/** Placeholder banner shown on the LCD (future Claude car-agent overrides via setLcdText). */
-export const LCD_BANNER = 'NETRUNNER OS v2.077  ·  CAR AGENT: STANDBY';
+/** Placeholder banner shown on the LCD (Roxane, the car agent, overrides via setLcdText). */
+export const LCD_BANNER = 'NETRUNNER OS v2.077  ·  ROXANE: STANDBY';
+
+/** Number of vertical bars in the dashboard voice waveform (Roxane). */
+export const WAVEFORM_BARS = 28;
 
 /** Gauge fills (0..100%) for the LCD bars: speed, altitude and hull condition. */
 export function gaugePercents(
@@ -76,6 +79,7 @@ export class VehicleCockpit {
   private spdFill: Rectangle | null = null;
   private altFill: Rectangle | null = null;
   private hullFill: Rectangle | null = null;
+  private waveBars: Rectangle[] = [];
   private built = false;
 
   constructor(scene: Scene) {
@@ -211,6 +215,28 @@ export class VehicleCockpit {
     this.altFill = gauge('ALT', 116);
     this.hullFill = gauge('HULL', 162);
 
+    // Voice waveform strip (Roxane): a row of centre-anchored bars across the
+    // bottom of the LCD. A container centres each bar so a level grows both up
+    // and down (symmetric scope look). Heights are driven by setWaveform.
+    const strip = new Rectangle('cockpit-wave-strip');
+    strip.horizontalAlignment = 0; strip.verticalAlignment = 0;
+    strip.left = '24px'; strip.top = '200px';
+    strip.width = '848px'; strip.height = '48px';
+    strip.thickness = 0; strip.background = 'transparent';
+    bg.addControl(strip);
+    const slot = 848 / WAVEFORM_BARS;
+    for (let i = 0; i < WAVEFORM_BARS; i++) {
+      const bar = new Rectangle(`cockpit-wave-${i}`);
+      bar.horizontalAlignment = 0; // LEFT
+      bar.verticalAlignment = 2;   // CENTER (symmetric growth)
+      bar.left = `${Math.round(i * slot)}px`;
+      bar.width = `${Math.max(2, Math.round(slot * 0.55))}px`;
+      bar.height = '2px';
+      bar.background = '#33FF99'; bar.thickness = 0;
+      strip.addControl(bar);
+      this.waveBars.push(bar);
+    }
+
     this.built = true;
   }
 
@@ -227,6 +253,24 @@ export class VehicleCockpit {
     if (this.bannerBlock) this.bannerBlock.text = text;
   }
 
+  /**
+   * Drive the voice waveform bars (each level 0..1). Extra/short level arrays are
+   * tolerated (missing bars rest flat). Max bar height ~46px (the strip is 48).
+   * No-op headless.
+   */
+  setWaveform(levels: number[]): void {
+    const MAX_PX = 46;
+    for (let i = 0; i < this.waveBars.length; i++) {
+      const lvl = Math.max(0, Math.min(1, levels[i] ?? 0));
+      this.waveBars[i]!.height = `${Math.max(2, Math.round(lvl * MAX_PX))}px`;
+    }
+  }
+
+  /** Rest the waveform to a thin flat line (Roxane silent). No-op headless. */
+  setWaveformIdle(): void {
+    for (const bar of this.waveBars) bar.height = '2px';
+  }
+
   /** Drive the speed / altitude / hull gauge bars (each 0..100%). No-op headless. */
   setGauges(spd: number, alt: number, hull: number): void {
     if (this.spdFill) this.spdFill.width = `${Math.max(0, Math.min(100, spd))}%`;
@@ -239,6 +283,7 @@ export class VehicleCockpit {
     this.lcdTexture = null;
     this.bannerBlock = null;
     this.spdFill = this.altFill = this.hullFill = null;
+    this.waveBars = [];
     this.root?.dispose(false, true); // dispose the cockpit subtree + its materials
     this.root = null;
     this.built = false;

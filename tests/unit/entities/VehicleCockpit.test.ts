@@ -24,8 +24,8 @@ describe('VehicleCockpit (pure layout + helpers)', () => {
     expect(DRIVER_HEAD_OFFSET.y).toBeGreaterThan(1); // above the seat (0.6)
   });
 
-  it('LCD_BANNER mentions the car agent (the future-agent seam)', () => {
-    expect(LCD_BANNER).toContain('CAR AGENT');
+  it('LCD_BANNER names Roxane (the car agent)', () => {
+    expect(LCD_BANNER).toContain('ROXANE');
   });
 
   it('gaugePercents normalizes speed/altitude to their max and health to 0..100%', () => {

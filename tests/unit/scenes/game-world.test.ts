@@ -541,6 +541,117 @@ describe('GameWorldScene', () => {
     expect(scene.getVehicle()).toBeNull();
   });
 
+  // ─── Roxane (car AI dashboard agent) ───────────────────────────────────────
+
+  it('sendToRoxane streams her reply and feeds live vehicle telemetry', async () => {
+    const { service, prompts } = makeInjectedService('Buckle up.');
+    scene.setClaudeService(service);
+    await scene.onEnter();
+    await scene.sendToRoxane('how are you holding up?');
+    expect(scene.getDialog()!.getState().npcText).toBe('Buckle up.');
+    // Her prompt carries the telemetry context (nominal hull at full health).
+    expect(prompts.some((p) => /VEHICLE TELEMETRY/.test(p) && /nominal/.test(p))).toBe(true);
+  });
+
+  it('Roxane telemetry reports a damaged hull at low HP', async () => {
+    const session = makeSession();
+    session.vehicle = { health: { current: 20, max: 100 }, destroyed: false };
+    ServiceLocator.register('gameSession', session);
+    const { service, prompts } = makeInjectedService('I have seen better days.');
+    scene.setClaudeService(service);
+    await scene.onEnter();
+    await scene.sendToRoxane('status?');
+    expect(prompts.some((p) => /damaged, smoking/.test(p))).toBe(true);
+  });
+
+  it('Roxane telemetry reports a wrecked hull when destroyed', async () => {
+    const session = makeSession();
+    session.vehicle = { health: { current: 0, max: 100 }, destroyed: true };
+    ServiceLocator.register('gameSession', session);
+    const { service, prompts } = makeInjectedService('...');
+    scene.setClaudeService(service);
+    await scene.onEnter();
+    await scene.sendToRoxane('you ok?');
+    expect(prompts.some((p) => /WRECKED/.test(p))).toBe(true);
+  });
+
+  it('sendToRoxane shows the no-reply line when Roxane returns nothing', async () => {
+    const { service } = makeInjectedService(''); // empty reply
+    scene.setClaudeService(service);
+    await scene.onEnter();
+    await scene.sendToRoxane('you there?');
+    expect(scene.getDialog()!.getState().npcText).toContain('no reply');
+  });
+
+  it('sendToRoxane blocks an out-of-policy message before it reaches Roxane', async () => {
+    const { service } = makeInjectedService('BLOCK');
+    scene.setClaudeService(service);
+    await scene.onEnter();
+    await scene.sendToRoxane('something disallowed');
+    const lines = scene.getDialog()!.getState().lines;
+    expect(lines.some((l) => l.role === 'system' && l.text.includes("can't say or do"))).toBe(true);
+    expect(lines.some((l) => l.role === 'player')).toBe(false);
+  });
+
+  it('pressing T while piloting opens the Roxane chat (not the global channel)', async () => {
+    const { service } = makeInjectedService('Hey, driver.');
+    scene.setClaudeService(service);
+    await scene.onEnter();
+    mountVehicle();
+    scene.getInputSystem()!.handleKeyDown('KeyT');
+    scene.update();
+    const dlg = scene.getDialog()!;
+    expect(dlg.isOpen()).toBe(true);
+    expect(dlg.getState().npcName).toBe('Roxane');
+  });
+
+  it('pressing T on foot still opens the global channel (Roxane only in the car)', async () => {
+    await scene.onEnter();
+    scene.getPlayer()!.getRoot().position.set(-25, 0, -25);
+    scene.getInputSystem()!.handleKeyDown('KeyT');
+    scene.update();
+    expect(scene.getDialog()!.getState().npcName).toBe('Open channel');
+  });
+
+  it('submitting in the global channel routes through onSubmit to ambient narration', async () => {
+    const { service } = makeInjectedService('Neon buzzes overhead.');
+    scene.setClaudeService(service);
+    await scene.onEnter();
+    scene.getPlayer()!.getRoot().position.set(-25, 0, -25); // no NPC in reach → ambient
+    scene.getInputSystem()!.handleKeyDown('KeyT');
+    scene.update(); // opens the global channel (chatMode = 'global')
+    scene.getDialog()!.submit('look around');
+    for (let i = 0; i < 6; i++) await new Promise((r) => setTimeout(r, 0));
+    const lines = scene.getDialog()!.getState().lines;
+    expect(lines.some((l) => l.role === 'narration' && l.text.includes('Neon buzzes'))).toBe(true);
+  });
+
+  it('submitting in the Roxane chat routes to her (wireDialog roxane branch)', async () => {
+    const { service } = makeInjectedService('Roger that.');
+    scene.setClaudeService(service);
+    await scene.onEnter();
+    mountVehicle();
+    scene.getInputSystem()!.handleKeyDown('KeyT');
+    scene.update();
+    scene.getDialog()!.submit('keep us steady');
+    for (let i = 0; i < 6; i++) await new Promise((r) => setTimeout(r, 0));
+    expect(scene.getDialog()!.getState().npcText).toBe('Roger that.');
+  });
+
+  it('the Roxane chat freezes drive input so typing does not fly the car', async () => {
+    await scene.onEnter();
+    jest.spyOn(engine, 'getDeltaTime').mockReturnValue(100);
+    const v = mountVehicle();
+    scene.getInputSystem()!.handleKeyDown('KeyT');
+    scene.update(); // opens the Roxane chat
+    const before = v.getPosition().clone();
+    scene.getInputSystem()!.handleKeyDown('KeyW');
+    for (let i = 0; i < 10; i++) scene.update();
+    const after = v.getPosition();
+    // No horizontal travel while chatting (engine still hovers on Y).
+    expect(Math.hypot(after.x - before.x, after.z - before.z)).toBeLessThan(0.05);
+  });
+
   // ─── GameSession glue (Phase 8 integration) ───────────────────────────────
 
   function makeSession(): GameSession {
