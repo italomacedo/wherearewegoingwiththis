@@ -209,7 +209,7 @@ export class PromptBuilder {
     return [
       `Classify the player's SPOKEN line (no emote) to ${npcName} in a cyberpunk RPG.`,
       'Output EXACTLY these five lines, nothing else:',
-      'VERB=<one of: job_request job_claim job_accept job_decline job_cancel spice_buy spice_sell spice_haggle spice_report commerce_discovery commerce_pricing commerce_haggle commerce_buy commerce_sell manipulate persuade intimidate info narrative>',
+      'VERB=<one of: job_request job_claim job_accept job_decline job_cancel spice_discovery spice_pricing spice_haggle spice_buy spice_sell spice_report commerce_discovery commerce_pricing commerce_haggle commerce_buy commerce_sell manipulate persuade intimidate info narrative>',
       'TARGET=<the THIRD-party npc id the player refers to (manipulate/info), or none>',
       'ITEM=<the item id mentioned, or none>',
       'PRICE=<integer the player proposes when haggling, or none>',
@@ -218,7 +218,7 @@ export class PromptBuilder {
       'job_request: player asks for work/contract. job_accept/decline: respond to a PENDING mission offer. job_claim: player reports they killed the target of an ACTIVE contract (pay me / it is done / the target is dead). job_cancel: player backs out of an ACTIVE contract.',
       'commerce_discovery: player asks what is for sale. commerce_pricing: player asks the price of a specific item.',
       'commerce_haggle: player proposes a different price or pushes for a discount. commerce_buy: player commits to buy. commerce_sell: player offers to sell something.',
-      'spice_buy: player takes the dealer up on a SPICE shipment (buy spice to traffic). spice_sell: player offers/closes a SPICE sale to this NPC (a user). spice_haggle: player negotiates the PRICE of the spice they are selling this user (pushes for more / counters). spice_report: player tells the dealer they SOLD ALL the spice (sold out / moved it all / done).',
+      'SPICE deal flows like commerce, both ways (buy from a dealer / sell to a user). spice_discovery: player floats the topic ("got spice?" / "wanna buy some spice?"). spice_pricing: player asks/states the price. spice_haggle: player pushes the price (lower when buying, higher when selling). spice_buy: player CLOSES a purchase from the dealer ("I\'ll take it / deal"). spice_sell: player CLOSES a sale to the user ("deal / here, take it"). spice_report: player tells the dealer they SOLD ALL the spice (sold out / moved it all / done). A mere question or offer is discovery/pricing, NOT a close.',
       ...(spice.addict && spice.playerHasSpice
         ? ['IMPORTANT: this NPC is a spice USER and the player is carrying spice. If the player talks PRICE or closing a spice deal, prefer spice_sell (to close) or spice_haggle (to negotiate) — NEVER commerce_* (those are ONLY for this NPC\'s listed wares).']
         : []),

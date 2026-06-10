@@ -81,13 +81,15 @@ export interface ApplierContext {
   claimMissionCompletion(giver: string, targetId: string): void;
   cancelActiveMission(giver: string): void;
 
-  // ── Spice-trafficking job (Fase 22) ──────────────────────────────────
-  /** Buy `qty` spice from the dealer at `unitPrice` (credits→dealer, spice→player, open a contract). */
-  buySpice(dealer: string, qty: number, unitPrice: number): void;
-  /** Sell `qty` spice to the addict at `unitPrice` (spice→addict, credits→player). */
-  sellSpice(buyer: string, qty: number, unitPrice: number): void;
-  /** Stage an improved resale `unitPrice` for the next sale to this addict (haggle). */
-  haggleSpice(buyer: string, unitPrice: number): void;
+  // ── Spice-trafficking job (Fase 22) — commerce-style negotiation ─────
+  /** Stage a pending spice deal with this NPC (side + quoted unit price + intended qty). No transfer. */
+  stagePendingSpice(npc: string, side: 'buy' | 'sell', unitPrice: number, qty: number): void;
+  /** Apply a Comércio haggle factor to the staged deal's price (buy↓ / sell↑, clamped). */
+  applySpiceHaggle(npc: string, factor: number): void;
+  /** Execute the staged spice deal (buy: credits→dealer+spice→player+contract / sell: spice→addict+credits→player). */
+  executePendingSpice(npc: string): void;
+  /** Drop the staged spice deal with this NPC. */
+  clearPendingSpice(npc: string): void;
   /** Report "sold it all" to the dealer — improve disposition + complete the contract (no verification). */
   reportSpice(dealer: string): void;
 
@@ -243,14 +245,17 @@ export function applyMutation(ctx: ApplierContext, m: Mutation): void {
       return;
 
     // ── Spice-trafficking job ──
-    case 'buy_spice':
-      ctx.buySpice(m.dealer, m.qty, m.unitPrice);
+    case 'stage_pending_spice':
+      ctx.stagePendingSpice(m.npc, m.side, m.unitPrice, m.qty);
       return;
-    case 'sell_spice':
-      ctx.sellSpice(m.buyer, m.qty, m.unitPrice);
+    case 'apply_spice_haggle':
+      ctx.applySpiceHaggle(m.npc, m.factor);
       return;
-    case 'haggle_spice':
-      ctx.haggleSpice(m.buyer, m.unitPrice);
+    case 'execute_pending_spice':
+      ctx.executePendingSpice(m.npc);
+      return;
+    case 'clear_pending_spice':
+      ctx.clearPendingSpice(m.npc);
       return;
     case 'report_spice':
       ctx.reportSpice(m.dealer);

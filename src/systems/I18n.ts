@@ -223,7 +223,10 @@ export const STRINGS: Record<string, Entry> = {
   'spice.reported': e('You tell {giver} you moved it all. They respect that.', 'Você diz a {giver} que passou tudo. Eles respeitam isso.'),
   'spice.noContract': e("You have no spice running for them.", 'Você não tem spice rolando pra eles.'),
   'spice.haggledUp': e('Haggled the spice up to {price} cr/dose.', 'Negociou a spice para {price} cr/dose.'),
+  'spice.haggledDown': e('Haggled the spice down to {price} cr/dose.', 'Pechinchou a spice para {price} cr/dose.'),
   'spice.haggleFailed': e("They won't budge on the price.", 'Eles não cedem no preço.'),
+  'spice.quotedBuy': e('{qty} doses of spice offered at {price} cr each.', '{qty} doses de spice oferecidas a {price} cr cada.'),
+  'spice.quotedSell': e('They size up your spice — ~{price} cr a dose.', 'Eles avaliam sua spice — ~{price} cr a dose.'),
 
   // ─── Dialog ────────────────────────────────────────────────────────────────
   'dialog.openChannel': e('Open channel', 'Canal aberto'),

@@ -27,30 +27,42 @@ report back to the dealer for a relationship reward.
   **≥ neutral** (`canOfferSpice`), reusing the disposition scale.
 - **Economy:** spice is a real stackable `misc` item (`itemValue` = X). Buy price =
   `X × (1 − dispositionDiscount)` (dealer disposition). Resale base = **10×**,
-  **modulated** by a Comércio-vs-Carisma haggle check + a friendlier-addict premium
-  (`spiceResaleUnit`); failure = no penalty.
+  **modulated** by a player-driven Comércio-vs-Carisma **haggle** step; failure =
+  no penalty.
+- **Negotiated like commerce (NOT a direct sale).** Both the buy and the sell run
+  through the SAME four-phase machine as `commerce_*`: **discovery → pricing →
+  haggle → commit**. discovery/pricing STAGE a `pendingSpice` deal (no transfer);
+  haggle adjusts its price (the BUYER pushes it down, the SELLER up, clamped);
+  `spice_buy`/`spice_sell` COMMIT whichever side is staged. A mere "wanna buy
+  spice?" is now a *discovery* (it quotes, it does not close) — fixing the playtest
+  bug where the sale fired on the opening line.
 - **Report = handshake, no verification.** Returning to the originating dealer and
   saying "sold it all" improves that dealer's disposition one step and completes
   the contract. We deliberately do NOT verify how much was actually resold.
 - **Persistence:** a separate `SaveGame.spiceContracts: SpiceContract[]` (one active
   per dealer), backfilled `[]` by `migrate`; carried by `GameSession`.
 
-### Pipeline (reuses the Fase 21 unified Resolver/Applier)
-Three new **VERBAL** verbs + three **mutations** + three `ApplierContext` methods:
+### Pipeline (reuses the Fase 21 unified Resolver/Applier + the pendingTrade pattern)
+Six **VERBAL** verbs + five **mutations** + five `ApplierContext` methods, mirroring
+the `pendingTrade` staging:
 
-| Verb | Mutation | Effect |
+| Verb(s) | Mutation | Effect |
 |---|---|---|
-| `spice_buy` | `buy_spice{dealer,qty,unitPrice}` | credits player→dealer, spice dealer→player, open/​top-up a contract |
-| `spice_sell` | `sell_spice{buyer,qty,unitPrice}` | spice player→addict, credits addict→player (clamped to the addict's funds) |
+| `spice_discovery` / `spice_pricing` | `stage_pending_spice{npc,side,unitPrice,qty}` | put a quote on the table — side from the NPC's trait (dealer→buy / addict→sell), no transfer |
+| `spice_haggle` | `apply_spice_haggle{npc,factor}` | Comércio×Carisma roll → adjust the staged price (buy↓ / sell↑, `clampSpicePrice`); fail = no change |
+| `spice_buy` / `spice_sell` | `execute_pending_spice{npc}` | execute the staged side (buy: credits→dealer+spice→player+contract / sell: spice→addict+credits→player, both clamped) |
+| — | `clear_pending_spice{npc}` | drop the staged deal |
 | `spice_report` | `report_spice{dealer}` | `improveDisposition` + complete the contract |
 
-The Resolver gates each (`not_dealer`/`not_addict`/`no_spice`/`cannot_afford`/
-`no_spice_contract`/`dead_target`) and rolls the resale Comércio check inline (XP
-emitted on success OR failure). The verbal classifier learns the three verbs; the
+`SpiceTrade` (pure) computes the side (`spiceDealSide`), base prices (`spiceBuyPrice`/
+`spiceResaleBase`), the haggle factor (`spiceHaggleFactor`) and the clamp
+(`clampSpicePrice`). The Resolver gates each (`not_dealer`/`not_addict`/`no_spice`/
+`no_spice_contract`/`dead_target`) and a commit with no prior staging stages-then-
+executes in one turn (implicit pricing, like `commerce_buy`). The verbal classifier
+learns the six verbs (questions/offers → discovery/pricing, never a close); the
 dealer/addict NPC turn gets latent **levers** via `PromptBuilder.buildSpiceContext`
-(offer a shipment / nudge a report / hint they'd buy) injected through the same
-`extraContext` seam as commerce. The addict "crave" lever only surfaces when the
-player is actually holding spice (keeps idle prompts under
+through the same `extraContext` seam as commerce. The addict "crave" lever only
+surfaces when the player is actually holding spice (keeps idle prompts under
 `GRADUATION_THRESHOLD_CHARS` — Lesson 61).
 
 ## Consequences

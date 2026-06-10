@@ -10,18 +10,20 @@ import {
 
 describe('Verbs vocabulary', () => {
   describe('VERBAL_VERBS', () => {
-    it('includes all 19 verbal verbs (incl. spice + narrative)', () => {
-      expect(VERBAL_VERBS).toHaveLength(19);
+    it('includes all 21 verbal verbs (incl. spice + narrative)', () => {
+      expect(VERBAL_VERBS).toHaveLength(21);
       // Job lifecycle
       expect(VERBAL_VERBS).toContain('job_request');
       expect(VERBAL_VERBS).toContain('job_claim');
       expect(VERBAL_VERBS).toContain('job_accept');
       expect(VERBAL_VERBS).toContain('job_decline');
       expect(VERBAL_VERBS).toContain('job_cancel');
-      // Spice-trafficking job (Fase 22)
+      // Spice-trafficking job (Fase 22) — commerce-mirror negotiation
+      expect(VERBAL_VERBS).toContain('spice_discovery');
+      expect(VERBAL_VERBS).toContain('spice_pricing');
+      expect(VERBAL_VERBS).toContain('spice_haggle');
       expect(VERBAL_VERBS).toContain('spice_buy');
       expect(VERBAL_VERBS).toContain('spice_sell');
-      expect(VERBAL_VERBS).toContain('spice_haggle');
       expect(VERBAL_VERBS).toContain('spice_report');
       // Commerce
       expect(VERBAL_VERBS).toContain('commerce_discovery');

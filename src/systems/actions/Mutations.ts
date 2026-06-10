@@ -78,14 +78,15 @@ export type Mutation =
   | { kind: 'cancel_active_mission'; giver: ActorId; }
   | { kind: 'narrate_target_still_alive'; targetId: ActorId; }
 
-  // ─── Spice-trafficking job (Fase 22) ────────────────────────────────────
-  // buy: credits player→dealer + spice dealer→player + open a contract.
-  // sell: spice player→addict + credits addict→player (resale ~10×).
-  // report: improve the dealer's disposition + complete the contract.
-  | { kind: 'buy_spice'; dealer: ActorId; qty: number; unitPrice: number; }
-  | { kind: 'sell_spice'; buyer: ActorId; qty: number; unitPrice: number; }
-  // haggle: stage an improved resale unit price for the next sell to this addict.
-  | { kind: 'haggle_spice'; buyer: ActorId; unitPrice: number; }
+  // ─── Spice-trafficking job (Fase 22) — commerce-style negotiation ───────
+  // Mirrors the pending-trade machine: discovery/pricing STAGE a pending deal
+  // (no transfer), haggle ADJUSTS its price (Comércio), buy/sell EXECUTE it.
+  //   side 'buy'  = player buys from a dealer (credits→dealer, spice→player, +contract).
+  //   side 'sell' = player resells to an addict (spice→addict, credits→player).
+  | { kind: 'stage_pending_spice'; npc: ActorId; side: 'buy' | 'sell'; unitPrice: number; qty: number; }
+  | { kind: 'apply_spice_haggle'; npc: ActorId; factor: number; }
+  | { kind: 'execute_pending_spice'; npc: ActorId; }
+  | { kind: 'clear_pending_spice'; npc: ActorId; }
   | { kind: 'report_spice'; dealer: ActorId; }
 
   // ─── PDA ────────────────────────────────────────────────────────────────

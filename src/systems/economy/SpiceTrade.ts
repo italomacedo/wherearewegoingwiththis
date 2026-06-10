@@ -2,20 +2,21 @@
  * SpiceTrade — pure core for the spice-trafficking job (Fase 22). No engine, fully
  * testable.
  *
- * A second kind of NPC job alongside the kill-contract (`Missions.ts`). A NPC with
- * the **dealer** trait and a non-negative stance toward the player (≥ neutral) may
- * OFFER spice in conversation. The player BUYS a lot for X/unit and RESELLS it to
- * any **addict** NPC for ~10X/unit (modulated by the addict's stance + the player's
- * Comércio skill). Returning to the originating dealer and reporting "sold it all"
- * (no verification) improves that dealer's disposition one step.
+ * A second kind of NPC job alongside the kill-contract (`Missions.ts`). The deal is
+ * negotiated through the SAME four-phase machine as commerce (discovery → pricing →
+ * haggle → commit), but spice flows BOTH ways:
+ *   - BUY  — from a `dealer` NPC (≥ neutral stance), the player buys a lot of spice
+ *            to run. The player is the buyer → haggle pushes the price DOWN.
+ *   - SELL — to an `addict` NPC, the player resells spice at ~10×. The player is the
+ *            seller → haggle pushes the price UP.
+ * A `spice_buy` (the commit) executes whichever side was staged. Reporting "sold it
+ * all" back to the originating dealer improves that dealer's disposition one step.
  *
- * Both traits are PROBABILISTIC + seeded per NPC (`rollSpiceTraits`) so the
- * procedural world is deterministic — a tile's dealers/addicts are identical
- * forever for the same `worldSeed`. Authored NPCs set the traits explicitly.
+ * Both NPC traits are PROBABILISTIC + seeded per NPC (`rollSpiceTraits`) so the
+ * procedural world is deterministic. Authored NPCs set the traits explicitly.
  */
 
 import type { NPCDisposition } from '@entities/NPCAgent';
-import { resolveCheck, RollFn, defaultRoll } from '@systems/SkillCheck';
 import { hash32 } from '@systems/world/SeededRng';
 import { itemValue } from '@entities/items/ItemCatalog';
 import { discountFor } from './Economy';
@@ -23,7 +24,7 @@ import { discountFor } from './Economy';
 /** The spice item id (a stackable misc good — the merchandise of this job). */
 export const SPICE_ID = 'spice';
 
-/** Units of spice sold per contract lot. */
+/** Units of spice sold per contract lot (the dealer's wholesale lot). */
 export const SPICE_LOT = 5;
 
 /** Per-NPC probability of carrying the dealer trait (offers + sells spice to the player). */
@@ -33,12 +34,18 @@ export const ADDICT_CHANCE = 0.25;
 
 /** Base resale markup over the buy value — the headline "10×" of the loop. */
 export const RESALE_MULTIPLIER = 10;
-/** Extra resale on a successful Comércio check (failure = no penalty). */
-export const SPICE_RESALE_SUCCESS_BONUS = 0.15;
-/** Extra resale on a CRITICAL Comércio check. */
-export const SPICE_RESALE_CRIT_BONUS = 0.3;
-/** A natural d100 below this on a successful resale check = CRITICAL. */
-export const SPICE_RESALE_CRITICAL_ROLL = 5;
+
+/** Haggle swing on a successful Comércio check (failure = no change). */
+export const SPICE_HAGGLE_SUCCESS = 0.15;
+/** Haggle swing on a CRITICAL Comércio check. */
+export const SPICE_HAGGLE_CRIT = 0.3;
+/** A buyer can't haggle a dealer below this fraction of the base wholesale price. */
+export const SPICE_BUY_FLOOR_FACTOR = 0.5;
+/** A seller can't push the resale above this multiple of the base resale price. */
+export const SPICE_SELL_CEIL_FACTOR = 2.0;
+
+/** Which side of a spice deal the player is on. */
+export type SpiceSide = 'buy' | 'sell';
 
 /* ────────────────────────────────────────────────────────────────────────── */
 /* Traits                                                                     */
@@ -60,44 +67,59 @@ export function canOfferSpice(disposition: NPCDisposition): boolean {
   return disposition === 'neutral' || disposition === 'friendly';
 }
 
+/**
+ * Which side a deal takes given the addressed NPC's traits + whether the player is
+ * holding spice. Prefers SELLING to an addict when the player has product; otherwise
+ * BUYS from a dealer; falls back to a sell for an addict-only NPC. `null` = neither
+ * trait (no spice deal possible).
+ */
+export function spiceDealSide(isDealer: boolean, isAddict: boolean, playerHasSpice: boolean): SpiceSide | null {
+  if (isAddict && playerHasSpice) return 'sell';
+  if (isDealer) return 'buy';
+  if (isAddict) return 'sell';
+  return null;
+}
+
 /* ────────────────────────────────────────────────────────────────────────── */
 /* Pricing                                                                    */
 /* ────────────────────────────────────────────────────────────────────────── */
 
-/** What the player pays the dealer per unit (base value × (1 − disposition discount), floored at 1). */
+/** Base wholesale the player pays a dealer per unit (value × (1 − discount), floored at 1). */
 export function spiceBuyPrice(disposition: NPCDisposition): number {
   return Math.max(1, Math.round(itemValue(SPICE_ID) * (1 - discountFor(disposition))));
 }
 
-export interface SpiceResale {
-  /** Credits the addict pays per unit. */
-  unit: number;
-  success: boolean;
-  critical: boolean;
-  probability: number;
-  roll: number;
+/** Base resale per unit to an addict before haggling (10× value + a friendlier-addict premium). */
+export function spiceResaleBase(disposition: NPCDisposition): number {
+  const base = RESALE_MULTIPLIER * itemValue(SPICE_ID);
+  return Math.max(1, Math.round(base * (1 + discountFor(disposition))));
+}
+
+/** The base per-unit price for a side at a disposition (the un-haggled quote). */
+export function spiceBasePrice(side: SpiceSide, disposition: NPCDisposition): number {
+  return side === 'buy' ? spiceBuyPrice(disposition) : spiceResaleBase(disposition);
 }
 
 /**
- * Per-unit resale price to an addict: base `RESALE_MULTIPLIER × value`, boosted by a
- * Comércio (vs the addict's Carisma) haggle check AND a premium for a friendlier
- * addict (reusing `discountFor` as a positive premium). Failure = no penalty (base).
- * RNG injected; `resolveCheck` rolls one d100 (rng ∈ [0,1)).
+ * The price multiplier a Comércio haggle yields for a side: a BUYER pushes the price
+ * DOWN (factor < 1), a SELLER pushes it UP (factor > 1); failure = no change (1).
  */
-export function spiceResaleUnit(
-  disposition: NPCDisposition,
-  comercio: number,
-  carisma: number,
-  rng: RollFn = defaultRoll,
-): SpiceResale {
-  const base = RESALE_MULTIPLIER * itemValue(SPICE_ID);
-  const check = resolveCheck({ value: comercio, opponent: carisma }, rng);
-  const critical = check.success && check.roll < SPICE_RESALE_CRITICAL_ROLL;
-  const haggleBonus = critical ? SPICE_RESALE_CRIT_BONUS : check.success ? SPICE_RESALE_SUCCESS_BONUS : 0;
-  // A friendlier addict pays a small premium (friendly +30% / neutral +15% / wary +0%).
-  const premium = discountFor(disposition);
-  const unit = Math.max(1, Math.round(base * (1 + haggleBonus + premium)));
-  return { unit, success: check.success, critical, probability: check.probability, roll: check.roll };
+export function spiceHaggleFactor(side: SpiceSide, success: boolean, critical: boolean): number {
+  const mag = critical ? SPICE_HAGGLE_CRIT : success ? SPICE_HAGGLE_SUCCESS : 0;
+  if (mag === 0) return 1;
+  return side === 'buy' ? 1 - mag : 1 + mag;
+}
+
+/**
+ * Apply a haggle factor to a staged price and clamp it: a buy can't fall below
+ * `SPICE_BUY_FLOOR_FACTOR × base`; a sell can't rise above `SPICE_SELL_CEIL_FACTOR ×
+ * base`. `base` is the un-haggled base price for the side.
+ */
+export function clampSpicePrice(side: SpiceSide, price: number, base: number): number {
+  const p = Math.round(price);
+  return side === 'buy'
+    ? Math.max(Math.round(base * SPICE_BUY_FLOOR_FACTOR), Math.max(1, p))
+    : Math.min(Math.round(base * SPICE_SELL_CEIL_FACTOR), Math.max(1, p));
 }
 
 /* ────────────────────────────────────────────────────────────────────────── */

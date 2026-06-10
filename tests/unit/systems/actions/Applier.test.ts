@@ -34,9 +34,10 @@ function makeSpyCtx(): ApplierContext & { calls: { method: string; args: unknown
     declinePendingMission: record('declinePendingMission'),
     claimMissionCompletion: record('claimMissionCompletion'),
     cancelActiveMission: record('cancelActiveMission'),
-    buySpice: record('buySpice'),
-    sellSpice: record('sellSpice'),
-    haggleSpice: record('haggleSpice'),
+    stagePendingSpice: record('stagePendingSpice'),
+    applySpiceHaggle: record('applySpiceHaggle'),
+    executePendingSpice: record('executePendingSpice'),
+    clearPendingSpice: record('clearPendingSpice'),
     reportSpice: record('reportSpice'),
     craft: record('craft'),
     repair: record('repair'),
@@ -170,16 +171,18 @@ describe('applyMutation dispatcher (Fase 21)', () => {
     ]);
   });
 
-  // ── Spice-trafficking ──
-  it('buy_spice / sell_spice / haggle_spice / report_spice → corresponding ctx methods', () => {
-    applyMutation(ctx, { kind: 'buy_spice', dealer: 'npc_d', qty: 5, unitPrice: 7 });
-    applyMutation(ctx, { kind: 'sell_spice', buyer: 'npc_a', qty: 5, unitPrice: 104 });
-    applyMutation(ctx, { kind: 'haggle_spice', buyer: 'npc_a', unitPrice: 120 });
+  // ── Spice-trafficking (staged negotiation) ──
+  it('stage/haggle/execute/clear/report spice → corresponding ctx methods', () => {
+    applyMutation(ctx, { kind: 'stage_pending_spice', npc: 'npc_d', side: 'buy', unitPrice: 7, qty: 5 });
+    applyMutation(ctx, { kind: 'apply_spice_haggle', npc: 'npc_d', factor: 0.85 });
+    applyMutation(ctx, { kind: 'execute_pending_spice', npc: 'npc_d' });
+    applyMutation(ctx, { kind: 'clear_pending_spice', npc: 'npc_d' });
     applyMutation(ctx, { kind: 'report_spice', dealer: 'npc_d' });
     expect(ctx.calls).toEqual([
-      { method: 'buySpice', args: ['npc_d', 5, 7] },
-      { method: 'sellSpice', args: ['npc_a', 5, 104] },
-      { method: 'haggleSpice', args: ['npc_a', 120] },
+      { method: 'stagePendingSpice', args: ['npc_d', 'buy', 7, 5] },
+      { method: 'applySpiceHaggle', args: ['npc_d', 0.85] },
+      { method: 'executePendingSpice', args: ['npc_d'] },
+      { method: 'clearPendingSpice', args: ['npc_d'] },
       { method: 'reportSpice', args: ['npc_d'] },
     ]);
   });

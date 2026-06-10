@@ -48,11 +48,16 @@ export type VerbalVerb =
   | 'job_accept'
   | 'job_decline'
   | 'job_cancel'
-  // Spice-trafficking job (Fase 22): buy a lot from a dealer, resell to addicts,
-  // report back to the dealer to earn a relationship step.
+  // Spice-trafficking job (Fase 22): negotiated like commerce (discovery → pricing
+  // → haggle → commit), BOTH ways — buy a lot from a dealer, resell to addicts —
+  // then report back to the dealer to earn a relationship step. discovery/pricing/
+  // haggle STAGE a pending deal (no transfer); `spice_buy`/`spice_sell` COMMIT the
+  // staged side (buy from dealer / sell to addict).
+  | 'spice_discovery'
+  | 'spice_pricing'
+  | 'spice_haggle'
   | 'spice_buy'
   | 'spice_sell'
-  | 'spice_haggle' // player negotiates the resale price of spice to an addict (Comércio check).
   | 'spice_report'
   // Commerce lifecycle.
   | 'commerce_discovery'
@@ -119,7 +124,7 @@ export type Verb = VerbalVerb | EmoteVerb | AutonomyVerb;
 /** Vocabulary enumeration helpers (for prompts + parser validation). */
 export const VERBAL_VERBS: readonly VerbalVerb[] = [
   'job_request', 'job_claim', 'job_accept', 'job_decline', 'job_cancel',
-  'spice_buy', 'spice_sell', 'spice_haggle', 'spice_report',
+  'spice_discovery', 'spice_pricing', 'spice_haggle', 'spice_buy', 'spice_sell', 'spice_report',
   'commerce_discovery', 'commerce_pricing', 'commerce_haggle', 'commerce_buy', 'commerce_sell',
   'manipulate', 'persuade', 'intimidate', 'info', 'narrative',
 ] as const;

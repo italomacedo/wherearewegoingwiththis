@@ -5,7 +5,7 @@ import {
   DEFAULT_MISSION_REWARD,
 } from '@systems/actions/Resolver';
 import { PlayerActor, NpcActor } from '@systems/actions/Actor';
-import { spiceBuyPrice } from '@systems/economy/SpiceTrade';
+import { spiceBuyPrice, spiceResaleBase, spiceHaggleFactor } from '@systems/economy/SpiceTrade';
 import { Inventory } from '@entities/Inventory';
 import { Health } from '@entities/Health';
 import { createDefaultStats } from '@entities/CharacterStats';
@@ -152,7 +152,7 @@ describe('Resolver — verbal: job_*', () => {
   });
 });
 
-describe('Resolver — verbal: spice_* (trafficking job)', () => {
+describe('Resolver — verbal: spice_* (commerce-mirror negotiation)', () => {
   const dealer = makeNpc('npc_dealer');
 
   function richPlayer(credits = 1000, spice = 0) {
@@ -160,156 +160,157 @@ describe('Resolver — verbal: spice_* (trafficking job)', () => {
     if (credits) inv.add('credstick', credits);
     if (spice) inv.add('spice', spice);
     const stats = createDefaultStats();
-    stats.skills.comercio = 90; // high → resale check succeeds on a low roll
+    stats.skills.comercio = 90; // high skill -> haggle check succeeds on a low roll
     return makePlayer({ inv, stats });
   }
+  const mut = (r: ReturnType<typeof resolveAction>, kind: string) => r.mutations.find((m) => m.kind === kind);
 
-  // ── spice_buy ──
-  it('spice_buy buys a lot (credits→dealer, spice→player), clamped by stock + funds', () => {
-    const r = resolveAction(richPlayer(1000), 'spice_buy', dealer, {
+  // -- discovery / pricing: STAGE a deal, no transfer --
+  it('spice_discovery stages a BUY deal at the dealer price (no transfer)', () => {
+    const r = resolveAction(richPlayer(1000), 'spice_discovery', dealer, {
       targetIsDealer: true, targetDisposition: 'neutral', spiceQtyAvailable: 5,
     });
     expect(r.allowed).toBe(true);
     expect(r.mutations).toEqual([
-      { kind: 'buy_spice', dealer: 'npc_dealer', qty: 5, unitPrice: spiceBuyPrice('neutral') },
+      { kind: 'stage_pending_spice', npc: 'npc_dealer', side: 'buy', unitPrice: spiceBuyPrice('neutral'), qty: 5 },
     ]);
+  });
+
+  it('spice_pricing stages a SELL deal at the resale base when the player holds spice', () => {
+    const addict = makeNpc('npc_addict');
+    const r = resolveAction(richPlayer(0, 5), 'spice_pricing', addict, {
+      targetIsAddict: true, targetDisposition: 'neutral',
+    });
+    expect(r.mutations).toEqual([
+      { kind: 'stage_pending_spice', npc: 'npc_addict', side: 'sell', unitPrice: spiceResaleBase('neutral'), qty: 5 },
+    ]);
+  });
+
+  it('spice_discovery honours an explicit lot size on the buy side', () => {
+    const r = resolveAction(richPlayer(1000), 'spice_discovery', dealer, {
+      targetIsDealer: true, targetDisposition: 'neutral', spiceQtyAvailable: 9, spiceLot: 3,
+    });
+    expect(r.mutations[0]).toMatchObject({ kind: 'stage_pending_spice', side: 'buy', qty: 3 });
+  });
+
+  it('spice_discovery blocks an NPC with no spice business', () => {
+    expect(resolveAction(richPlayer(), 'spice_discovery', dealer, { targetIsDealer: false, targetIsAddict: false }).blockedReason)
+      .toBe('not_dealer');
+  });
+
+  it('spice_discovery blocks a dealer that dislikes the player (wary)', () => {
+    expect(resolveAction(richPlayer(), 'spice_discovery', dealer, { targetIsDealer: true, targetDisposition: 'wary', spiceQtyAvailable: 5 }).blockedReason)
+      .toBe('not_dealer');
+  });
+
+  it('spice_discovery blocks a dealer out of stock', () => {
+    expect(resolveAction(richPlayer(), 'spice_discovery', dealer, { targetIsDealer: true, targetDisposition: 'neutral', spiceQtyAvailable: 0 }).blockedReason)
+      .toBe('no_spice');
+  });
+
+  it('spice_discovery blocks an addict-only deal when the player holds no spice', () => {
+    expect(resolveAction(richPlayer(0, 0), 'spice_discovery', makeNpc('a'), { targetIsAddict: true }).blockedReason)
+      .toBe('no_spice');
+  });
+
+  // -- haggle: adjust the staged price (buyer down / seller up) --
+  it('spice_haggle on a SELL deal pushes the price up on success (apply_spice_haggle factor)', () => {
+    const addict = makeNpc('npc_addict');
+    (addict.getStats().attributes as Record<string, number>).carisma = 1;
+    const r = resolveAction(richPlayer(0, 5), 'spice_haggle', addict, {
+      targetIsAddict: true, targetDisposition: 'neutral',
+      pendingSpice: { side: 'sell', unitPrice: spiceResaleBase('neutral'), qty: 5 },
+    }, rollLow);
+    expect(r.success).toBe(true);
+    expect(mut(r, 'apply_spice_haggle')).toEqual({ kind: 'apply_spice_haggle', npc: 'npc_addict', factor: spiceHaggleFactor('sell', true, false) });
+  });
+
+  it('spice_haggle stages a deal implicitly when none is on the table', () => {
+    const addict = makeNpc('npc_addict');
+    (addict.getStats().attributes as Record<string, number>).carisma = 1;
+    const r = resolveAction(richPlayer(0, 5), 'spice_haggle', addict, {
+      targetIsAddict: true, targetDisposition: 'neutral',
+    }, rollLow);
+    expect(mut(r, 'stage_pending_spice')).toMatchObject({ side: 'sell' });
+    expect(mut(r, 'apply_spice_haggle')).toBeTruthy();
+  });
+
+  it('spice_haggle on a FAILED check adjusts nothing (XP only, no penalty)', () => {
+    const addict = makeNpc('npc_addict');
+    (addict.getStats().attributes as Record<string, number>).carisma = 100;
+    const r = resolveAction(richPlayer(0, 5), 'spice_haggle', addict, {
+      targetIsAddict: true, targetDisposition: 'neutral',
+      pendingSpice: { side: 'sell', unitPrice: 80, qty: 5 },
+    }, rollHigh);
+    expect(r.success).toBe(false);
+    expect(mut(r, 'apply_spice_haggle')).toBeUndefined();
+    expect(r.mutations).toContainEqual({ kind: 'apply_skill_use', actor: 'player', skillId: 'comercio' });
+  });
+
+  // -- commit (spice_buy / spice_sell): execute the staged side --
+  it('spice_buy executes a staged deal', () => {
+    const r = resolveAction(richPlayer(1000), 'spice_buy', dealer, {
+      targetIsDealer: true, targetDisposition: 'neutral',
+      pendingSpice: { side: 'buy', unitPrice: 7, qty: 5 },
+    });
+    expect(r.mutations).toEqual([{ kind: 'execute_pending_spice', npc: 'npc_dealer' }]);
+  });
+
+  it('spice_buy with no pending stages THEN executes in one turn', () => {
+    const r = resolveAction(richPlayer(1000), 'spice_buy', dealer, {
+      targetIsDealer: true, targetDisposition: 'neutral', spiceQtyAvailable: 5,
+    });
+    expect(r.mutations).toEqual([
+      { kind: 'stage_pending_spice', npc: 'npc_dealer', side: 'buy', unitPrice: spiceBuyPrice('neutral'), qty: 5 },
+      { kind: 'execute_pending_spice', npc: 'npc_dealer' },
+    ]);
+  });
+
+  it('spice_sell executes a staged SELL deal', () => {
+    const addict = makeNpc('npc_addict');
+    const r = resolveAction(richPlayer(0, 5), 'spice_sell', addict, {
+      targetIsAddict: true, pendingSpice: { side: 'sell', unitPrice: 90, qty: 5 },
+    });
+    expect(r.mutations).toEqual([{ kind: 'execute_pending_spice', npc: 'npc_addict' }]);
   });
 
   it('spice_buy/spice_sell block a defeated NPC', () => {
     const agent = new NPCAgent({ ...ZARA_DEF, id: 'npc_dead' });
     agent.markDefeated();
     const dead = new NpcActor(agent, createDefaultStats());
-    expect(resolveAction(richPlayer(), 'spice_buy', dead, { targetIsDealer: true, spiceQtyAvailable: 5 }).blockedReason).toBe('dead_target');
+    expect(resolveAction(richPlayer(), 'spice_buy', dead, { targetIsDealer: true, pendingSpice: { side: 'buy', unitPrice: 7, qty: 5 } }).blockedReason).toBe('dead_target');
     expect(resolveAction(richPlayer(0, 5), 'spice_sell', dead, { targetIsAddict: true }).blockedReason).toBe('dead_target');
   });
 
-  it('spice_buy honours an explicit lot size', () => {
-    const r = resolveAction(richPlayer(1000), 'spice_buy', dealer, {
-      targetIsDealer: true, targetDisposition: 'neutral', spiceQtyAvailable: 9, spiceLot: 3,
-    });
-    expect(r.mutations[0]).toMatchObject({ kind: 'buy_spice', qty: 3 });
-  });
-
-  it('spice_buy blocks when the NPC is not a dealer', () => {
-    expect(resolveAction(richPlayer(), 'spice_buy', dealer, { targetIsDealer: false }).blockedReason)
-      .toBe('not_dealer');
-  });
-
-  it('spice_buy blocks a dealer that dislikes the player (wary/hostile)', () => {
-    expect(resolveAction(richPlayer(), 'spice_buy', dealer, { targetIsDealer: true, targetDisposition: 'wary', spiceQtyAvailable: 5 }).blockedReason)
-      .toBe('not_dealer');
-  });
-
-  it('spice_buy blocks when the dealer is out of stock', () => {
-    expect(resolveAction(richPlayer(), 'spice_buy', dealer, { targetIsDealer: true, targetDisposition: 'neutral', spiceQtyAvailable: 0 }).blockedReason)
-      .toBe('no_spice');
-  });
-
-  it('spice_buy blocks when the player cannot afford a single unit', () => {
-    expect(resolveAction(richPlayer(0), 'spice_buy', dealer, { targetIsDealer: true, targetDisposition: 'neutral', spiceQtyAvailable: 5 }).blockedReason)
-      .toBe('cannot_afford');
-  });
-
-  it('spice_buy clamps the lot to what the player can afford', () => {
-    const unit = spiceBuyPrice('neutral'); // 7
-    const r = resolveAction(richPlayer(unit * 2), 'spice_buy', dealer, {
-      targetIsDealer: true, targetDisposition: 'neutral', spiceQtyAvailable: 5,
-    });
-    expect(r.mutations[0]).toMatchObject({ kind: 'buy_spice', qty: 2 });
-  });
-
-  // ── spice_sell ──
-  it('spice_sell sells to an addict and always earns Comércio XP', () => {
-    const buyer = makeNpc('npc_addict');
-    (buyer.getStats().attributes as Record<string, number>).carisma = 10;
-    const r = resolveAction(richPlayer(0, 5), 'spice_sell', buyer, {
-      targetIsAddict: true, targetDisposition: 'neutral', buyerCreditBalance: 100000,
-    }, rollLow);
-    expect(r.rolled).toBe(true);
-    expect(r.mutations).toContainEqual({ kind: 'apply_skill_use', actor: 'player', skillId: 'comercio' });
-    const sale = r.mutations.find((m) => m.kind === 'sell_spice') as { qty: number; buyer: string } | undefined;
-    expect(sale).toMatchObject({ kind: 'sell_spice', buyer: 'npc_addict', qty: 5 });
-  });
-
-  it('spice_sell blocks a non-addict', () => {
-    expect(resolveAction(richPlayer(0, 5), 'spice_sell', dealer, { targetIsAddict: false }).blockedReason)
-      .toBe('not_addict');
-  });
-
-  it('spice_sell blocks when the player holds no spice', () => {
-    expect(resolveAction(richPlayer(0, 0), 'spice_sell', dealer, { targetIsAddict: true }).blockedReason)
-      .toBe('no_spice');
-  });
-
-  it('spice_sell ALWAYS emits sell_spice (qty = full holding) even for a broke addict — the applier clamps + reports', () => {
-    const buyer = makeNpc('npc_addict');
-    const r = resolveAction(richPlayer(0, 5), 'spice_sell', buyer, {
-      targetIsAddict: true, targetDisposition: 'neutral', buyerCreditBalance: 0,
-    }, rollLow);
-    // The resolver no longer pre-clamps to credits — it hands the full holding to
-    // the applier so the "buyer broke" feedback path is never a silent no-op.
-    const sale = r.mutations.find((m) => m.kind === 'sell_spice') as { qty: number } | undefined;
-    expect(sale).toMatchObject({ kind: 'sell_spice', qty: 5 });
-  });
-
-  it('spice_sell closes at a staged haggle price (no fresh roll) when pendingSpicePrice is set', () => {
-    const buyer = makeNpc('npc_addict');
-    const r = resolveAction(richPlayer(0, 5), 'spice_sell', buyer, {
-      targetIsAddict: true, targetDisposition: 'neutral', pendingSpicePrice: 222,
-    }, rollLow);
-    expect(r.rolled).toBe(false); // staged price → no Comércio re-roll
-    expect(r.mutations).toEqual([{ kind: 'sell_spice', buyer: 'npc_addict', qty: 5, unitPrice: 222 }]);
-  });
-
-  // ── spice_haggle ──
-  it('spice_haggle stages an improved price on a successful Comércio check', () => {
-    const buyer = makeNpc('npc_addict');
-    (buyer.getStats().attributes as Record<string, number>).carisma = 1; // make the check easy to pass
-    const r = resolveAction(richPlayer(0, 5), 'spice_haggle', buyer, {
-      targetIsAddict: true, targetDisposition: 'neutral',
-    }, rollLow);
-    expect(r.success).toBe(true);
-    const stage = r.mutations.find((m) => m.kind === 'haggle_spice') as { kind: string; unitPrice: number } | undefined;
-    expect(stage?.kind).toBe('haggle_spice');
-    expect(stage!.unitPrice).toBeGreaterThan(0);
-  });
-
-  it('spice_haggle on a FAILED check stages no price (XP only, no penalty)', () => {
-    const buyer = makeNpc('npc_addict');
-    (buyer.getStats().attributes as Record<string, number>).carisma = 100; // hard check → fail
-    const r = resolveAction(richPlayer(0, 5), 'spice_haggle', buyer, {
-      targetIsAddict: true, targetDisposition: 'neutral',
-    }, rollHigh);
-    expect(r.success).toBe(false);
-    expect(r.mutations).toEqual([{ kind: 'apply_skill_use', actor: 'player', skillId: 'comercio' }]);
-  });
-
-  it('spice_haggle blocks a non-addict and an empty-handed player', () => {
-    expect(resolveAction(richPlayer(0, 5), 'spice_haggle', makeNpc('x'), { targetIsAddict: false }).blockedReason).toBe('not_addict');
-    expect(resolveAction(richPlayer(0, 0), 'spice_haggle', makeNpc('x'), { targetIsAddict: true }).blockedReason).toBe('no_spice');
-  });
-
-  function npcWithLoadout(id: string, loadout: { id: string; qty: number }[]): NpcActor {
-    return new NpcActor(new NPCAgent({ ...ZARA_DEF, id, loadout }), createDefaultStats());
-  }
-
-  // ── option fallbacks (read live actor inventories when options are omitted) ──
-  it('spice_buy falls back to the dealer inventory + neutral disposition + default lot', () => {
-    const dealerInv = npcWithLoadout('npc_dealer', [{ id: 'spice', qty: 8 }]);
-    const r = resolveAction(richPlayer(1000), 'spice_buy', dealerInv, { targetIsDealer: true });
+  // -- option fallbacks (read live actor inventories when options are omitted) --
+  it('spice_discovery falls back to the dealer inventory + neutral disposition + default lot', () => {
+    const dealerInv = new NpcActor(new NPCAgent({ ...ZARA_DEF, id: 'npc_dealer', loadout: [{ id: 'spice', qty: 8 }] }), createDefaultStats());
+    const r = resolveAction(richPlayer(1000), 'spice_discovery', dealerInv, { targetIsDealer: true });
     expect(r.mutations).toEqual([
-      { kind: 'buy_spice', dealer: 'npc_dealer', qty: 5, unitPrice: spiceBuyPrice('neutral') },
+      { kind: 'stage_pending_spice', npc: 'npc_dealer', side: 'buy', unitPrice: spiceBuyPrice('neutral'), qty: 5 },
     ]);
   });
 
-  it('spice_sell falls back to the player + buyer inventories when counts are omitted', () => {
-    const buyer = npcWithLoadout('npc_addict', [{ id: 'credstick', qty: 100000 }]);
-    const r = resolveAction(richPlayer(0, 5), 'spice_sell', buyer, { targetIsAddict: true }, rollLow);
-    const sale = r.mutations.find((m) => m.kind === 'sell_spice') as { qty: number } | undefined;
-    expect(sale).toMatchObject({ kind: 'sell_spice', qty: 5 });
+  it('spice_haggle on a BUY deal pushes the price DOWN on success', () => {
+    const r = resolveAction(richPlayer(1000), 'spice_haggle', dealer, {
+      targetIsDealer: true, targetDisposition: 'neutral',
+      pendingSpice: { side: 'buy', unitPrice: spiceBuyPrice('neutral'), qty: 5 },
+    }, rollLow);
+    expect(r.success).toBe(true);
+    expect(mut(r, 'apply_spice_haggle')).toEqual({ kind: 'apply_spice_haggle', npc: 'npc_dealer', factor: spiceHaggleFactor('buy', true, false) });
   });
 
-  // ── spice_report ──
+  it('spice_discovery reads an explicit playerSpiceCount for the sell side', () => {
+    const addict = makeNpc('npc_addict');
+    const r = resolveAction(richPlayer(0, 0), 'spice_discovery', addict, {
+      targetIsAddict: true, targetDisposition: 'neutral', playerSpiceCount: 4,
+    });
+    expect(r.mutations).toEqual([
+      { kind: 'stage_pending_spice', npc: 'npc_addict', side: 'sell', unitPrice: spiceResaleBase('neutral'), qty: 4 },
+    ]);
+  });
+
+  // -- spice_report --
   it('spice_report falls back to an empty contract list (blocks)', () => {
     expect(resolveAction(richPlayer(), 'spice_report', dealer, {}).blockedReason).toBe('no_spice_contract');
   });
@@ -320,12 +321,8 @@ describe('Resolver — verbal: spice_* (trafficking job)', () => {
     });
     expect(r.mutations).toEqual([{ kind: 'report_spice', dealer: 'npc_dealer' }]);
   });
-
-  it('spice_report blocks when there is no active contract from this dealer', () => {
-    expect(resolveAction(richPlayer(), 'spice_report', dealer, { activeSpiceContracts: [] }).blockedReason)
-      .toBe('no_spice_contract');
-  });
 });
+
 
 describe('Resolver — verbal: commerce_*', () => {
   const zara = makeNpc('npc_zara');
@@ -416,11 +413,31 @@ describe('Resolver — verbal: commerce_*', () => {
     expect(r.mutations).toEqual([]); // discovery semantics — Applier lists sellable
   });
 
+  it('commerce_haggle WITHOUT pendingTrade but WITH a sellable itemId stages then haggles (implicit pricing)', () => {
+    const stats = createDefaultStats();
+    stats.skills.comercio = 90;
+    const r = resolveAction(makePlayer({ stats }), 'commerce_haggle', zara, {
+      itemId: 'knife', npcSellableIds: ['knife'], priceFor: () => 12,
+    }, rollLow);
+    expect(r.mutations.find((m) => m.kind === 'stage_pending_trade')).toMatchObject({ itemId: 'knife', price: 12 });
+    expect(r.mutations.some((m) => m.kind === 'apply_haggle_discount')).toBe(true);
+  });
+
   it('commerce_buy executes the pending trade', () => {
     const r = resolveAction(makePlayer(), 'commerce_buy', zara, {
       pendingTrade: { itemId: 'knife', price: 18 },
     });
     expect(r.mutations).toEqual([{ kind: 'execute_pending_trade', npc: 'npc_zara' }]);
+  });
+
+  it('commerce_buy WITHOUT pendingTrade but WITH a sellable itemId stages THEN executes (implicit pricing)', () => {
+    const r = resolveAction(makePlayer(), 'commerce_buy', zara, {
+      itemId: 'knife', npcSellableIds: ['knife'], priceFor: () => 18,
+    });
+    expect(r.mutations).toEqual([
+      { kind: 'stage_pending_trade', npc: 'npc_zara', itemId: 'knife', price: 18 },
+      { kind: 'execute_pending_trade', npc: 'npc_zara' },
+    ]);
   });
 
   it('commerce_buy is a silent no-op when nothing is on the table (avoids spurious "no_pending_trade" noise after a successful buy)', () => {
