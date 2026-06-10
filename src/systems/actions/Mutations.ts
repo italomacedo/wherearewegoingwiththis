@@ -84,6 +84,8 @@ export type Mutation =
   // report: improve the dealer's disposition + complete the contract.
   | { kind: 'buy_spice'; dealer: ActorId; qty: number; unitPrice: number; }
   | { kind: 'sell_spice'; buyer: ActorId; qty: number; unitPrice: number; }
+  // haggle: stage an improved resale unit price for the next sell to this addict.
+  | { kind: 'haggle_spice'; buyer: ActorId; unitPrice: number; }
   | { kind: 'report_spice'; dealer: ActorId; }
 
   // ─── PDA ────────────────────────────────────────────────────────────────

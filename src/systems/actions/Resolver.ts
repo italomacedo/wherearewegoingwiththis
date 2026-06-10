@@ -177,6 +177,9 @@ export interface ResolveOptions {
   buyerCreditBalance?: number;
   /** Lot size to buy per `spice_buy` (default `SPICE_LOT`). */
   spiceLot?: number;
+  /** A resale unit price staged by a prior `spice_haggle` for this addict; when set,
+   *  `spice_sell` closes at THIS price (no fresh Comércio roll). */
+  pendingSpicePrice?: number | null;
 
   // ── Locomotion (autonomy) ───────────────────────────────────────────────
   /** A coordinate `move_to` targets (instead of a target Actor). */
@@ -501,16 +504,49 @@ function resolveVerbal(
       if (!o.targetIsAddict) return blocked('not_addict');
       const have = o.playerSpiceCount ?? actor.getInventory().count(SPICE_ID);
       if (have <= 0) return blocked('no_spice');
+      // If a prior spice_haggle staged a price, close at THAT price (no re-roll).
+      // Otherwise run the Comércio resale check now. Either way ALWAYS emit
+      // sell_spice (qty = full holding) and let the applier clamp to what the
+      // addict can afford + surface "sold N" / "buyer broke" — never a silent no-op.
+      const disp: NPCDisposition = o.targetDisposition ?? 'neutral';
+      if (o.pendingSpicePrice && o.pendingSpicePrice > 0) {
+        return {
+          ...ok(),
+          mutations: [{ kind: 'sell_spice', buyer: target.id, qty: have, unitPrice: o.pendingSpicePrice }],
+        };
+      }
+      const comercio = checkValue(actor.getStats(), 'comercio', 'carisma');
+      /* istanbul ignore next — `?? 30` defensive; createDefaultStats always populates carisma */
+      const carisma = target.getStats().attributes.carisma ?? 30;
+      const resale = spiceResaleUnit(disp, comercio, carisma, rng);
+      return {
+        allowed: true, surprise: false, rolled: true,
+        success: resale.success, critical: resale.critical,
+        probability: resale.probability, roll: resale.roll,
+        mutations: [
+          { kind: 'apply_skill_use', actor: actor.id, skillId: 'comercio' },
+          { kind: 'sell_spice', buyer: target.id, qty: have, unitPrice: resale.unit },
+        ],
+      };
+    }
+
+    case 'spice_haggle': {
+      // The player pushes for a better resale price BEFORE closing. Mirrors
+      // commerce_haggle but staged onto a pending spice price the next spice_sell
+      // uses. Failure = no penalty (the price just doesn't improve).
+      if (!target) return blocked('no_target');
+      if (target.isDefeated()) return blocked('dead_target');
+      if (!o.targetIsAddict) return blocked('not_addict');
+      const have = o.playerSpiceCount ?? actor.getInventory().count(SPICE_ID);
+      if (have <= 0) return blocked('no_spice');
       const disp: NPCDisposition = o.targetDisposition ?? 'neutral';
       const comercio = checkValue(actor.getStats(), 'comercio', 'carisma');
       /* istanbul ignore next — `?? 30` defensive; createDefaultStats always populates carisma */
       const carisma = target.getStats().attributes.carisma ?? 30;
       const resale = spiceResaleUnit(disp, comercio, carisma, rng);
-      // Sell as many as the player holds AND the addict can pay for.
-      const buyerCredits = o.buyerCreditBalance ?? creditBalance(target.getInventory());
-      const qty = Math.max(0, Math.min(have, Math.floor(buyerCredits / resale.unit)));
       const mutations: Mutation[] = [{ kind: 'apply_skill_use', actor: actor.id, skillId: 'comercio' }];
-      if (qty > 0) mutations.push({ kind: 'sell_spice', buyer: target.id, qty, unitPrice: resale.unit });
+      // Only stage a price on a successful haggle (the bonus is in resale.unit).
+      if (resale.success) mutations.push({ kind: 'haggle_spice', buyer: target.id, unitPrice: resale.unit });
       return {
         allowed: true, surprise: false, rolled: true,
         success: resale.success, critical: resale.critical,

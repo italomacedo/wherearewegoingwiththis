@@ -350,6 +350,10 @@ export class GameWorldScene extends BaseScene {
   private missions: Mission[] = [];
   /** Active/complete spice-trafficking contracts (Fase 22). */
   private spiceContracts: SpiceContract[] = [];
+  /** A resale price staged by spice_haggle for one addict (ephemeral, per-conversation). */
+  private pendingSpiceSale: { addictId: string; unitPrice: number } | null = null;
+  /** Doses moved by the last sell_spice (so the reply directive narrates the truth). */
+  private lastSpiceSold = 0;
   private pendingTrade: { npcId: string; itemId: string; price: number } | null = null;
   private pendingMission: Mission | null = null;
   /**
@@ -2962,7 +2966,8 @@ export class GameWorldScene extends BaseScene {
       if (m.status === 'active' && m.giverId === npcId) pendings.push({ kind: 'mission', status: 'active', targetId: m.targetId });
     }
 
-    const cls = await this.npcManager.classifyVerbal(npcId, npcName, message, sellable, rivals, pendings);
+    const cls = await this.npcManager.classifyVerbal(npcId, npcName, message, sellable, rivals, pendings,
+      { addict: !!agent.definition.addict, playerHasSpice: this.playerInventory.count(SPICE_ID) > 0 });
     if (cls.verb === 'narrative') return false; // pure chitchat → legacy reply path
 
     // Normalize itemId: classifier sometimes emits the DISPLAY NAME the player
@@ -3016,6 +3021,7 @@ export class GameWorldScene extends BaseScene {
       spiceQtyAvailable: agent.getInventory().count(SPICE_ID),
       playerSpiceCount: this.playerInventory.count(SPICE_ID),
       buyerCreditBalance: creditBalance(agent.getInventory()),
+      pendingSpicePrice: this.pendingSpiceSale?.addictId === npcId ? this.pendingSpiceSale.unitPrice : null,
     };
     const result = resolveAction(playerActor, cls.verb, npcActor, opts, undefined, 'verbal');
     if (!result.allowed) {
@@ -3029,7 +3035,7 @@ export class GameWorldScene extends BaseScene {
       // Surface spice-job blocks so the player understands why nothing moved.
       const spiceBlock: Record<string, string> = {
         not_dealer: 'spice.notDealer', not_addict: 'spice.notAddict',
-        no_spice: cls.verb === 'spice_sell' ? 'spice.noSpiceToSell' : 'spice.outOfStock',
+        no_spice: (cls.verb === 'spice_sell' || cls.verb === 'spice_haggle') ? 'spice.noSpiceToSell' : 'spice.outOfStock',
         cannot_afford: 'spice.cantAfford', no_spice_contract: 'spice.noContract',
       };
       if (cls.verb.startsWith('spice_') && result.blockedReason && spiceBlock[result.blockedReason]) {
@@ -3056,6 +3062,10 @@ export class GameWorldScene extends BaseScene {
     // mutation on a miss, so the chat would be silent without this hint.
     if (cls.verb === 'commerce_haggle' && result.rolled && !result.success) {
       this.dialog?.addSystemLine(t('economy.haggleFailed'));
+    }
+    // Spice haggle failure: the resolver emits no haggle_spice mutation, so hint it.
+    if (cls.verb === 'spice_haggle' && result.rolled && !result.success) {
+      this.dialog?.addSystemLine(t('spice.haggleFailed'));
     }
     // Critical-success narrator beat — gives social/commerce crits the same
     // "show-stopping moment" energy combat crits get. Skipped when the verb
@@ -3154,9 +3164,15 @@ export class GameWorldScene extends BaseScene {
         return `${player} just bought ${m.qty} doses of SPICE off you to run. Close the deal in character — take the credits, hand over the product, and tell them to come back when they've moved it. Do not invent territories or quotas.`;
       }
       case 'spice_sell': {
-        const m = mutations.find((x) => x.kind === 'sell_spice');
-        if (!m || m.kind !== 'sell_spice') return `${player} offered you spice, but the deal didn't close. React briefly in character.`;
-        return `${player} just sold you ${m.qty} doses of SPICE. React as a user getting their fix — take it, pay up, stay in character.`;
+        // The applier decided how many doses the addict could actually afford.
+        const sold = this.lastSpiceSold;
+        if (sold <= 0) return `${player} tried to sell you spice, but you can't cover it. React briefly in character — broke and twitchy.`;
+        return `${player} just sold you ${sold} doses of SPICE. React as a user getting their fix — take it, pay up, stay in character.`;
+      }
+      case 'spice_haggle': {
+        const m = mutations.find((x) => x.kind === 'haggle_spice');
+        if (!m || m.kind !== 'haggle_spice') return `${player} pushed for a higher price on the spice, but you won't budge. React briefly in character.`;
+        return `${player} haggled you up to ${m.unitPrice} cr per dose for the spice. Grumble but agree — you're hooked. Stay in character.`;
       }
       case 'spice_report': {
         const m = mutations.find((x) => x.kind === 'report_spice');
@@ -3338,6 +3354,7 @@ export class GameWorldScene extends BaseScene {
         self.persistSession();
       },
       sellSpice(buyer, qty, unitPrice) {
+        self.lastSpiceSold = 0;
         const a = agentById(buyer);
         if (!a || qty <= 0) return;
         const buyerInv = a.getInventory();
@@ -3347,8 +3364,15 @@ export class GameWorldScene extends BaseScene {
         payCredits(buyerInv, total);
         grantCredits(self.playerInventory, total);
         self.playerInventory.transferTo(buyerInv, SPICE_ID, sellQty);
+        self.lastSpiceSold = sellQty;
+        self.pendingSpiceSale = null; // the negotiation is consumed by the close
         self.dialog?.addSystemLine(t('spice.sold', { qty: sellQty, price: total }));
         self.persistSession();
+      },
+      haggleSpice(buyer, unitPrice) {
+        // Stage the negotiated resale price for the next sell to THIS addict.
+        self.pendingSpiceSale = { addictId: buyer, unitPrice };
+        self.dialog?.addSystemLine(t('spice.haggledUp', { price: unitPrice }));
       },
       reportSpice(dealer) {
         const contract = self.spiceContracts.find((c) => c.dealerId === dealer && c.status === 'active');

@@ -397,7 +397,7 @@ describe('PromptBuilder', () => {
       // All verbs listed (incl. the Fase 22 spice job)
       const verbs = [
         'job_request', 'job_claim', 'job_accept', 'job_decline', 'job_cancel',
-        'spice_buy', 'spice_sell', 'spice_report',
+        'spice_buy', 'spice_sell', 'spice_haggle', 'spice_report',
         'commerce_discovery', 'commerce_pricing', 'commerce_haggle', 'commerce_buy', 'commerce_sell',
         'manipulate', 'persuade', 'intimidate', 'info', 'narrative',
       ];
@@ -447,6 +447,17 @@ describe('PromptBuilder', () => {
     it('reports "No pending offers" when the list is empty', () => {
       const p = PromptBuilder.buildVerbalClassifierPrompt('Hi.', 'Zara', [], []);
       expect(p).toContain('No pending offers or active contracts with this NPC');
+    });
+
+    it('weights spice verbs over commerce_* when the NPC is an addict holding-spice player', () => {
+      const on = PromptBuilder.buildVerbalClassifierPrompt('how much?', 'Zara', [], [], [], { addict: true, playerHasSpice: true });
+      expect(on).toMatch(/spice USER/i);
+      expect(on).toMatch(/prefer spice_sell .* or spice_haggle/i);
+      // Not injected when the NPC is not an addict or the player carries no spice.
+      const off = PromptBuilder.buildVerbalClassifierPrompt('how much?', 'Zara', [], [], [], { addict: false, playerHasSpice: true });
+      expect(off).not.toMatch(/spice USER/i);
+      const off2 = PromptBuilder.buildVerbalClassifierPrompt('how much?', 'Zara', [], [], [], { addict: true, playerHasSpice: false });
+      expect(off2).not.toMatch(/spice USER/i);
     });
   });
 

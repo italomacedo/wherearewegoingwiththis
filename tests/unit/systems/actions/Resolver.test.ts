@@ -241,12 +241,52 @@ describe('Resolver — verbal: spice_* (trafficking job)', () => {
       .toBe('no_spice');
   });
 
-  it('spice_sell clamps the qty to what the addict can pay for (no sale = XP only)', () => {
+  it('spice_sell ALWAYS emits sell_spice (qty = full holding) even for a broke addict — the applier clamps + reports', () => {
     const buyer = makeNpc('npc_addict');
     const r = resolveAction(richPlayer(0, 5), 'spice_sell', buyer, {
       targetIsAddict: true, targetDisposition: 'neutral', buyerCreditBalance: 0,
     }, rollLow);
+    // The resolver no longer pre-clamps to credits — it hands the full holding to
+    // the applier so the "buyer broke" feedback path is never a silent no-op.
+    const sale = r.mutations.find((m) => m.kind === 'sell_spice') as { qty: number } | undefined;
+    expect(sale).toMatchObject({ kind: 'sell_spice', qty: 5 });
+  });
+
+  it('spice_sell closes at a staged haggle price (no fresh roll) when pendingSpicePrice is set', () => {
+    const buyer = makeNpc('npc_addict');
+    const r = resolveAction(richPlayer(0, 5), 'spice_sell', buyer, {
+      targetIsAddict: true, targetDisposition: 'neutral', pendingSpicePrice: 222,
+    }, rollLow);
+    expect(r.rolled).toBe(false); // staged price → no Comércio re-roll
+    expect(r.mutations).toEqual([{ kind: 'sell_spice', buyer: 'npc_addict', qty: 5, unitPrice: 222 }]);
+  });
+
+  // ── spice_haggle ──
+  it('spice_haggle stages an improved price on a successful Comércio check', () => {
+    const buyer = makeNpc('npc_addict');
+    (buyer.getStats().attributes as Record<string, number>).carisma = 1; // make the check easy to pass
+    const r = resolveAction(richPlayer(0, 5), 'spice_haggle', buyer, {
+      targetIsAddict: true, targetDisposition: 'neutral',
+    }, rollLow);
+    expect(r.success).toBe(true);
+    const stage = r.mutations.find((m) => m.kind === 'haggle_spice') as { kind: string; unitPrice: number } | undefined;
+    expect(stage?.kind).toBe('haggle_spice');
+    expect(stage!.unitPrice).toBeGreaterThan(0);
+  });
+
+  it('spice_haggle on a FAILED check stages no price (XP only, no penalty)', () => {
+    const buyer = makeNpc('npc_addict');
+    (buyer.getStats().attributes as Record<string, number>).carisma = 100; // hard check → fail
+    const r = resolveAction(richPlayer(0, 5), 'spice_haggle', buyer, {
+      targetIsAddict: true, targetDisposition: 'neutral',
+    }, rollHigh);
+    expect(r.success).toBe(false);
     expect(r.mutations).toEqual([{ kind: 'apply_skill_use', actor: 'player', skillId: 'comercio' }]);
+  });
+
+  it('spice_haggle blocks a non-addict and an empty-handed player', () => {
+    expect(resolveAction(richPlayer(0, 5), 'spice_haggle', makeNpc('x'), { targetIsAddict: false }).blockedReason).toBe('not_addict');
+    expect(resolveAction(richPlayer(0, 0), 'spice_haggle', makeNpc('x'), { targetIsAddict: true }).blockedReason).toBe('no_spice');
   });
 
   function npcWithLoadout(id: string, loadout: { id: string; qty: number }[]): NpcActor {

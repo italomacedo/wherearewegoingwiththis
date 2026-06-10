@@ -86,6 +86,8 @@ export interface ApplierContext {
   buySpice(dealer: string, qty: number, unitPrice: number): void;
   /** Sell `qty` spice to the addict at `unitPrice` (spice→addict, credits→player). */
   sellSpice(buyer: string, qty: number, unitPrice: number): void;
+  /** Stage an improved resale `unitPrice` for the next sale to this addict (haggle). */
+  haggleSpice(buyer: string, unitPrice: number): void;
   /** Report "sold it all" to the dealer — improve disposition + complete the contract (no verification). */
   reportSpice(dealer: string): void;
 
@@ -246,6 +248,9 @@ export function applyMutation(ctx: ApplierContext, m: Mutation): void {
       return;
     case 'sell_spice':
       ctx.sellSpice(m.buyer, m.qty, m.unitPrice);
+      return;
+    case 'haggle_spice':
+      ctx.haggleSpice(m.buyer, m.unitPrice);
       return;
     case 'report_spice':
       ctx.reportSpice(m.dealer);

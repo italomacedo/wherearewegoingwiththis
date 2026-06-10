@@ -170,9 +170,10 @@ export class ClaudeNPCService {
     npcId: string, npcName: string, message: string,
     sellableIds: string[], rivalIds: string[],
     pendings: { kind: 'trade' | 'mission'; status?: 'pending' | 'active'; itemId?: string; targetId?: string }[] = [],
+    spice: { addict: boolean; playerHasSpice: boolean } = { addict: false, playerHasSpice: false },
   ): Promise<VerbalClassification> {
     try {
-      const prompt = PromptBuilder.buildVerbalClassifierPrompt(message, npcName, sellableIds, rivalIds, pendings);
+      const prompt = PromptBuilder.buildVerbalClassifierPrompt(message, npcName, sellableIds, rivalIds, pendings, spice);
       const raw = await this.oneShot(`${npcId}::verbal`, prompt, 'verbal-classify');
       return parseVerbalClassification(raw, { sellableIds, rivalIds });
     } catch {

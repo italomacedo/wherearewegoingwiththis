@@ -190,9 +190,10 @@ export class NPCManager {
     npcId: string, npcName: string, message: string,
     sellableIds: string[], rivalIds: string[],
     pendings: { kind: 'trade' | 'mission'; status?: 'pending' | 'active'; itemId?: string; targetId?: string }[] = [],
+    spice: { addict: boolean; playerHasSpice: boolean } = { addict: false, playerHasSpice: false },
   ): Promise<VerbalClassification> {
     if (!this.service) return { verb: 'narrative', target: null, itemId: null, proposedPrice: null, dir: null };
-    return this.service.classifyVerbal(npcId, npcName, message, sellableIds, rivalIds, pendings);
+    return this.service.classifyVerbal(npcId, npcName, message, sellableIds, rivalIds, pendings, spice);
   }
 
   /** Ids of live (not-defeated) NPCs — candidate mission targets / rivals. */
