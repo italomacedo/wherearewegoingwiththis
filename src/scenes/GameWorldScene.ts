@@ -475,7 +475,15 @@ export class GameWorldScene extends BaseScene {
     };
     const playerHealth = this.player?.getHealth().toState() ?? this.playerHealthState;
     const vehicle: VehicleSaveState = this.vehicle
-      ? { health: this.vehicle.getHealth().toState(), destroyed: this.vehicle.isDestroyed() }
+      ? (() => {
+          const vp = this.vehicle!.getPosition();
+          return {
+            health: this.vehicle!.getHealth().toState(),
+            destroyed: this.vehicle!.isDestroyed(),
+            position: [vp.x, vp.y, vp.z] as [number, number, number],
+            facing: this.vehicle!.getFacing(),
+          };
+        })()
       : this.vehicleState;
 
     const character = { ...save.character, stats: this.playerStats };
@@ -611,7 +619,16 @@ export class GameWorldScene extends BaseScene {
     // Confine the nave to the whole mosaic world (Fase 17) — inside the border
     // walls (small margin), since the world is offset, not centred at the origin.
     this.vehicle = new VehicleController(this.babylonScene, { horizontalBounds: worldBounds(2) });
-    this.vehicle.spawn(zone.getSpawnPoint().add(new Vector3(4, 0, 0)));
+    // Restore the nave where it was last parked. Reuse the hero's spawn sanitizer so
+    // a corrupt saved position (NaN → a Havok abort, Lesson 46; or a below-floor Y)
+    // can't carry over to the nave; no saved position → the default spawn offset.
+    const naveDefault = zone.getSpawnPoint().add(new Vector3(4, 0, 0));
+    const savedNave = this.vehicleState.position;
+    const naveSpawn = GameWorldScene.sanitizeSpawn(
+      savedNave ? new Vector3(savedNave[0], savedNave[1], savedNave[2]) : null,
+      naveDefault,
+    );
+    this.vehicle.spawn(naveSpawn, this.vehicleState.facing ?? 0);
     this.cockpit = new VehicleCockpit(this.babylonScene); // built lazily on first mount
     this.vehicle.setHealthState(this.vehicleState.health);
     this.vehicle.setDestroyed(this.vehicleState.destroyed);

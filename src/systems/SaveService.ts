@@ -28,6 +28,11 @@ export type NPCMemory = Record<string, ConversationState & {
 export interface VehicleSaveState {
   health: HealthState;
   destroyed: boolean;
+  /** Where the nave was parked (Fase 22 fix). Undefined on legacy saves → the
+   *  scene falls back to the default spawn offset near the zone spawn point. */
+  position?: [number, number, number];
+  /** Parked heading (radians) so the nave keeps its facing across a reload. */
+  facing?: number;
 }
 
 export const DEFAULT_PLAYER_HEALTH: HealthState = { current: 100, max: 100 };

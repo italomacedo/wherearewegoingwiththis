@@ -201,6 +201,14 @@ describe('VehicleController instance', () => {
     expect(vehicle.getFacing()).toBe(0);
   });
 
+  it('spawn restores a saved heading (facing) while keeping the ground rest height', () => {
+    vehicle.spawn(new Vector3(5, 0, -7), 1.2);
+    expect(vehicle.getFacing()).toBeCloseTo(1.2);
+    expect(vehicle.getPosition().x).toBeCloseTo(5);
+    expect(vehicle.getPosition().z).toBeCloseTo(-7);
+    expect(vehicle.getPosition().y).toBeCloseTo(DEFAULT_VEHICLE_CONFIG.groundRestHeight);
+  });
+
   it('update is a no-op while unoccupied and parked', () => {
     vehicle.spawn(new Vector3(0, 0, 0));
     const before = vehicle.getPosition();

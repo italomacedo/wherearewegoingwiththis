@@ -314,17 +314,22 @@ export class VehicleController {
     this.floorProvider = fn;
   }
 
-  /** Builds the placeholder bike and parks it (resting on the ground). */
-  spawn(position: Vector3): void {
+  /**
+   * Builds the placeholder bike and parks it (resting on the ground). An optional
+   * `facing` (heading, radians) restores the parked orientation from a save; Y is
+   * always the ground rest height (an abandoned nave settles on the surface below).
+   */
+  spawn(position: Vector3, facing = 0): void {
     this.buildPlaceholder();
     this.parts.forEach((m) => { if (!m.parent) m.parent = this.visualPivot; });
     this.state = {
       position: new Vector3(position.x, this.config.groundRestHeight, position.z),
-      heading: 0,
+      heading: facing,
       speed: 0,
       velocityY: 0,
     };
-    this.facing = 0;
+    this.facing = facing;
+    this.visualPivot.rotation.y = facing - VEHICLE_MODEL_YAW;
     this.root.position = this.state.position.clone();
 
     // In Electron, swap the placeholder for the real model once it loads. If the
