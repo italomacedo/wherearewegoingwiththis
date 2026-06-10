@@ -1,5 +1,5 @@
 import {
-  Scene, TransformNode, Vector3, MeshBuilder, StandardMaterial, Color3,
+  Scene, TransformNode, Vector3, MeshBuilder, StandardMaterial, Color3, Mesh, VertexData,
 } from '@babylonjs/core';
 import type { AbstractMesh } from '@babylonjs/core';
 import { AdvancedDynamicTexture, TextBlock, Rectangle } from '@babylonjs/gui';
@@ -42,12 +42,26 @@ export const COCKPIT_TRANSFORM: PropTransform = {
  */
 export const COCKPIT_LAYOUT: Readonly<Record<'dashboard' | 'column' | 'yoke' | 'lcd', PropTransform>> = Object.freeze({
   yoke:      { pos: [0, 0, 0], rot: [0, 0, 0], scale: 1 },
-  column:    { pos: [0, 0.02, 0.16], rot: [Math.PI / 2, 0, 0], scale: 1 },
-  // Lowered vertical panel; the LCD is a big screen on its driver-facing face.
-  // rot [0, π, 0] turns the screen's front toward the driver so text reads upright
-  // (the old [π,0,0] flipped it upside-down + mirrored).
-  dashboard: { pos: [0.62, -0.02, 0.3], rot: [0, 0, 0], scale: 1 },
+  // Column reaches forward from the yoke (driver's hands, x=0) into the dashboard.
+  column:    { pos: [0, 0.02, 0.18], rot: [Math.PI / 2, 0, 0], scale: 1 },
+  // Dashboard is a truncated pyramid (frustum): its LARGE base (near, vertical, at
+  // local z=0) faces the driver and backs the LCD; it tapers up+forward to a SMALL
+  // base that meets the windshield's lower edge. Placed so the large base sits at
+  // z=0.26 (just behind the LCD at 0.255).
+  dashboard: { pos: [0.52, -0.02, 0.26], rot: [0, 0, 0], scale: 1 },
   lcd:       { pos: [0.62, -0.02, 0.255], rot: [0, Math.PI, 0], scale: 1 },
+});
+
+/**
+ * Dashboard frustum (truncated pyramid) dimensions, in cockpit-local units. The
+ * NEAR (large) base is the vertical driver-facing face at local z=0 (backs the LCD);
+ * the FAR (small) base is `depth` forward and `rise` up — tuned to meet the lower
+ * edge of the windshield. Adjust these to align the small base to the glass.
+ */
+export const DASH_FRUSTUM = Object.freeze({
+  nearWidth: 1.5, nearHeight: 0.42,
+  farWidth: 0.85, farHeight: 0.1,
+  depth: 0.5, rise: 0.03,
 });
 
 /** FP camera local position on the visual pivot (driver head). Behind the yoke
@@ -118,14 +132,16 @@ export class VehicleCockpit {
     const panelMat = mat('cockpit-panel-mat', new Color3(0.32, 0.32, 0.35), new Color3(0.06, 0.06, 0.07));
     const yokeMat = mat('cockpit-yoke-mat', new Color3(0.02, 0.02, 0.02), Color3.Black());
 
-    // Dashboard: a vertical panel that hosts a big LCD on its driver-facing face.
-    const dash = MeshBuilder.CreateBox('cockpit-dash', { width: 1.0, height: 0.42, depth: 0.08 }, this.scene);
+    // Dashboard: a truncated pyramid whose large base hosts the LCD (driver-facing)
+    // and whose small base meets the windshield's lower edge.
+    panelMat.backFaceCulling = false; // double-sided so the frustum reads solid
+    const dash = this.buildDashFrustum('cockpit-dash');
     dash.material = panelMat;
     dash.parent = root;
     place(dash, COCKPIT_LAYOUT.dashboard);
 
     // Steering column (yoke shaft) from the dashboard toward the pilot.
-    const column = MeshBuilder.CreateCylinder('cockpit-column', { diameter: 0.05, height: 0.3 }, this.scene);
+    const column = MeshBuilder.CreateCylinder('cockpit-column', { diameter: 0.05, height: 0.4 }, this.scene);
     column.material = mat('cockpit-column-mat', new Color3(0.1, 0.1, 0.12), Color3.Black());
     column.parent = root;
     place(column, COCKPIT_LAYOUT.column);
@@ -258,6 +274,38 @@ export class VehicleCockpit {
     }
 
     this.built = true;
+  }
+
+  /**
+   * Build the dashboard frustum mesh (truncated pyramid). Large base at local z=0
+   * (vertical, driver-facing — backs the LCD), tapering up+forward to a small base
+   * at z=`depth`, y+`rise`. Double-sided material handles winding.
+   */
+  private buildDashFrustum(name: string): Mesh {
+    const f = DASH_FRUSTUM;
+    const wl = f.nearWidth / 2, hl = f.nearHeight / 2, ws = f.farWidth / 2, hs = f.farHeight / 2;
+    const d = f.depth, r = f.rise;
+    const positions = [
+      -wl, -hl, 0, wl, -hl, 0, wl, hl, 0, -wl, hl, 0, // near (large) 0..3
+      -ws, r - hs, d, ws, r - hs, d, ws, r + hs, d, -ws, r + hs, d, // far (small) 4..7
+    ];
+    const indices = [
+      0, 1, 2, 0, 2, 3, // near
+      4, 6, 5, 4, 7, 6, // far
+      0, 4, 5, 0, 5, 1, // bottom
+      3, 2, 6, 3, 6, 7, // top
+      0, 3, 7, 0, 7, 4, // left
+      1, 5, 6, 1, 6, 2, // right
+    ];
+    const normals: number[] = [];
+    VertexData.ComputeNormals(positions, indices, normals);
+    const vd = new VertexData();
+    vd.positions = positions;
+    vd.indices = indices;
+    vd.normals = normals;
+    const mesh = new Mesh(name, this.scene);
+    vd.applyToMesh(mesh);
+    return mesh;
   }
 
   /** Apply a calibrated (Adjust tool) transform to the whole cockpit unit. */
