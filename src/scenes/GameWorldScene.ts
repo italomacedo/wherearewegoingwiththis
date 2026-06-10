@@ -1379,6 +1379,11 @@ export class GameWorldScene extends BaseScene {
     // multi-second delta that explodes the falling nave or launches the hero.
     const dt = clampFrameDelta(this.engine.getDeltaTime());
 
+    // Drive the spatial-audio listener from the camera so NPC voices are heard
+    // relative to the view. Done before the early returns (overlays/combat/pause)
+    // so it tracks the camera in every state. No-op until a voice has played.
+    this.updateAudioListener();
+
     // Keep the action ribbon in sync (shown only during free on-foot play; Attack
     // Ranged enabled only with a firearm in hand). Done before the early returns so
     // it hides while any overlay/combat/dialog/aiming/vehicle owns the screen.
@@ -1545,14 +1550,32 @@ export class GameWorldScene extends BaseScene {
   /* istanbul ignore next — thin browser glue over the unit-tested TTSService */
   private speakNpc(agent: NPCAgent, text: string): void {
     const gender = genderOfOutfit(agent.definition.appearance?.bodyBase ?? 'punk');
+    // Spatialize from the NPC's live world position (the holder follows the mesh;
+    // fall back to the logical agent position). The listener is the camera.
+    const p = this.npcHolderById.get(agent.definition.id)?.position ?? agent.getPosition();
     (this.tts ??= ServiceLocator.tryGet<TTSService>('tts') ?? null)
-      ?.speakSubject({ id: agent.definition.id, gender }, text);
+      ?.speakSubject({ id: agent.definition.id, gender }, text, { x: p.x, y: p.y, z: p.z });
   }
 
   /** Voice a cinematic narration line in the narrator voice (fail-open). */
   /* istanbul ignore next — thin browser glue over the unit-tested TTSService */
   private speakNarration(text: string): void {
     (this.tts ??= ServiceLocator.tryGet<TTSService>('tts') ?? null)?.speakNarrator(text);
+  }
+
+  /** Feed the camera (position + orientation) to the TTS spatial-audio listener. */
+  /* istanbul ignore next — thin browser glue over the unit-tested TTSService */
+  private updateAudioListener(): void {
+    const tts = (this.tts ??= ServiceLocator.tryGet<TTSService>('tts') ?? null);
+    const cam = this.cameraSystem?.getCamera();
+    if (!tts || !cam) return;
+    const fwd = cam.getForwardRay().direction;
+    const up = cam.upVector;
+    tts.updateListener(
+      { x: cam.position.x, y: cam.position.y, z: cam.position.z },
+      { x: fwd.x, y: fwd.y, z: fwd.z },
+      { x: up.x, y: up.y, z: up.z },
+    );
   }
 
   /**
