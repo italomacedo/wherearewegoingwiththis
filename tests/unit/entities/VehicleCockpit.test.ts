@@ -1,5 +1,5 @@
 import {
-  COCKPIT_TRANSFORM, COCKPIT_LAYOUT, DRIVER_HEAD_OFFSET, gaugePercents, LCD_BANNER,
+  COCKPIT_TRANSFORM, COCKPIT_LAYOUT, DRIVER_HEAD_OFFSET, LCD_BANNER,
 } from '../../../src/entities/VehicleCockpit';
 
 describe('VehicleCockpit (pure layout + helpers)', () => {
@@ -26,21 +26,5 @@ describe('VehicleCockpit (pure layout + helpers)', () => {
 
   it('LCD_BANNER names Roxane (the car agent)', () => {
     expect(LCD_BANNER).toContain('ROXANE');
-  });
-
-  it('gaugePercents normalizes speed/altitude to their max and health to 0..100%', () => {
-    const g = gaugePercents(7, 14, 20, 40, 1);
-    expect(g.spd).toBeCloseTo(50);
-    expect(g.alt).toBeCloseTo(50);
-    expect(g.hull).toBeCloseTo(100);
-  });
-
-  it('gaugePercents clamps over/under range and handles abs + zero max', () => {
-    const over = gaugePercents(99, 14, 99, 40, 1.5);
-    expect(over.spd).toBe(100);
-    expect(over.alt).toBe(100);
-    expect(over.hull).toBe(100);
-    expect(gaugePercents(-7, 14, -5, 40, -0.2)).toEqual({ spd: 50, alt: 12.5, hull: 0 });
-    expect(gaugePercents(5, 0, 5, 0, 0.5)).toEqual({ spd: 0, alt: 0, hull: 50 });
   });
 });

@@ -47,6 +47,8 @@ export const VEHICLE_MODEL_PATH = 'vehicles/flying_car_1_low_poly.glb';
  */
 export const VEHICLE_MODEL_SCALE = 0.012;
 export const VEHICLE_MODEL_YAW = 0; // flying_car_1_low_poly faces +Z (world forward) — tune if backwards
+/** Windshield/glass opacity (the GLB authors the 'Glass' material at 0.78 — lower = clearer). */
+export const WINDSHIELD_ALPHA = 0.32;
 /** Driver seat position in the visual pivot's local space (calibrated via Adjust). */
 export const DRIVER_SEAT_OFFSET = new Vector3(-0.54, -0.06, 0.36);
 /** Driver seat facing (Y rotation, radians) so the avatar faces the car's front. */
@@ -355,6 +357,13 @@ export class VehicleController {
       if (gltfRoot) {
         gltfRoot.addRotation(0, VEHICLE_MODEL_YAW, 0);
         gltfRoot.scaling = gltfRoot.scaling.scale(VEHICLE_MODEL_SCALE);
+      }
+      // Make the windshield clearer so the driver sees the road (the GLB's 'Glass'
+      // material is authored alpha-blended at ~0.78). Lower its alpha in place.
+      for (const m of meshes) {
+        if (m.material && /glass/i.test(m.material.name)) {
+          m.material.alpha = WINDSHIELD_ALPHA;
+        }
       }
       // Re-fit the dynamic collision body to the real model's bounds (was sized to
       // the placeholder at spawn). No-op headlessly / if physics is off.

@@ -57,6 +57,8 @@ export class CameraSystem {
   private detachPointer: (() => void) | null = null;
   private scene: Scene;
   private fpCamera: UniversalCamera | null = null;
+  private fpYaw = 0;   // first-person look yaw (Z/C orbit), radians
+  private fpPitch = 0; // first-person downward tilt, radians
 
   constructor(scene: Scene, config?: Partial<CameraConfig>) {
     this.scene = scene;
@@ -192,7 +194,7 @@ export class CameraSystem {
    * window events, and attaching would let the camera consume WASD. Browser-only.
    */
   /* istanbul ignore next — camera creation needs a real engine/DOM */
-  enableFirstPerson(parent: TransformNode, localOffset: Vector3): void {
+  enableFirstPerson(parent: TransformNode, localOffset: Vector3, pitchDownRad = 0): void {
     if (typeof document === 'undefined') return;
     if (!this.fpCamera) {
       this.fpCamera = new UniversalCamera('fp-cam', Vector3.Zero(), this.scene);
@@ -201,7 +203,19 @@ export class CameraSystem {
     }
     this.fpCamera.parent = parent;
     this.fpCamera.position = localOffset.clone();
-    this.fpCamera.setTarget(localOffset.add(new Vector3(0, 0, 1))); // look forward (+Z local)
+    // Orient by local euler so Z/C can yaw it: rotation (pitch, yaw, 0). A FreeCamera
+    // at rotation 0 looks along +Z (car forward); +x pitches down, +y yaws right.
+    this.fpPitch = pitchDownRad;
+    this.fpYaw = 0;
+    this.fpCamera.rotation = new Vector3(this.fpPitch, this.fpYaw, 0);
+  }
+
+  /** Yaw the first-person (driver) camera left/right (Z/C orbit). Browser-only. */
+  /* istanbul ignore next — fpCamera only exists in browser (enableFirstPerson) */
+  orbitFirstPerson(deltaRadians: number): void {
+    if (!this.fpCamera) return;
+    this.fpYaw -= deltaRadians; // inverted so Z/C match the arc-camera feel in-car
+    this.fpCamera.rotation = new Vector3(this.fpPitch, this.fpYaw, 0);
   }
 
   /** Swap the active camera between first-person and the arc follow camera. Idempotent. */

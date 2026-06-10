@@ -22,7 +22,7 @@ import { InputSystem } from '@systems/InputSystem';
 import { PhysicsService } from '@systems/PhysicsService';
 import { PlayerController } from '@entities/PlayerController';
 import { VehicleController, VehicleDriveInput, DRIVER_SEAT_OFFSET, DRIVER_SEAT_YAW, DRIVER_SEAT_PITCH } from '@entities/VehicleController';
-import { VehicleCockpit, gaugePercents, COCKPIT_TRANSFORM, WAVEFORM_BARS } from '@entities/VehicleCockpit';
+import { VehicleCockpit, COCKPIT_TRANSFORM, WAVEFORM_BARS, DRIVER_HEAD_RAISE, DRIVER_HEAD_PITCH_DOWN } from '@entities/VehicleCockpit';
 import { createRoxane } from '@entities/npcs/roxane';
 import { downsampleBars } from '@systems/audio/Waveform';
 import { MercadoSombrasZone } from '@entities/zones/MercadoSombrasZone';
@@ -43,8 +43,8 @@ import {
   Mission, RewardOffer, completeMission,
 } from '@systems/economy/Missions';
 import {
-  SpiceContract, SPICE_ID, SPICE_LOT, canOfferSpice, spiceBuyPrice,
-  makeSpiceContract, completeSpiceReport,
+  SpiceContract, SpiceSide, SPICE_ID, SPICE_LOT, canOfferSpice, spiceBuyPrice,
+  clampSpicePrice, makeSpiceContract, completeSpiceReport,
 } from '@systems/economy/SpiceTrade';
 import { InventoryOverlay } from '@systems/InventoryOverlay';
 import { HeldItemRig, resolveAttachWith, boneFor, AttachOverrides, flashlightActive, idleOverrideClip } from '@systems/HeldItems';
@@ -100,7 +100,8 @@ import { WorldStreamer } from '@systems/world/WorldStreamer';
 import { TileScenery } from '@systems/world/TileScenery';
 import { tileOf, tileKey, worldFloorBox, worldBounds, neighbors, type TileCoord } from '@systems/world/WorldGrid';
 import { GroundItem, addGroundItem, removeGroundItemAt, nearestGroundItemIndex } from '@systems/world/GroundItems';
-import { generateTile } from '@assets/world/ThemeRegistry';
+import { generateTile, themeOf, ARCHETYPES } from '@assets/world/ThemeRegistry';
+import { buildMinimapView, type MinimapEntity } from '@systems/MinimapModel';
 import { AssetCache, babylonContainerLoader } from '@systems/world/AssetCache';
 
 /** Max seconds a single frame may advance the simulation. */
@@ -350,10 +351,12 @@ export class GameWorldScene extends BaseScene {
   private missions: Mission[] = [];
   /** Active/complete spice-trafficking contracts (Fase 22). */
   private spiceContracts: SpiceContract[] = [];
-  /** A resale price staged by spice_haggle for one addict (ephemeral, per-conversation). */
-  private pendingSpiceSale: { addictId: string; unitPrice: number } | null = null;
-  /** Doses moved by the last sell_spice (so the reply directive narrates the truth). */
-  private lastSpiceSold = 0;
+  /** A spice deal STAGED with one NPC (discovery/pricing/haggle); the commit executes it.
+   *  Ephemeral, per-conversation — mirrors `pendingTrade`. `base` is the un-haggled
+   *  quote (for the haggle clamp). */
+  private pendingSpice: { npcId: string; side: SpiceSide; unitPrice: number; qty: number; base: number } | null = null;
+  /** Side + doses moved by the last execute (so the reply directive narrates the truth). */
+  private lastSpiceDeal: { side: SpiceSide; qty: number; total: number } | null = null;
   private pendingTrade: { npcId: string; itemId: string; price: number } | null = null;
   private pendingMission: Mission | null = null;
   /**
@@ -3021,7 +3024,9 @@ export class GameWorldScene extends BaseScene {
       spiceQtyAvailable: agent.getInventory().count(SPICE_ID),
       playerSpiceCount: this.playerInventory.count(SPICE_ID),
       buyerCreditBalance: creditBalance(agent.getInventory()),
-      pendingSpicePrice: this.pendingSpiceSale?.addictId === npcId ? this.pendingSpiceSale.unitPrice : null,
+      pendingSpice: this.pendingSpice?.npcId === npcId
+        ? { side: this.pendingSpice.side, unitPrice: this.pendingSpice.unitPrice, qty: this.pendingSpice.qty }
+        : null,
     };
     const result = resolveAction(playerActor, cls.verb, npcActor, opts, undefined, 'verbal');
     if (!result.allowed) {
@@ -3033,9 +3038,12 @@ export class GameWorldScene extends BaseScene {
         this.dialog?.addSystemLine(t('economy.itemNotForSale'));
       }
       // Surface spice-job blocks so the player understands why nothing moved.
+      // `no_spice` means "nothing to sell" on a sell deal, "out of stock" on a buy.
+      const sellSide = !!agent.definition.addict
+        && (this.playerInventory.count(SPICE_ID) > 0 || !agent.definition.dealer);
       const spiceBlock: Record<string, string> = {
         not_dealer: 'spice.notDealer', not_addict: 'spice.notAddict',
-        no_spice: (cls.verb === 'spice_sell' || cls.verb === 'spice_haggle') ? 'spice.noSpiceToSell' : 'spice.outOfStock',
+        no_spice: sellSide ? 'spice.noSpiceToSell' : 'spice.outOfStock',
         cannot_afford: 'spice.cantAfford', no_spice_contract: 'spice.noContract',
       };
       if (cls.verb.startsWith('spice_') && result.blockedReason && spiceBlock[result.blockedReason]) {
@@ -3158,21 +3166,35 @@ export class GameWorldScene extends BaseScene {
           .join(', ');
         return `${player} is asking what you sell. List ONLY these wares, with these EXACT prices, and nothing else: ${list}. Do not invent, imply, or mention any other merchandise; if they ask for something not on this list, say you don't carry it.`;
       }
-      case 'spice_buy': {
-        const m = mutations.find((x) => x.kind === 'buy_spice');
-        if (!m || m.kind !== 'buy_spice') return undefined;
-        return `${player} just bought ${m.qty} doses of SPICE off you to run. Close the deal in character — take the credits, hand over the product, and tell them to come back when they've moved it. Do not invent territories or quotas.`;
-      }
-      case 'spice_sell': {
-        // The applier decided how many doses the addict could actually afford.
-        const sold = this.lastSpiceSold;
-        if (sold <= 0) return `${player} tried to sell you spice, but you can't cover it. React briefly in character — broke and twitchy.`;
-        return `${player} just sold you ${sold} doses of SPICE. React as a user getting their fix — take it, pay up, stay in character.`;
+      case 'spice_discovery':
+      case 'spice_pricing': {
+        // A deal was STAGED (no transfer yet) — the NPC quotes the price.
+        const p = this.pendingSpice;
+        if (!p) return undefined;
+        return p.side === 'buy'
+          ? `${player} is feeling out a SPICE run. Quote them ${p.qty} doses at ${p.unitPrice} cr each to buy and resell on the street. Pitch it plainly — nothing changes hands until they agree. Do not invent territories, quotas, or deadlines.`
+          : `${player} is offering to sell you SPICE. Name your price — about ${p.unitPrice} cr a dose — and show your interest, but nothing changes hands until they close. Stay in character as a user.`;
       }
       case 'spice_haggle': {
-        const m = mutations.find((x) => x.kind === 'haggle_spice');
-        if (!m || m.kind !== 'haggle_spice') return `${player} pushed for a higher price on the spice, but you won't budge. React briefly in character.`;
-        return `${player} haggled you up to ${m.unitPrice} cr per dose for the spice. Grumble but agree — you're hooked. Stay in character.`;
+        const p = this.pendingSpice;
+        const m = mutations.find((x) => x.kind === 'apply_spice_haggle');
+        if (!p || !m || m.kind !== 'apply_spice_haggle') {
+          return `${player} pushed on the spice price, but you hold firm. React briefly in character — nothing moved.`;
+        }
+        return p.side === 'buy'
+          ? `${player} haggled your spice price DOWN to ${p.unitPrice} cr a dose. Grumble but accept the thinner margin — nothing closes until they say deal. Stay in character.`
+          : `${player} pushed your spice price UP to ${p.unitPrice} cr a dose. You're hooked enough to pay it — but nothing changes hands until they close. Stay in character.`;
+      }
+      case 'spice_buy':
+      case 'spice_sell': {
+        // The commit executed whatever was staged — read the real outcome.
+        const d = this.lastSpiceDeal;
+        if (!d || d.qty <= 0) {
+          return `${player} tried to close a spice deal, but it fell through (broke or out of stock). React briefly in character.`;
+        }
+        return d.side === 'buy'
+          ? `${player} just BOUGHT ${d.qty} doses of SPICE off you for ${d.total} cr to run. Take the credits, hand over the product, and tell them to come back when they've moved it. Do not invent territories or quotas.`
+          : `${player} just SOLD you ${d.qty} doses of SPICE for ${d.total} cr. React as a user getting their fix — take it, pay up, stay in character.`;
       }
       case 'spice_report': {
         const m = mutations.find((x) => x.kind === 'report_spice');
@@ -3334,45 +3356,55 @@ export class GameWorldScene extends BaseScene {
           self.persistSession();
         }
       },
-      // ── Spice-trafficking job (Fase 22) ──────────────────────────────
-      buySpice(dealer, qty, unitPrice) {
-        const a = agentById(dealer);
-        if (!a || qty <= 0) return;
+      // ── Spice-trafficking job (Fase 22) — staged negotiation ─────────
+      stagePendingSpice(npc, side, unitPrice, qty) {
+        // Put a deal on the table (no transfer). `base` lets the haggle clamp.
+        self.pendingSpice = { npcId: npc, side, unitPrice, qty, base: unitPrice };
+        self.dialog?.addSystemLine(t(side === 'buy' ? 'spice.quotedBuy' : 'spice.quotedSell', { qty, price: unitPrice }));
+      },
+      applySpiceHaggle(npc, factor) {
+        const p = self.pendingSpice;
+        if (!p || p.npcId !== npc) return;
+        p.unitPrice = clampSpicePrice(p.side, Math.round(p.unitPrice * factor), p.base);
+        self.dialog?.addSystemLine(t(p.side === 'buy' ? 'spice.haggledDown' : 'spice.haggledUp', { price: p.unitPrice }));
+      },
+      executePendingSpice(npc) {
+        self.lastSpiceDeal = null;
+        const p = self.pendingSpice;
+        if (!p || p.npcId !== npc) return;
+        const a = agentById(npc);
+        if (!a) return;
         const npcInv = a.getInventory();
-        const moveQty = Math.min(qty, npcInv.count(SPICE_ID));
-        if (moveQty <= 0) { self.dialog?.addSystemLine(t('spice.outOfStock')); return; }
-        const total = moveQty * unitPrice;
-        if (creditBalance(self.playerInventory) < total) { self.dialog?.addSystemLine(t('spice.cantAfford')); return; }
-        payCredits(self.playerInventory, total);
-        grantCredits(npcInv, total);
-        npcInv.transferTo(self.playerInventory, SPICE_ID, moveQty);
-        // Open (or top up) the active contract with this dealer.
-        const existing = self.spiceContracts.find((c) => c.dealerId === dealer && c.status === 'active');
-        if (existing) existing.qty += moveQty;
-        else self.spiceContracts.push(makeSpiceContract(dealer, moveQty));
-        self.dialog?.addSystemLine(t('spice.bought', { qty: moveQty, price: total }));
+        if (p.side === 'buy') {
+          const moveQty = Math.min(p.qty, npcInv.count(SPICE_ID), Math.floor(creditBalance(self.playerInventory) / Math.max(1, p.unitPrice)));
+          if (moveQty <= 0) {
+            self.dialog?.addSystemLine(creditBalance(self.playerInventory) < p.unitPrice ? t('spice.cantAfford') : t('spice.outOfStock'));
+            self.pendingSpice = null;
+            return;
+          }
+          const total = moveQty * p.unitPrice;
+          payCredits(self.playerInventory, total);
+          grantCredits(npcInv, total);
+          npcInv.transferTo(self.playerInventory, SPICE_ID, moveQty);
+          const existing = self.spiceContracts.find((c) => c.dealerId === npc && c.status === 'active');
+          if (existing) existing.qty += moveQty; else self.spiceContracts.push(makeSpiceContract(npc, moveQty));
+          self.lastSpiceDeal = { side: 'buy', qty: moveQty, total };
+          self.dialog?.addSystemLine(t('spice.bought', { qty: moveQty, price: total }));
+        } else {
+          const sellQty = Math.min(p.qty, self.playerInventory.count(SPICE_ID), Math.floor(creditBalance(npcInv) / Math.max(1, p.unitPrice)));
+          if (sellQty <= 0) { self.dialog?.addSystemLine(t('spice.buyerBroke')); self.pendingSpice = null; return; }
+          const total = sellQty * p.unitPrice;
+          payCredits(npcInv, total);
+          grantCredits(self.playerInventory, total);
+          self.playerInventory.transferTo(npcInv, SPICE_ID, sellQty);
+          self.lastSpiceDeal = { side: 'sell', qty: sellQty, total };
+          self.dialog?.addSystemLine(t('spice.sold', { qty: sellQty, price: total }));
+        }
+        self.pendingSpice = null; // consumed by the close
         self.persistSession();
       },
-      sellSpice(buyer, qty, unitPrice) {
-        self.lastSpiceSold = 0;
-        const a = agentById(buyer);
-        if (!a || qty <= 0) return;
-        const buyerInv = a.getInventory();
-        const sellQty = Math.min(qty, self.playerInventory.count(SPICE_ID), Math.floor(creditBalance(buyerInv) / Math.max(1, unitPrice)));
-        if (sellQty <= 0) { self.dialog?.addSystemLine(t('spice.buyerBroke')); return; }
-        const total = sellQty * unitPrice;
-        payCredits(buyerInv, total);
-        grantCredits(self.playerInventory, total);
-        self.playerInventory.transferTo(buyerInv, SPICE_ID, sellQty);
-        self.lastSpiceSold = sellQty;
-        self.pendingSpiceSale = null; // the negotiation is consumed by the close
-        self.dialog?.addSystemLine(t('spice.sold', { qty: sellQty, price: total }));
-        self.persistSession();
-      },
-      haggleSpice(buyer, unitPrice) {
-        // Stage the negotiated resale price for the next sell to THIS addict.
-        self.pendingSpiceSale = { addictId: buyer, unitPrice };
-        self.dialog?.addSystemLine(t('spice.haggledUp', { price: unitPrice }));
+      clearPendingSpice(npc) {
+        if (self.pendingSpice?.npcId === npc) self.pendingSpice = null;
       },
       reportSpice(dealer) {
         const contract = self.spiceContracts.find((c) => c.dealerId === dealer && c.status === 'active');
@@ -4219,31 +4251,39 @@ export class GameWorldScene extends BaseScene {
     const head = headSaved
       ? new Vector3(headSaved.pos[0], headSaved.pos[1], headSaved.pos[2])
       : (this.cockpit?.getHeadOffset() ?? new Vector3(-0.4, 1.15, -0.65));
-    this.cameraSystem.enableFirstPerson(this.vehicle.getVisualRoot(), head);
+    head.y += DRIVER_HEAD_RAISE; // raise the eye-point so the driver sees over the dash
+    this.cameraSystem.enableFirstPerson(this.vehicle.getVisualRoot(), head, DRIVER_HEAD_PITCH_DOWN);
   }
 
   /** Cockpit reacts to driving: refresh the LCD readout. */
   /* istanbul ignore next — browser-only cockpit LCD updates */
   private updateCockpit(): void {
     if (!this.vehicle || !this.cockpit?.isBuilt()) return;
-    const g = gaugePercents(
-      this.vehicle.getSpeed(), this.vehicle.getMaxSpeed(),
-      this.vehicle.getPosition().y, this.vehicle.getMaxAltitude(),
-      this.vehicle.getHealth().fraction(),
-    );
-    this.cockpit.setGauges(g.spd, g.alt, g.hull);
-    // Roxane's voice waveform: while she speaks, sample the live TTS spectrum and
-    // map it to the dashboard bars; otherwise rest the bars and show her status.
+    // Heading-up minimap: tiles tinted by theme + NPC dots around the centred car.
+    const pos = this.vehicle.getPosition();
+    const entities: MinimapEntity[] = [];
+    for (const a of this.npcManager?.getAgents() ?? []) {
+      const p = this.npcHolderById.get(a.definition.id)?.position ?? a.getPosition();
+      entities.push({ x: p.x, z: p.z, dead: a.isDefeated() });
+    }
+    this.cockpit.setMinimap(buildMinimapView({
+      px: pos.x, pz: pos.z, heading: this.vehicle.getFacing(), entities,
+      themeColorAt: (tx, tz) => ARCHETYPES[themeOf(tx, tz, this.worldSeed)].ground,
+    }));
+    // Roxane's voice waveform: shown ONLY during a chat with her. While she speaks,
+    // sample the live TTS spectrum and map it to the dashboard bars.
     const tts = (this.tts ??= ServiceLocator.tryGet<TTSService>('tts') ?? null);
-    if (tts?.isSpeaking()) {
+    const speaking = tts?.isSpeaking() ?? false;
+    const inChat = (this.dialog?.isOpen() ?? false) && this.chatMode === 'roxane';
+    this.cockpit.setWaveformVisible(inChat || speaking);
+    if (speaking) {
       const freq = (this.waveSamples ??= new Uint8Array(128));
-      tts.sampleFrequencies(freq);
+      tts!.sampleFrequencies(freq);
       this.cockpit.setWaveform(downsampleBars(freq, WAVEFORM_BARS));
       this.cockpit.setLcdText(t('roxane.speaking'));
     } else {
       this.cockpit.setWaveformIdle();
-      const listening = (this.dialog?.isOpen() ?? false) && this.chatMode === 'roxane';
-      this.cockpit.setLcdText(listening ? t('roxane.listening') : t('roxane.online'));
+      this.cockpit.setLcdText(inChat ? t('roxane.listening') : t('roxane.online'));
     }
   }
 
@@ -4256,14 +4296,20 @@ export class GameWorldScene extends BaseScene {
     this.cameraSystem.setFirstPerson(!this.cameraSystem.isFirstPerson());
   }
 
-  /** Hold Z / C to orbit the camera left / right around the hero (also MMB-drag). */
+  /** Hold Z / C to orbit the camera left / right — the arc follow camera, or the
+   *  in-car first-person camera (driver look) when it's active. */
   private handleCameraKeys(dt: number): void {
     if (!this.inputSystem || !this.cameraSystem) return;
+    const fp = this.cameraSystem.isFirstPerson();
+    const spin = (delta: number): void => {
+      if (fp) this.cameraSystem!.orbitFirstPerson(delta);
+      else this.cameraSystem!.orbit(delta);
+    };
     if (this.inputSystem.isActionActive('camera.rotateLeft')) {
-      this.cameraSystem.orbit(KEY_ORBIT_SPEED * dt);
+      spin(KEY_ORBIT_SPEED * dt);
     }
     if (this.inputSystem.isActionActive('camera.rotateRight')) {
-      this.cameraSystem.orbit(-KEY_ORBIT_SPEED * dt);
+      spin(-KEY_ORBIT_SPEED * dt);
     }
   }
 

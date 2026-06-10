@@ -4,6 +4,8 @@ import {
 import type { AbstractMesh } from '@babylonjs/core';
 import { AdvancedDynamicTexture, TextBlock, Rectangle } from '@babylonjs/gui';
 import type { ItemAttach } from '@entities/items/ItemCatalog';
+import type { MinimapView } from '@systems/MinimapModel';
+import { MINIMAP_SIZE_PX } from '@systems/MinimapModel';
 
 /**
  * In-car cockpit: a low-poly dashboard + aircraft-style control yoke and an LCD
@@ -44,13 +46,19 @@ export const COCKPIT_LAYOUT: Readonly<Record<'dashboard' | 'column' | 'yoke' | '
   // Lowered vertical panel; the LCD is a big screen on its driver-facing face.
   // rot [0, π, 0] turns the screen's front toward the driver so text reads upright
   // (the old [π,0,0] flipped it upside-down + mirrored).
-  dashboard: { pos: [0.95, -0.02, 0.3], rot: [0, 0, 0], scale: 1 },
-  lcd:       { pos: [0.95, -0.02, 0.255], rot: [0, Math.PI, 0], scale: 1 },
+  dashboard: { pos: [0.62, -0.02, 0.3], rot: [0, 0, 0], scale: 1 },
+  lcd:       { pos: [0.62, -0.02, 0.255], rot: [0, Math.PI, 0], scale: 1 },
 });
 
 /** FP camera local position on the visual pivot (driver head). Behind the yoke
  *  (−Z is rearward; the car faces +Z), tuned for the in-cabin view. */
 export const DRIVER_HEAD_OFFSET = new Vector3(-0.4, 1.15, -0.65);
+
+/** Extra vertical lift (units) applied to the resolved driver head on mount. */
+export const DRIVER_HEAD_RAISE = 0.25;
+
+/** Downward tilt (radians) of the in-car camera so the driver sees the road. */
+export const DRIVER_HEAD_PITCH_DOWN = (10 * Math.PI) / 180;
 
 /** Placeholder banner shown on the LCD (Roxane, the car agent, overrides via setLcdText). */
 export const LCD_BANNER = 'NETRUNNER OS v2.077  ·  ROXANE: STANDBY';
@@ -58,28 +66,17 @@ export const LCD_BANNER = 'NETRUNNER OS v2.077  ·  ROXANE: STANDBY';
 /** Number of vertical bars in the dashboard voice waveform (Roxane). */
 export const WAVEFORM_BARS = 28;
 
-/** Gauge fills (0..100%) for the LCD bars: speed, altitude and hull condition. */
-export function gaugePercents(
-  speed: number, maxSpeed: number, altitude: number, maxAltitude: number, healthFrac: number,
-): { spd: number; alt: number; hull: number } {
-  const pct = (v: number, max: number) => (max > 0 ? Math.max(0, Math.min(100, (Math.abs(v) / max) * 100)) : 0);
-  return {
-    spd: pct(speed, maxSpeed),
-    alt: pct(altitude, maxAltitude),
-    hull: Math.max(0, Math.min(100, healthFrac * 100)),
-  };
-}
-
 /* istanbul ignore next — browser/Electron only; verified via manual playtest */
 export class VehicleCockpit {
   private scene: Scene;
   private root: TransformNode | null = null;
   private lcdTexture: AdvancedDynamicTexture | null = null;
   private bannerBlock: TextBlock | null = null;
-  private spdFill: Rectangle | null = null;
-  private altFill: Rectangle | null = null;
-  private hullFill: Rectangle | null = null;
   private waveBars: Rectangle[] = [];
+  private waveStrip: Rectangle | null = null;
+  private mapCells: Rectangle[] = [];
+  private mapDots: Rectangle[] = [];
+  private mapNorth: TextBlock | null = null;
   private built = false;
 
   constructor(scene: Scene) {
@@ -122,7 +119,7 @@ export class VehicleCockpit {
     const yokeMat = mat('cockpit-yoke-mat', new Color3(0.02, 0.02, 0.02), Color3.Black());
 
     // Dashboard: a vertical panel that hosts a big LCD on its driver-facing face.
-    const dash = MeshBuilder.CreateBox('cockpit-dash', { width: 1.2, height: 0.36, depth: 0.08 }, this.scene);
+    const dash = MeshBuilder.CreateBox('cockpit-dash', { width: 1.0, height: 0.42, depth: 0.08 }, this.scene);
     dash.material = panelMat;
     dash.parent = root;
     place(dash, COCKPIT_LAYOUT.dashboard);
@@ -158,10 +155,10 @@ export class VehicleCockpit {
     });
 
     // LCD: a big screen filling the dashboard's driver-facing face.
-    const lcd = MeshBuilder.CreatePlane('cockpit-lcd', { width: 1.12, height: 0.32 }, this.scene);
+    const lcd = MeshBuilder.CreatePlane('cockpit-lcd', { width: 0.9, height: 0.38 }, this.scene);
     place(lcd, COCKPIT_LAYOUT.lcd);
     lcd.parent = root;
-    const tex = AdvancedDynamicTexture.CreateForMesh(lcd, 896, 256); // ~3.5:1 to match the plane
+    const tex = AdvancedDynamicTexture.CreateForMesh(lcd, 900, 380); // ~2.37:1 to match the plane
     // The screen faces the driver via the plane's rot [0,π,0], which mirrors the
     // texture horizontally — cancel it by flipping the U so the text reads normally.
     tex.uScale = -1;
@@ -187,44 +184,67 @@ export class VehicleCockpit {
     bg.addControl(banner);
     this.bannerBlock = banner;
 
-    // Three phosphor gauges (speed / altitude / hull) as progress bars.
-    const gauge = (label: string, topPx: number): Rectangle => {
-      const lbl = new TextBlock(`cockpit-gauge-${label}`, label);
-      lbl.color = '#33FF99';
-      lbl.fontFamily = '"Courier New", monospace';
-      lbl.fontSize = 28;
-      lbl.horizontalAlignment = 0; lbl.textHorizontalAlignment = 0;
-      lbl.verticalAlignment = 0; lbl.textVerticalAlignment = 0;
-      lbl.left = '24px'; lbl.top = `${topPx}px`;
-      lbl.width = '120px'; lbl.height = '30px';
-      bg.addControl(lbl);
-      const track = new Rectangle(`cockpit-track-${label}`);
-      track.horizontalAlignment = 0; track.verticalAlignment = 0;
-      track.left = '150px'; track.top = `${topPx}px`;
-      track.width = '700px'; track.height = '26px';
-      track.background = '#0a3322'; track.color = '#1f7a55'; track.thickness = 2;
-      bg.addControl(track);
-      const fill = new Rectangle(`cockpit-fill-${label}`);
-      fill.horizontalAlignment = 0; // grow from the left
-      fill.width = '0%'; fill.height = '100%';
-      fill.background = '#33FF99'; fill.thickness = 0;
-      track.addControl(fill);
-      return fill;
-    };
-    this.spdFill = gauge('SPD', 70);
-    this.altFill = gauge('ALT', 116);
-    this.hullFill = gauge('HULL', 162);
+    // ── Minimap (heading-up) on the LEFT of the LCD (in the camera frame) ──
+    // A clipped square holds a pool of themed tile cells + NPC dots; the car
+    // marker stays centred (always points up) and an "N" rides the ring. All
+    // driven per-frame by setMinimap(); see MinimapModel for the pure math.
+    const map = new Rectangle('cockpit-minimap');
+    map.horizontalAlignment = 0; map.verticalAlignment = 0;
+    map.left = '28px'; map.top = '56px';
+    map.width = `${MINIMAP_SIZE_PX}px`; map.height = `${MINIMAP_SIZE_PX}px`;
+    map.background = '#031a10'; map.color = '#1f7a55'; map.thickness = 2;
+    map.clipChildren = true;
+    bg.addControl(map);
+
+    // Tile-cell pool — enough for a (2·span+1)² block (span ≈ 3 → 49). Hidden
+    // until setMinimap fills them.
+    for (let i = 0; i < 49; i++) {
+      const cell = new Rectangle(`cockpit-map-cell-${i}`);
+      cell.horizontalAlignment = 2; cell.verticalAlignment = 2; // CENTER
+      cell.thickness = 0; cell.isVisible = false;
+      map.addControl(cell);
+      this.mapCells.push(cell);
+    }
+    // NPC dot pool (drawn over the cells).
+    for (let i = 0; i < 24; i++) {
+      const dot = new Rectangle(`cockpit-map-dot-${i}`);
+      dot.horizontalAlignment = 2; dot.verticalAlignment = 2;
+      dot.width = '7px'; dot.height = '7px'; dot.cornerRadius = 4;
+      dot.thickness = 0; dot.isVisible = false;
+      map.addControl(dot);
+      this.mapDots.push(dot);
+    }
+    // North marker on the ring.
+    const north = new TextBlock('cockpit-map-north', 'N');
+    north.color = '#FFCC33';
+    north.fontFamily = '"Courier New", monospace';
+    north.fontSize = 22; north.fontStyle = 'bold';
+    north.horizontalAlignment = 2; north.verticalAlignment = 2;
+    north.width = '20px'; north.height = '20px';
+    map.addControl(north);
+    this.mapNorth = north;
+    // Car marker — centred, always pointing up.
+    const car = new TextBlock('cockpit-map-car', '▲');
+    car.color = '#33E0FF';
+    car.fontFamily = '"Courier New", monospace';
+    car.fontSize = 22;
+    car.horizontalAlignment = 2; car.verticalAlignment = 2;
+    map.addControl(car);
 
     // Voice waveform strip (Roxane): a row of centre-anchored bars across the
-    // bottom of the LCD. A container centres each bar so a level grows both up
-    // and down (symmetric scope look). Heights are driven by setWaveform.
+    // bottom-left of the LCD. A container centres each bar so a level grows both
+    // up and down (symmetric scope look). Visible ONLY during a Roxane chat
+    // (setWaveformVisible); heights are driven by setWaveform.
+    const stripW = 900 - (28 + MINIMAP_SIZE_PX + 24) - 24; // right of the map, to the edge
     const strip = new Rectangle('cockpit-wave-strip');
     strip.horizontalAlignment = 0; strip.verticalAlignment = 0;
-    strip.left = '24px'; strip.top = '200px';
-    strip.width = '848px'; strip.height = '48px';
+    strip.left = `${28 + MINIMAP_SIZE_PX + 24}px`; strip.top = '92px';
+    strip.width = `${stripW}px`; strip.height = '190px';
     strip.thickness = 0; strip.background = 'transparent';
+    strip.isVisible = false;
     bg.addControl(strip);
-    const slot = 848 / WAVEFORM_BARS;
+    this.waveStrip = strip;
+    const slot = stripW / WAVEFORM_BARS;
     for (let i = 0; i < WAVEFORM_BARS; i++) {
       const bar = new Rectangle(`cockpit-wave-${i}`);
       bar.horizontalAlignment = 0; // LEFT
@@ -255,11 +275,11 @@ export class VehicleCockpit {
 
   /**
    * Drive the voice waveform bars (each level 0..1). Extra/short level arrays are
-   * tolerated (missing bars rest flat). Max bar height ~46px (the strip is 48).
+   * tolerated (missing bars rest flat). Max bar height ~150px (the strip is 190).
    * No-op headless.
    */
   setWaveform(levels: number[]): void {
-    const MAX_PX = 46;
+    const MAX_PX = 150;
     for (let i = 0; i < this.waveBars.length; i++) {
       const lvl = Math.max(0, Math.min(1, levels[i] ?? 0));
       this.waveBars[i]!.height = `${Math.max(2, Math.round(lvl * MAX_PX))}px`;
@@ -271,19 +291,55 @@ export class VehicleCockpit {
     for (const bar of this.waveBars) bar.height = '2px';
   }
 
-  /** Drive the speed / altitude / hull gauge bars (each 0..100%). No-op headless. */
-  setGauges(spd: number, alt: number, hull: number): void {
-    if (this.spdFill) this.spdFill.width = `${Math.max(0, Math.min(100, spd))}%`;
-    if (this.altFill) this.altFill.width = `${Math.max(0, Math.min(100, alt))}%`;
-    if (this.hullFill) this.hullFill.width = `${Math.max(0, Math.min(100, hull))}%`;
+  /** Show/hide the whole waveform strip (only during a Roxane chat). No-op headless. */
+  setWaveformVisible(visible: boolean): void {
+    if (this.waveStrip) this.waveStrip.isVisible = visible;
+  }
+
+  /** Convert an RGB tint (0..1) to a hex colour string. */
+  private static rgbToHex([r, g, b]: [number, number, number]): string {
+    const to = (v: number) => Math.max(0, Math.min(255, Math.round(v * 255))).toString(16).padStart(2, '0');
+    return `#${to(r)}${to(g)}${to(b)}`;
+  }
+
+  /** Drive the heading-up minimap from a pure MinimapView. No-op headless. */
+  setMinimap(view: MinimapView): void {
+    for (let i = 0; i < this.mapCells.length; i++) {
+      const cell = this.mapCells[i]!;
+      const c = view.cells[i];
+      if (!c) { cell.isVisible = false; continue; }
+      cell.isVisible = true;
+      cell.left = `${Math.round(c.dx)}px`;
+      cell.top = `${Math.round(c.dy)}px`;
+      const s = `${Math.max(1, Math.round(c.sizePx))}px`;
+      cell.width = s; cell.height = s;
+      cell.rotation = view.rotation;
+      cell.background = VehicleCockpit.rgbToHex(c.color);
+    }
+    for (let i = 0; i < this.mapDots.length; i++) {
+      const dot = this.mapDots[i]!;
+      const d = view.dots[i];
+      if (!d) { dot.isVisible = false; continue; }
+      dot.isVisible = true;
+      dot.left = `${Math.round(d.dx)}px`;
+      dot.top = `${Math.round(d.dy)}px`;
+      dot.background = d.dead ? '#8a3b3b' : '#FF4D6D';
+    }
+    if (this.mapNorth) {
+      this.mapNorth.left = `${Math.round(view.north.dx)}px`;
+      this.mapNorth.top = `${Math.round(view.north.dy)}px`;
+    }
   }
 
   dispose(): void {
     this.lcdTexture?.dispose(); // not a scene-graph child of the pivot — dispose explicitly
     this.lcdTexture = null;
     this.bannerBlock = null;
-    this.spdFill = this.altFill = this.hullFill = null;
     this.waveBars = [];
+    this.waveStrip = null;
+    this.mapCells = [];
+    this.mapDots = [];
+    this.mapNorth = null;
     this.root?.dispose(false, true); // dispose the cockpit subtree + its materials
     this.root = null;
     this.built = false;
