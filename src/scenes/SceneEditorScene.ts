@@ -48,6 +48,8 @@ export class SceneEditorScene extends BaseScene {
   private camera: ArcRotateCamera | null = null;
   /** Keys currently held (keyboard navigation: pan/orbit/zoom). */
   private keysDown = new Set<string>();
+  /** Removes the canvas DOM nav listeners (wheel/auxclick). */
+  private detachNav: (() => void) | null = null;
   private panels: EditorPanels | null = null;
   private cache: AssetCache | null = null;
   private gizmos: GizmoManager | null = null;
@@ -77,12 +79,32 @@ export class SceneEditorScene extends BaseScene {
     this.camera = camera;
     scene.activeCamera = camera;
     if (typeof document !== 'undefined') {
-      // (noPreventDefault=false → Babylon owns wheel/middle-drag,
-      //  useCtrlForPanning=false, panningMouseButton=2 → RIGHT-drag pans.)
+      // (noPreventDefault=false, useCtrlForPanning=false, panningMouseButton=2 → RIGHT-drag pans.)
       camera.attachControl(false, false, 2);
       // LEFT button stays free for pick/gizmo: orbit on MIDDLE, pan on RIGHT.
       const pointers = camera.inputs.attached.pointers as unknown as { buttons: number[] } | undefined;
       if (pointers) pointers.buttons = [1, 2];
+      // Wheel zoom via a raw DOM listener — Babylon's mousewheel input doesn't
+      // fire reliably in the Electron canvas (same approach as CameraSystem).
+      camera.inputs.removeByType('ArcRotateCameraMouseWheelInput');
+      const canvas = this.engine.getRenderingCanvas();
+      if (canvas) {
+        const onWheel = (e: WheelEvent): void => {
+          const step = Math.sign(e.deltaY) * Math.max(2, camera.radius * 0.08);
+          camera.radius = Math.min(camera.upperRadiusLimit ?? 160,
+            Math.max(camera.lowerRadiusLimit ?? 5, camera.radius + step));
+          e.preventDefault();
+        };
+        const onAux = (e: MouseEvent): void => {
+          if (e.button === 1) e.preventDefault(); // suppress middle-click autoscroll
+        };
+        canvas.addEventListener('wheel', onWheel, { passive: false });
+        canvas.addEventListener('auxclick', onAux);
+        this.detachNav = () => {
+          canvas.removeEventListener('wheel', onWheel);
+          canvas.removeEventListener('auxclick', onAux);
+        };
+      }
     }
 
     const ambient = new HemisphericLight('editor-light', new Vector3(0.2, 1, 0.3), scene);
@@ -108,6 +130,8 @@ export class SceneEditorScene extends BaseScene {
 
   async onExit(): Promise<void> {
     this.keysDown.clear();
+    this.detachNav?.();
+    this.detachNav = null;
     this.panels?.dispose();
     this.panels = null;
     this.gizmos?.dispose();
@@ -476,8 +500,8 @@ export class SceneEditorScene extends BaseScene {
     if (k.has('d') || k.has('arrowright')) move.addInPlace(right.scale(pan));
     if (k.has('a') || k.has('arrowleft')) move.addInPlace(right.scale(-pan));
     if (move.lengthSquared() > 0) cam.target.addInPlace(move);
-    if (k.has('z')) cam.alpha += 1.6 * dt;
-    if (k.has('c')) cam.alpha -= 1.6 * dt;
+    if (k.has('z')) cam.alpha -= 1.6 * dt;
+    if (k.has('c')) cam.alpha += 1.6 * dt;
     if (k.has('r')) cam.radius = Math.max(cam.lowerRadiusLimit ?? 5, cam.radius - 40 * dt);
     if (k.has('f')) cam.radius = Math.min(cam.upperRadiusLimit ?? 160, cam.radius + 40 * dt);
   }
