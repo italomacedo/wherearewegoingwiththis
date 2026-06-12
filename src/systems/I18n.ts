@@ -41,6 +41,7 @@ export const STRINGS: Record<string, Entry> = {
 
   // ─── Scene Editor ────────────────────────────────────────────────────────
   'editor.title': e('SCENE EDITOR', 'EDITOR DE CENAS'),
+  'editor.backToMenu': e('← MENU', '← MENU'),
   'editor.newQuadrant': e('NEW QUADRANT', 'NOVO QUADRANTE'),
   'editor.newInterior': e('NEW INTERIOR', 'NOVO INTERIOR'),
   'editor.save': e('SAVE', 'SALVAR'),

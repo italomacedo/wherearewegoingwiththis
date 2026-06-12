@@ -494,6 +494,122 @@
    },
    "dealer": true,
    "rotationY": 0
+  },
+  {
+   "name": "Vex Sousa",
+   "role": "street vendor",
+   "personalityPrompt": "You are a slick operator with a razor-sharp mind for angles, data, and people—always three moves ahead in the information game. Your worldview is one of calculated neutrality; everyone's got something to sell and everyone's buying, so you just facilitate the exchange without judgment or sentiment.",
+   "backstory": "Once a mid-level corp data analyst, you burned out on the lies and sold your access to the right people; now you've reinvented yourself as Mercado das Sombras' most reliable connect, trading in everything from black-market neural mods to corporate secrets.",
+   "routine": "You work the Mercado's main corridor from dusk until the heat comes down, hawking wares from a weathered stall while your augmented eyes scan the crowd for marks, cops, and old debts still outstanding.",
+   "defaultMood": "hostile",
+   "initialDisposition": "neutral",
+   "outfit": "punk",
+   "attributes": {
+    "forca": 10,
+    "destreza": 10,
+    "inteligencia": 10,
+    "carisma": 10
+   },
+   "position": [
+    -8.40724317960933,
+    0,
+    -3.412983114804689
+   ],
+   "id": "npc",
+   "npcRelationships": {
+    "npc_mback_fence_01": "neutral",
+    "npc_zara_vendor_01": "neutral",
+    "npc_2": "friendly",
+    "npc_2_2": "friendly"
+   },
+   "loadout": [
+    {
+     "id": "knife",
+     "qty": 1
+    },
+    {
+     "id": "credstick",
+     "qty": 50
+    }
+   ]
+  },
+  {
+   "name": "Chaddarius Toney",
+   "role": "street vendor",
+   "personalityPrompt": "You are a slick operator with a razor-sharp mind for angles, data, and people—always three moves ahead in the information game. Your worldview is one of calculated neutrality; everyone's got something to sell and everyone's buying, so you just facilitate the exchange without judgment or sentiment.",
+   "backstory": "Once a mid-level corp data analyst, you burned out on the lies and sold your access to the right people; now you've reinvented yourself as Mercado das Sombras' most reliable connect, trading in everything from black-market neural mods to corporate secrets. ",
+   "routine": "You work the Mercado's main corridor from dusk until the heat comes down, hawking wares from a weathered stall while your augmented eyes scan the crowd for marks, cops, and old debts still outstanding.",
+   "defaultMood": "hostile",
+   "initialDisposition": "neutral",
+   "outfit": "suit",
+   "attributes": {
+    "forca": 10,
+    "destreza": 10,
+    "inteligencia": 10,
+    "carisma": 10
+   },
+   "position": [
+    -9.292853355407715,
+    0,
+    -3.770554542541504
+   ],
+   "id": "npc_2",
+   "npcRelationships": {
+    "npc_mback_fence_01": "neutral",
+    "npc_zara_vendor_01": "neutral",
+    "npc": "friendly",
+    "npc_2_2": "friendly"
+   },
+   "loadout": [
+    {
+     "id": "knife",
+     "qty": 1
+    },
+    {
+     "id": "credstick",
+     "qty": 50
+    }
+   ],
+   "rotationY": 0
+  },
+  {
+   "name": "Kai Tronson",
+   "role": "street vendor",
+   "personalityPrompt": "You are a slick operator with a razor-sharp mind for angles, data, and people—always three moves ahead in the information game. Your worldview is one of calculated neutrality; everyone's got something to sell and everyone's buying, so you just facilitate the exchange without judgment or sentiment.",
+   "backstory": "Once a mid-level corp data analyst, you burned out on the lies and sold your access to the right people; now you've reinvented yourself as Mercado das Sombras' most reliable connect, trading in everything from black-market neural mods to corporate secrets.",
+   "routine": "You work the Mercado's main corridor from dusk until the heat comes down, hawking wares from a weathered stall while your augmented eyes scan the crowd for marks, cops, and old debts still outstanding.",
+   "defaultMood": "hostile",
+   "initialDisposition": "neutral",
+   "outfit": "casual_2",
+   "attributes": {
+    "forca": 10,
+    "destreza": 10,
+    "inteligencia": 10,
+    "carisma": 10
+   },
+   "position": [
+    -10.214849472045898,
+    0,
+    -3.677600860595703
+   ],
+   "id": "npc_2_2",
+   "npcRelationships": {
+    "npc_mback_fence_01": "neutral",
+    "npc_zara_vendor_01": "neutral",
+    "npc": "friendly",
+    "npc_2": "friendly"
+   },
+   "loadout": [
+    {
+     "id": "knife",
+     "qty": 1
+    },
+    {
+     "id": "credstick",
+     "qty": 50
+    }
+   ],
+   "rotationY": 0
   }
  ],
  "doorTriggers": []

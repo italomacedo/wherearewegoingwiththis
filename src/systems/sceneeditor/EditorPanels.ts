@@ -44,6 +44,8 @@ export interface EditorPanelHandlers {
   onGroundCycle(): void;
   onDelete(): void;
   onDuplicate(): void;
+  /** Back to the main menu (same dirty-confirm flow as ESC). */
+  onBack(): void;
   /** Draft Personality/Backstory/Routine for the SELECTED NPC via the Claude CLI
    *  (null = no Electron bridge / call failed / unparseable). */
   onGeneratePersona(): Promise<GeneratedPersona | null>;
@@ -173,11 +175,12 @@ export class EditorPanels {
     bar.thickness = 1;
     this.gui!.addControl(bar);
 
-    this.toolbarBtn(t('editor.newQuadrant'), 8, 130, () => this.handlers.onNew('quadrant'));
-    this.toolbarBtn(t('editor.newInterior'), 146, 130, () => this.handlers.onNew('interior'));
-    this.toolbarBtn(t('editor.save'), 284, 80, () => this.handlers.onSave());
-    this.toolbarBtn(t('editor.load'), 372, 80, () => this.toggleLoadPanel());
-    this.toolbarBtn(t('editor.ground'), 460, 80, () => this.handlers.onGroundCycle());
+    this.toolbarBtn(t('editor.backToMenu'), 8, 80, () => this.handlers.onBack());
+    this.toolbarBtn(t('editor.newQuadrant'), 96, 130, () => this.handlers.onNew('quadrant'));
+    this.toolbarBtn(t('editor.newInterior'), 234, 130, () => this.handlers.onNew('interior'));
+    this.toolbarBtn(t('editor.save'), 372, 80, () => this.handlers.onSave());
+    this.toolbarBtn(t('editor.load'), 460, 80, () => this.toggleLoadPanel());
+    this.toolbarBtn(t('editor.ground'), 548, 80, () => this.handlers.onGroundCycle());
 
     const title = new TextBlock('editor-title');
     title.color = UI.accent;
@@ -216,7 +219,7 @@ export class EditorPanels {
     panel.width = '260px';
     panel.height = '60%';
     panel.top = `${TOOLBAR_H + 6}px`;
-    panel.left = '372px';
+    panel.left = '460px'; // under the Load button
     panel.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
     panel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
     panel.background = UI.frameBg;
@@ -575,13 +578,13 @@ export class EditorPanels {
     const wrapper = document.createElement('div');
     wrapper.id = 'editor-dom-inputs';
     document.body.appendChild(wrapper);
-    this.idInput = this.domInput('left:556px;top:10px', '120px', t('editor.sceneId'), (v) => {
+    this.idInput = this.domInput('left:644px;top:10px', '120px', t('editor.sceneId'), (v) => {
       const clean = v.toLowerCase().replace(/[^a-z0-9_-]/g, '');
       this.state.setMeta({ id: clean || 'untitled' });
       this.refresh();
     });
     wrapper.appendChild(this.idInput);
-    this.nameInput = this.domInput('left:686px;top:10px', '160px', t('editor.sceneName'), (v) => {
+    this.nameInput = this.domInput('left:774px;top:10px', '160px', t('editor.sceneName'), (v) => {
       this.state.setMeta({ name: v || this.state.doc.id });
       this.refresh();
     });

@@ -731,6 +731,7 @@ export class SceneEditorScene extends BaseScene {
         if (this.state.duplicateSelected()) void this.syncVisuals();
       },
       onGeneratePersona: () => this.generatePersona(),
+      onBack: () => this.onEsc(),
     };
   }
 
