@@ -439,12 +439,16 @@
    "location": "Mercado das Sombras, the stall-front that hides her netrunner bench",
    "npcRelationships": {
     "npc_mback_fence_01": "wary",
-    "npc": "wary",
-    "npc_2": "wary",
-    "npc_2_2": "wary"
+    "npc": "hostile",
+    "npc_2": "hostile",
+    "npc_2_2": "hostile"
    },
    "addict": true,
-   "rotationY": 0.9956050674433058
+   "rotationY": 0.9956050674433058,
+   "attributes": {
+    "forca": 40,
+    "destreza": 30
+   }
   },
   {
    "id": "npc_mback_fence_01",

@@ -79,7 +79,7 @@ import { applyMutations, ApplierContext } from '@systems/actions/Applier';
 import type { Mutation } from '@systems/actions/Mutations';
 import {
   CharacterStats, AttributeId, createDefaultStats, checkValue, applySkillUse,
-  detectPerkPointGrants, grantPerkPoints, skillDef, ATTRIBUTES,
+  detectPerkPointGrants, grantPerkPoints, skillDef,
 } from '@entities/CharacterStats';
 import { CharacterSheetOverlay } from '@systems/CharacterSheetOverlay';
 import { PdaOverlay } from '@systems/PdaOverlay';
@@ -4079,9 +4079,8 @@ export class GameWorldScene extends BaseScene {
     skillId: string | null | undefined, attribute: AttributeId,
     roll: number, probability: number, success: boolean, critical: boolean
   ): void {
-    const label = skillId
-      ? (skillDef(skillId)?.label ?? skillId)
-      : (ATTRIBUTES.find((a) => a.id === attribute)?.label ?? attribute);
+    // Localized names (the static SkillDef/AttributeDef labels are pt-only).
+    const label = skillId ? t(`skill.${skillId}`) : t(`attr.${attribute}`);
     this.dialog?.addSystemLine(checkLine(label, roll, probability, success, critical));
   }
 
@@ -4769,7 +4768,8 @@ export class GameWorldScene extends BaseScene {
     const def = skillDef(skillId);
     const gained = (this.playerStats.skills[skillId] ?? 0) - (before.skills[skillId] ?? 0);
     if (def && gained > 0) {
-      this.hud?.pushToast(t('toast.skillGain', { skill: def.label, amount: gained.toFixed(1) }));
+      // i18n name, not the static SkillDef label (which is pt-only).
+      this.hud?.pushToast(t('toast.skillGain', { skill: t(`skill.${skillId}`), amount: gained.toFixed(1) }));
     }
     this.applyPerkPointGrants(before, this.playerStats);
   }
@@ -4780,8 +4780,7 @@ export class GameWorldScene extends BaseScene {
     if (Object.keys(grants).length > 0) {
       this.playerStats = grantPerkPoints(after, grants);
       for (const attrId of Object.keys(grants) as AttributeId[]) {
-        const label = ATTRIBUTES.find((a) => a.id === attrId)?.label ?? attrId;
-        this.hud?.pushToast(t('toast.perkPoint', { attr: label }));
+        this.hud?.pushToast(t('toast.perkPoint', { attr: t(`attr.${attrId}`) }));
       }
     }
   }
