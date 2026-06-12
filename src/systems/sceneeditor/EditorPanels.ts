@@ -21,6 +21,7 @@ import { entriesByCategory } from './GalleryManifest';
 import type { EditorState, EditorTab } from './EditorState';
 import type { SceneKind, SceneNpcDoc } from './SceneDoc';
 import type { NPCDisposition } from '@entities/NPCAgent';
+import type { GeneratedPersona } from './PersonaGen';
 
 export interface EditorPanelHandlers {
   onNew(kind: SceneKind): void;
@@ -43,6 +44,9 @@ export interface EditorPanelHandlers {
   onGroundCycle(): void;
   onDelete(): void;
   onDuplicate(): void;
+  /** Draft Personality/Backstory/Routine for the SELECTED NPC via the Claude CLI
+   *  (null = no Electron bridge / call failed / unparseable). */
+  onGeneratePersona(): Promise<GeneratedPersona | null>;
 }
 
 const PANEL_W = 250;
@@ -68,6 +72,8 @@ export class EditorPanels {
   private npcModalDom: HTMLElement[] = [];
   private modalLoadoutList: StackPanel | null = null;
   private modalRelList: StackPanel | null = null;
+  private modalTextareas: { personality: HTMLTextAreaElement; backstory: HTMLTextAreaElement; routine: HTMLTextAreaElement } | null = null;
+  private generatingPersona = false;
   private loadoutPickIdx = 0;
   /** Live gallery filter (lowercased) typed in the search field. */
   private filter = '';
@@ -603,6 +609,7 @@ export class EditorPanels {
     this.npcModal = null;
     this.modalLoadoutList = null;
     this.modalRelList = null;
+    this.modalTextareas = null;
     this.refresh();
   }
 
@@ -695,11 +702,29 @@ export class EditorPanels {
       this.refresh();
     };
     this.modalLabel(frame, t('editor.personality'), 50);
-    this.domTextarea(70, 58, npc.personalityPrompt, (v) => patch({ personalityPrompt: v }));
+    const personality = this.domTextarea(70, 58, npc.personalityPrompt, (v) => patch({ personalityPrompt: v }));
     this.modalLabel(frame, t('editor.backstory'), 134);
-    this.domTextarea(154, 58, npc.backstory ?? '', (v) => patch({ backstory: v || undefined }));
+    const backstory = this.domTextarea(154, 58, npc.backstory ?? '', (v) => patch({ backstory: v || undefined }));
     this.modalLabel(frame, t('editor.routine'), 218);
-    this.domTextarea(238, 58, npc.routine ?? '', (v) => patch({ routine: v || undefined }));
+    const routine = this.domTextarea(238, 58, npc.routine ?? '', (v) => patch({ routine: v || undefined }));
+    this.modalTextareas = { personality, backstory, routine };
+
+    // ⚡ Draft the three persona texts with one cheap Claude CLI call.
+    const genBtn = Button.CreateSimpleButton('npc-modal-gen', t('editor.generatePersona'));
+    genBtn.width = '150px';
+    genBtn.height = '28px';
+    genBtn.top = '6px';
+    genBtn.left = '-52px';
+    genBtn.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+    genBtn.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+    genBtn.color = UI.btnFg;
+    genBtn.background = UI.btnBg;
+    genBtn.fontSize = UI.fontMeta;
+    genBtn.fontFamily = UI.font;
+    genBtn.thickness = 1;
+    genBtn.cornerRadius = UI.cornerSm;
+    genBtn.onPointerUpObservable.add(() => { void this.generatePersona(genBtn); });
+    frame.addControl(genBtn);
 
     // Two columns: inventory (left) + relationship ledger (right).
     this.modalLabel(frame, t('editor.loadout'), 306, 16, UI.textPrimary);
@@ -723,6 +748,31 @@ export class EditorPanels {
     this.modalLoadoutList = mkColumn('loadout', 12);
     this.modalRelList = mkColumn('rel', MODAL_W / 2 + 4);
     this.renderNpcModalLists();
+  }
+
+  /** Run the AI persona draft and pour the result into the fields + textareas. */
+  private async generatePersona(btn: Button): Promise<void> {
+    if (this.generatingPersona) return;
+    this.generatingPersona = true;
+    const original = btn.textBlock?.text ?? '';
+    if (btn.textBlock) btn.textBlock.text = '· · ·';
+    try {
+      const persona = await this.handlers.onGeneratePersona();
+      if (persona && this.state.selectedNpc()) {
+        this.state.setNpcField(persona);
+        if (this.modalTextareas) {
+          this.modalTextareas.personality.value = persona.personalityPrompt;
+          this.modalTextareas.backstory.value = persona.backstory;
+          this.modalTextareas.routine.value = persona.routine;
+        }
+        this.refresh();
+      } else {
+        this.setStatus(t('editor.generateFailed'));
+      }
+    } finally {
+      this.generatingPersona = false;
+      if (btn.textBlock) btn.textBlock.text = original;
+    }
   }
 
   /** Re-render the loadout + relationship columns from the selected NPC. */

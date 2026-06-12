@@ -27,6 +27,9 @@ import { parseGalleryManifest, type GalleryEntry } from '@systems/sceneeditor/Ga
 import { SceneDoc, SceneKind, QUADRANT_BAND, INTERIOR_BAND } from '@systems/sceneeditor/SceneDoc';
 import { loadAllSceneDocs, writeSceneDoc } from '@systems/world/SceneDocSource';
 import { randomNpc } from '@systems/sceneeditor/NpcRandomizer';
+import { buildPersonaPrompt, parsePersonaResponse, type GeneratedPersona } from '@systems/sceneeditor/PersonaGen';
+import { ClaudeNPCService, type ClaudeBridge } from '@systems/ClaudeNPCService';
+import { SettingsService } from '@systems/SettingsService';
 import { OUTFITS } from '@assets/AvatarMeshCatalog';
 import { itemModelPath } from '@entities/items/ItemCatalog';
 import type { AttributeId } from '@entities/CharacterStats';
@@ -50,6 +53,8 @@ export class SceneEditorScene extends BaseScene {
   private keysDown = new Set<string>();
   /** Removes the canvas DOM nav listeners (wheel/auxclick). */
   private detachNav: (() => void) | null = null;
+  /** Lazy Claude CLI service for the persona-draft button (Electron only). */
+  private claudeService: ClaudeNPCService | null = null;
   private panels: EditorPanels | null = null;
   private cache: AssetCache | null = null;
   private gizmos: GizmoManager | null = null;
@@ -725,7 +730,25 @@ export class SceneEditorScene extends BaseScene {
       onDuplicate: () => {
         if (this.state.duplicateSelected()) void this.syncVisuals();
       },
+      onGeneratePersona: () => this.generatePersona(),
     };
+  }
+
+  /** One cheap Claude CLI call (narrate seam: Haiku/low/ONE_SHOT_SYSTEM, fail-open)
+   *  drafting Personality/Backstory/Routine for the selected NPC. */
+  private async generatePersona(): Promise<GeneratedPersona | null> {
+    const npc = this.state.selectedNpc();
+    if (!npc) return null;
+    if (!this.claudeService) {
+      if (typeof window === 'undefined' || !window.electronAPI) return null;
+      this.claudeService = new ClaudeNPCService({
+        claudePath: SettingsService.get('claudeCliPath'),
+        bridge: window.electronAPI as unknown as ClaudeBridge,
+      });
+    }
+    const prompt = buildPersonaPrompt(npc, this.state.doc.name);
+    const raw = await this.claudeService.narrate(`editor_persona_${npc.id}`, prompt);
+    return parsePersonaResponse(raw);
   }
 
   private async save(): Promise<void> {

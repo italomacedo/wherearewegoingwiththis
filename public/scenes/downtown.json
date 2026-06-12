@@ -92,11 +92,13 @@
    "key": "prop-planter",
    "model": "world/downtown/prop_planter_single.glb",
    "position": [
-    -6,
+    3.0960793495178223,
     0,
-    7.5
+    -6.490617275238037
    ],
-   "solid": true
+   "solid": true,
+   "rotationY": 0,
+   "scale": 1
   },
   {
    "key": "manhole-0",
@@ -297,6 +299,54 @@
    "solid": true,
    "rotationY": 0,
    "scale": 1
+  },
+  {
+   "key": "prop_drain",
+   "model": "world/downtown/prop_drain.glb",
+   "position": [
+    -13.853879928588867,
+    0,
+    -10.614827156066895
+   ],
+   "solid": true,
+   "rotationY": 0,
+   "scale": 1
+  },
+  {
+   "key": "prop-planter_2",
+   "model": "world/downtown/prop_planter_single.glb",
+   "position": [
+    -3.604698896408081,
+    0,
+    -6.520119667053223
+   ],
+   "solid": true,
+   "rotationY": 0,
+   "scale": 1
+  },
+  {
+   "key": "houseplant_1",
+   "model": "world/interior/houseplant_1.glb",
+   "position": [
+    -3.5006227493286133,
+    0.296697199344635,
+    -6.592288970947266
+   ],
+   "solid": true,
+   "rotationY": 0,
+   "scale": 1
+  },
+  {
+   "key": "houseplant_1_2",
+   "model": "world/interior/houseplant_1.glb",
+   "position": [
+    3.107642650604248,
+    0.30935436487197876,
+    -6.552288055419922
+   ],
+   "solid": true,
+   "rotationY": 0,
+   "scale": 1
   }
  ],
  "items": [],
@@ -310,7 +360,7 @@
    "routine": "Keeps a market stall as a front by day, then runs the nets till dawn — cracking corp systems, feeding leaks to the strip, and watching for retaliation.",
    "relationships": "Loathes Mback, the smug corporate fixer who slums the strip dangling money to buy people off — to her he is everything wrong with this city. Steers clear of the Vyse-Tek enforcers who patrol it.",
    "defaultMood": "suspicious",
-   "initialDisposition": "wary",
+   "initialDisposition": "friendly",
    "outfit": "w_punk",
    "loadout": [
     {
@@ -332,6 +382,18 @@
     {
      "id": "credstick",
      "qty": 100
+    },
+    {
+     "id": "burger",
+     "qty": 10
+    },
+    {
+     "id": "cheeseburger",
+     "qty": 10
+    },
+    {
+     "id": "apple",
+     "qty": 10
     }
    ],
    "position": [
