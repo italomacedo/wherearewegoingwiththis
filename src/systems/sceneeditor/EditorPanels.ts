@@ -58,6 +58,9 @@ export class EditorPanels {
   private idInput: HTMLInputElement | null = null;
   private nameInput: HTMLInputElement | null = null;
   private npcNameInput: HTMLInputElement | null = null;
+  private searchInput: HTMLInputElement | null = null;
+  /** Live gallery filter (lowercased) typed in the search field. */
+  private filter = '';
   private entries: GalleryEntry[] = [];
   private openCategory: string | null = null;
   private sceneIds: string[] = [];
@@ -271,9 +274,10 @@ export class EditorPanels {
       this.tabButtons.set(tab, box);
     });
 
+    // Reserved band for the DOM search input (tabs 6..32 + search 38..62).
     const scroll = new ScrollViewer('editor-gallery-scroll');
-    scroll.top = '38px';
-    scroll.height = '92%';
+    scroll.top = '68px';
+    scroll.height = '86%';
     scroll.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
     scroll.thickness = 0;
     scroll.barColor = UI.accentSoft;
@@ -310,12 +314,17 @@ export class EditorPanels {
       box.color = active ? UI.accent : UI.cardBorder;
     }
     list.clearControls();
+    const q = this.filter;
+    const matches = (...texts: Array<string | undefined>): boolean =>
+      q === '' || texts.some((s) => s !== undefined && s.toLowerCase().includes(q));
     if (this.state.tab === 'models') {
-      const byCat = entriesByCategory(this.entries);
+      const visible = this.entries.filter((e) => matches(e.label, e.path, e.category));
+      const byCat = entriesByCategory(visible);
       for (const [cat, items] of byCat) {
-        const open = this.openCategory === cat;
+        // While searching, every matching category is expanded automatically.
+        const open = q !== '' || this.openCategory === cat;
         list.addControl(this.listButton(`${open ? '▾' : '▸'} ${cat} (${items.length})`, () => {
-          this.openCategory = open ? null : cat;
+          this.openCategory = this.openCategory === cat ? null : cat;
           this.renderGallery();
         }, UI.textPrimary));
         if (open) {
@@ -326,11 +335,13 @@ export class EditorPanels {
       }
     } else if (this.state.tab === 'items') {
       for (const def of Object.values(ITEM_REGISTRY)) {
+        if (!matches(def.id, def.category)) continue;
         list.addControl(this.listButton(`${def.id} (${def.category})`, () => this.handlers.onItemPick(def.id)));
       }
     } else if (this.state.tab === 'npcs') {
       list.addControl(this.listButton(t('editor.generateNpc'), () => this.handlers.onGenerateNpc(), UI.accent));
       for (const npc of this.state.doc.npcs) {
+        if (!matches(npc.name, npc.role, npc.outfit)) continue;
         list.addControl(this.listButton(`${npc.name} · ${npc.outfit}`, () => {
           this.state.select({ kind: 'npc', id: npc.id });
           this.renderProperties();
@@ -339,6 +350,7 @@ export class EditorPanels {
     } else {
       list.addControl(this.listButton(t('editor.addDoor'), () => this.handlers.onAddDoor(), UI.accent));
       for (const door of this.state.doc.doorTriggers) {
+        if (!matches(door.key, door.targetSceneId)) continue;
         list.addControl(this.listButton(`${door.key} → ${door.targetSceneId || t('editor.doorNoTarget')}`, () => {
           this.state.select({ kind: 'door', key: door.key });
           this.renderProperties();
@@ -556,6 +568,14 @@ export class EditorPanels {
       this.refresh();
     });
     wrapper.appendChild(this.nameInput);
+    // Gallery search — overlays the reserved band under the tab row (panel top
+    // 50 + tabs 32 + 6). Filters every tab live as the user types.
+    this.searchInput = this.domInput(`left:18px;top:${TOOLBAR_H + 6 + 38}px`, `${PANEL_W - 26}px`, t('editor.search'), () => { /* filtered on input */ });
+    this.searchInput.addEventListener('input', () => {
+      this.filter = (this.searchInput?.value ?? '').trim().toLowerCase();
+      this.renderGallery();
+    });
+    wrapper.appendChild(this.searchInput);
   }
 
   /** Overlays the reserved 'npc-name-gap' row at the top of the properties panel

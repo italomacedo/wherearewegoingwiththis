@@ -62,6 +62,7 @@ export const STRINGS: Record<string, Entry> = {
   'editor.sceneId': e('id', 'id'),
   'editor.sceneName': e('name', 'nome'),
   'editor.npcName': e('NPC name', 'Nome do NPC'),
+  'editor.search': e('⌕ Search…', '⌕ Buscar…'),
   'editor.hint': e('LMB select · MMB orbit · RMB pan · wheel zoom · WASD/arrows pan · Z/C orbit · R/F zoom · 1/2/3 move/rotate/scale · Del · Ctrl+D · ESC menu',
     'BEM seleciona · BMM orbita · BDM pan · roda zoom · WASD/setas pan · Z/C orbita · R/F zoom · 1/2/3 mover/girar/escalar · Del · Ctrl+D · ESC menu'),
 
