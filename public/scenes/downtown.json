@@ -128,7 +128,7 @@
     0,
     -8.730570793151855
    ],
-   "solid": true,
+   "solid": false,
    "rotationY": 0,
    "scale": 1
   },
@@ -426,7 +426,10 @@
    "home": "a cramped capsule flat above the noodle bar, three levels up from the market",
    "location": "Mercado das Sombras, the stall-front that hides her netrunner bench",
    "npcRelationships": {
-    "npc_mback_fence_01": "wary"
+    "npc_mback_fence_01": "wary",
+    "npc": "wary",
+    "npc_2": "wary",
+    "npc_2_2": "wary"
    },
    "addict": true,
    "rotationY": 0.9956050674433058
@@ -501,8 +504,8 @@
    "personalityPrompt": "You are a slick operator with a razor-sharp mind for angles, data, and people—always three moves ahead in the information game. Your worldview is one of calculated neutrality; everyone's got something to sell and everyone's buying, so you just facilitate the exchange without judgment or sentiment.",
    "backstory": "Once a mid-level corp data analyst, you burned out on the lies and sold your access to the right people; now you've reinvented yourself as Mercado das Sombras' most reliable connect, trading in everything from black-market neural mods to corporate secrets.",
    "routine": "You work the Mercado's main corridor from dusk until the heat comes down, hawking wares from a weathered stall while your augmented eyes scan the crowd for marks, cops, and old debts still outstanding.",
-   "defaultMood": "hostile",
-   "initialDisposition": "neutral",
+   "defaultMood": "neutral",
+   "initialDisposition": "hostile",
    "outfit": "punk",
    "attributes": {
     "forca": 10,
@@ -518,7 +521,7 @@
    "id": "npc",
    "npcRelationships": {
     "npc_mback_fence_01": "neutral",
-    "npc_zara_vendor_01": "neutral",
+    "npc_zara_vendor_01": "wary",
     "npc_2": "friendly",
     "npc_2_2": "friendly"
    },
@@ -539,8 +542,8 @@
    "personalityPrompt": "You are a slick operator with a razor-sharp mind for angles, data, and people—always three moves ahead in the information game. Your worldview is one of calculated neutrality; everyone's got something to sell and everyone's buying, so you just facilitate the exchange without judgment or sentiment.",
    "backstory": "Once a mid-level corp data analyst, you burned out on the lies and sold your access to the right people; now you've reinvented yourself as Mercado das Sombras' most reliable connect, trading in everything from black-market neural mods to corporate secrets. ",
    "routine": "You work the Mercado's main corridor from dusk until the heat comes down, hawking wares from a weathered stall while your augmented eyes scan the crowd for marks, cops, and old debts still outstanding.",
-   "defaultMood": "hostile",
-   "initialDisposition": "neutral",
+   "defaultMood": "neutral",
+   "initialDisposition": "hostile",
    "outfit": "suit",
    "attributes": {
     "forca": 10,
@@ -556,7 +559,7 @@
    "id": "npc_2",
    "npcRelationships": {
     "npc_mback_fence_01": "neutral",
-    "npc_zara_vendor_01": "neutral",
+    "npc_zara_vendor_01": "wary",
     "npc": "friendly",
     "npc_2_2": "friendly"
    },
@@ -578,8 +581,8 @@
    "personalityPrompt": "You are a slick operator with a razor-sharp mind for angles, data, and people—always three moves ahead in the information game. Your worldview is one of calculated neutrality; everyone's got something to sell and everyone's buying, so you just facilitate the exchange without judgment or sentiment.",
    "backstory": "Once a mid-level corp data analyst, you burned out on the lies and sold your access to the right people; now you've reinvented yourself as Mercado das Sombras' most reliable connect, trading in everything from black-market neural mods to corporate secrets.",
    "routine": "You work the Mercado's main corridor from dusk until the heat comes down, hawking wares from a weathered stall while your augmented eyes scan the crowd for marks, cops, and old debts still outstanding.",
-   "defaultMood": "hostile",
-   "initialDisposition": "neutral",
+   "defaultMood": "neutral",
+   "initialDisposition": "hostile",
    "outfit": "casual_2",
    "attributes": {
     "forca": 10,
@@ -595,7 +598,7 @@
    "id": "npc_2_2",
    "npcRelationships": {
     "npc_mback_fence_01": "neutral",
-    "npc_zara_vendor_01": "neutral",
+    "npc_zara_vendor_01": "wary",
     "npc": "friendly",
     "npc_2": "friendly"
    },

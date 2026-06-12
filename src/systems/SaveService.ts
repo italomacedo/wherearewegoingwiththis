@@ -29,6 +29,9 @@ export type NPCMemory = Record<string, ConversationState & {
 export interface VehicleSaveState {
   health: HealthState;
   destroyed: boolean;
+  /** Does this save own the nave? NEW saves start WITHOUT one (owned: false —
+   *  it becomes purchasable later); undefined = legacy save = owns it. */
+  owned?: boolean;
   /** Where the nave was parked (Fase 22 fix). Undefined on legacy saves → the
    *  scene falls back to the default spawn offset near the zone spawn point. */
   position?: [number, number, number];
@@ -179,7 +182,7 @@ export class SaveService {
       playerHealth: { current: maxHp, max: maxHp },
       playerHunger: { ...DEFAULT_PLAYER_HUNGER },
       playerStamina: { ...DEFAULT_PLAYER_STAMINA },
-      vehicle: { health: { ...DEFAULT_VEHICLE_STATE.health }, destroyed: false },
+      vehicle: { health: { ...DEFAULT_VEHICLE_STATE.health }, destroyed: false, owned: false },
       inventory,
       heldAttach: {},
       missions: [],

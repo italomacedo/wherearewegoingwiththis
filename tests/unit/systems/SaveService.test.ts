@@ -26,6 +26,15 @@ describe('SaveService', () => {
     expect(save.world.zone).toBe('mercado_sombras');
   });
 
+  it('createNewSave starts WITHOUT a nave (owned: false — purchasable later); legacy saves keep theirs', () => {
+    const save = SaveService.createNewSave(testCharacter);
+    expect(save.vehicle.owned).toBe(false);
+    // Legacy migrate path: a save without the field keeps owning the nave.
+    const legacy = { ...save, vehicle: { health: { current: 100, max: 100 }, destroyed: false } };
+    const migrated = SaveService.migrate(legacy);
+    expect(migrated.vehicle.owned).toBeUndefined();
+  });
+
   it('createNewSave scales player max HP from Resistência when stats are present (Fase 20)', () => {
     const stats = createDefaultStats();
     stats.skills.resistencia = 100; // tanky build

@@ -673,25 +673,27 @@ export class GameWorldScene extends BaseScene {
     // If the save has armor equipped, swap the avatar's regions to match (Phase 15).
     if (this.playerInventory.equippedArmorIds().length > 0) void this.rebuildPlayerArmor();
 
-    // Park a flying motorcycle near the spawn point. Confine it to the closed
-    // street (flying out of bounds and back was crashing the game).
-    // Confine the nave to the whole mosaic world (Fase 17) — inside the border
-    // walls (small margin), since the world is offset, not centred at the origin.
-    this.vehicle = new VehicleController(this.babylonScene, { horizontalBounds: worldBounds(2) });
-    // Restore the nave where it was last parked. Reuse the hero's spawn sanitizer so
-    // a corrupt saved position (NaN → a Havok abort, Lesson 46; or a below-floor Y)
-    // can't carry over to the nave; no saved position → the default spawn offset.
-    const naveDefault = zone.getSpawnPoint().add(new Vector3(4, 0, 0));
-    const savedNave = this.vehicleState.position;
-    const naveSpawn = GameWorldScene.sanitizeSpawn(
-      savedNave ? new Vector3(savedNave[0], savedNave[1], savedNave[2]) : null,
-      naveDefault,
-    );
-    this.vehicle.spawn(naveSpawn, this.vehicleState.facing ?? 0);
-    this.cockpit = new VehicleCockpit(this.babylonScene); // built lazily on first mount
-    this.vehicle.setHealthState(this.vehicleState.health);
-    this.vehicle.setDestroyed(this.vehicleState.destroyed);
-    ServiceLocator.register('vehicle', this.vehicle);
+    // Park the nave near the spawn point — only when this save OWNS one. New
+    // saves start without it (owned: false — the nave becomes purchasable);
+    // legacy saves (owned undefined) keep theirs. Confined to the mosaic world
+    // inside the border walls (small margin; the world isn't origin-centred).
+    if (this.vehicleState.owned !== false) {
+      this.vehicle = new VehicleController(this.babylonScene, { horizontalBounds: worldBounds(2) });
+      // Restore the nave where it was last parked. Reuse the hero's spawn sanitizer so
+      // a corrupt saved position (NaN → a Havok abort, Lesson 46; or a below-floor Y)
+      // can't carry over to the nave; no saved position → the default spawn offset.
+      const naveDefault = zone.getSpawnPoint().add(new Vector3(4, 0, 0));
+      const savedNave = this.vehicleState.position;
+      const naveSpawn = GameWorldScene.sanitizeSpawn(
+        savedNave ? new Vector3(savedNave[0], savedNave[1], savedNave[2]) : null,
+        naveDefault,
+      );
+      this.vehicle.spawn(naveSpawn, this.vehicleState.facing ?? 0);
+      this.cockpit = new VehicleCockpit(this.babylonScene); // built lazily on first mount
+      this.vehicle.setHealthState(this.vehicleState.health);
+      this.vehicle.setDestroyed(this.vehicleState.destroyed);
+      ServiceLocator.register('vehicle', this.vehicle);
+    }
 
     this.updateLoadingProgress(60, 'loading.label.npcs');
     await this.setupNPCs();
@@ -3200,9 +3202,10 @@ export class GameWorldScene extends BaseScene {
    * own condition (she IS the car). Pure read of the vehicle state.
    */
   private buildRoxaneVehicleContext(): string {
-    // Only called from sendToRoxane (post-onEnter), where the vehicle co-exists
-    // with the Roxane agent — both are created together in setupNPCs/spawn.
-    const v = this.vehicle!;
+    // Only reachable from the driver's seat, but stay null-safe: a save without
+    // a nave (owned: false) never creates the controller.
+    const v = this.vehicle;
+    if (!v) return '';
     const hp = Math.round(v.getHealth().fraction() * 100);
     const spd = Math.round(Math.abs(v.getSpeed()));
     const alt = Math.round(v.getPosition().y);
