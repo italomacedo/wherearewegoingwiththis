@@ -29,10 +29,10 @@ describe('SaveService', () => {
   it('createNewSave starts WITHOUT a nave (owned: false — purchasable later); legacy saves keep theirs', () => {
     const save = SaveService.createNewSave(testCharacter);
     expect(save.vehicle.owned).toBe(false);
-    // Legacy migrate path: a save without the field keeps owning the nave.
+    // Legacy migrate path (via save→load): a save without the field keeps owning the nave.
     const legacy = { ...save, vehicle: { health: { current: 100, max: 100 }, destroyed: false } };
-    const migrated = SaveService.migrate(legacy);
-    expect(migrated.vehicle.owned).toBeUndefined();
+    SaveService.save(legacy);
+    expect(SaveService.load(legacy.saveId)?.vehicle.owned).toBeUndefined();
   });
 
   it('createNewSave scales player max HP from Resistência when stats are present (Fase 20)', () => {

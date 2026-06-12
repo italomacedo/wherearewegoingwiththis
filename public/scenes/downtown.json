@@ -292,7 +292,7 @@
    "key": "building_small_1",
    "model": "world/downtown/building_small_1.glb",
    "position": [
-    13.671004295349121,
+    13.720669746398926,
     0,
     20.445819854736328
    ],
@@ -347,6 +347,18 @@
    "solid": true,
    "rotationY": 0,
    "scale": 1
+  },
+  {
+   "key": "door-bld-s-1_2",
+   "model": "world/downtown/door_2.glb",
+   "position": [
+    13.202155113220215,
+    0.9389948844909668,
+    20.423912048339844
+   ],
+   "rotationY": 0,
+   "scale": 1.06,
+   "solid": false
   }
  ],
  "items": [],
@@ -527,10 +539,6 @@
    },
    "loadout": [
     {
-     "id": "knife",
-     "qty": 1
-    },
-    {
      "id": "credstick",
      "qty": 50
     }
@@ -565,12 +573,12 @@
    },
    "loadout": [
     {
-     "id": "knife",
-     "qty": 1
-    },
-    {
      "id": "credstick",
      "qty": 50
+    },
+    {
+     "id": "knife",
+     "qty": 1
     }
    ],
    "rotationY": 0
@@ -603,10 +611,6 @@
     "npc_2": "friendly"
    },
    "loadout": [
-    {
-     "id": "knife",
-     "qty": 1
-    },
     {
      "id": "credstick",
      "qty": 50
