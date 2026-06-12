@@ -20,16 +20,40 @@ Two early immersion decisions were owner-reverted after extended play:
 ### 1. Status-bar stack + gain toasts (WorldHud)
 
 - **Three compact bars top-left** (150×10 px, track+fill `Rectangle`s — the
-  Lesson-48 `%`-width pattern, no `calc()`): **HP** (green >50% / amber >25% /
-  red, `WorldHud.healthBarColor`), **Stamina** (cyan `UI.accent`), **Hunger**
-  (orange `#FF8A5C`). The vehicle status line moved below the stack (top 96).
-  Bars follow `hudTextVisible` (hidden during combat, which owns the screen).
+  Lesson-48 `%`-width pattern, no `calc()`) on a **neon card panel** in the
+  product visual identity (`UiStyle` tokens — new `barTrack`/`hpHigh`/`hpMid`/
+  `hpLow`/`warnOrange`): each row has a small `UI.textMeta` label
+  (`hud.hp`/`hud.stamina`/`hud.hunger` — "HP"/"STA"/"HUN"·"FOME", i18n).
+  **HP** (green >50% / amber >25% / red, `WorldHud.healthBarColor`), **Stamina**
+  (cyan `UI.accent`), **Hunger** (`UI.warnOrange`). The vehicle status line
+  moved below the stack (top 96). Bars + panel follow `hudTextVisible`
+  (hidden during combat, which owns the screen).
 - **Gain toasts**: a pure `ToastQueue` (`src/systems/hud/ToastQueue.ts`, TTL 3 s,
-  max 4, injected timestamps) rendered as right-aligned fading TextBlocks.
-  Every successful skill check routes through one scene seam
+  max 4, injected timestamps) rendered as right-aligned card-backed rows
+  (`UI.cardBg`/`cardBorder`/`cornerSm`, `UI.textPrimary` text) that fade out.
+  Every player skill check routes through one scene seam
   (`GameWorldScene.gainSkill`) that applies `applySkillUse`, toasts
   `"{skill} +0.1"`, and grants perk points (toasting `"+1 Perk Point — {attr}"`).
   Direct calls, no EventBus — all call sites already live in the scene.
+  Toasts are NOT gated by `hudTextVisible`, so combat gains stay visible.
+- **Universal learn-by-doing (owner-decided in the follow-up pass)**: EVERY
+  player-ROLLED check grants the skill + its governing attribute gain,
+  **success OR failure** — the old "only on success" rule is retired. This
+  includes **combat**: every player attack beat (hit, miss or kill) trains the
+  weapon skill (`combate_corpo_a_corpo` melee / `armas_de_fogo` ranged) via the
+  `onCombatBeat` hook (spectator fights use playerId `'__none__'` → no gain).
+  The verbal pipeline (Resolver) already emitted `apply_skill_use`
+  unconditionally; the emote/hostile/skill-effect scene paths were unified to
+  match (`rolled`-gated, not success-gated).
+- **Deterministic check line in chat**: every player-rolled check posts an
+  out-of-world `system` line to the dialog transcript —
+  `"Furtividade: 23 vs 65% — FALHA"` (`+ "· CRÍTICO"` on a crit) — via the pure
+  `checkLine` formatter (`src/systems/skills/CheckLine.ts`, i18n
+  `skill.checkLine`/`checkSuccess`/`checkFailure`/`checkCrit`) and the
+  `showCheckLine` scene glue. It states only the roll outcome, never the world
+  mutation. Call sites: emote no-effect, skill-effect (incl. medicine
+  self-exam), hostile, and verbal (skillId recovered from the
+  `apply_skill_use` mutation). Combat is already covered by the combat log.
 
 ### 2. Stamina — a NEW sprint-energy system
 

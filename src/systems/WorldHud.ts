@@ -35,7 +35,9 @@ export class WorldHud {
     hp: null, stamina: null, hunger: null,
   };
   private barTracks: Rectangle[] = [];
-  private toastBlocks: TextBlock[] = [];
+  private barLabels: TextBlock[] = [];
+  private statusPanel: Rectangle | null = null;
+  private toastBlocks: Rectangle[] = [];
   private labels = new Map<string, { text: string; box: Rectangle | null; block: TextBlock | null }>();
 
   constructor(scene: Scene) {
@@ -56,9 +58,9 @@ export class WorldHud {
 
   /** Pure: HP bar colour for a fraction — green > 0.5, amber > 0.25, red below. */
   static healthBarColor(fraction: number): string {
-    if (fraction > 0.5) return '#4CAF50';
-    if (fraction > 0.25) return '#FFC04D';
-    return '#FF5566';
+    if (fraction > 0.5) return UI.hpHigh;
+    if (fraction > 0.25) return UI.hpMid;
+    return UI.hpLow;
   }
 
   /** Hero HP as a 0..1 fraction (drives the top-left HP bar). */
@@ -184,7 +186,7 @@ export class WorldHud {
     this.gui = gui;
 
     const controls = new TextBlock('hud-controls', t('hud.controls'));
-    controls.color = '#4A6E78';
+    controls.color = UI.textMuted;
     controls.fontSize = 13;
     controls.fontFamily = UI.font;
     controls.height = '24px';
@@ -207,13 +209,28 @@ export class WorldHud {
     gui.addControl(prompt);
     this.promptBlock = prompt;
 
-    // Status bars: HP / Stamina / Hunger stacked top-left.
-    this.barFills.hp = this.buildBarBrowser(gui, 'hp', 40);
-    this.barFills.stamina = this.buildBarBrowser(gui, 'stamina', 56);
-    this.barFills.hunger = this.buildBarBrowser(gui, 'hunger', 72);
+    // Status bars: HP / Stamina / Hunger stacked top-left on a card panel
+    // (same neon card pattern as the overlays — UiStyle tokens).
+    const panel = new Rectangle('hud-status-panel');
+    panel.width = '212px';
+    panel.height = '58px';
+    panel.cornerRadius = UI.cornerMd;
+    panel.thickness = 1;
+    panel.color = UI.cardBorder;
+    panel.background = UI.cardBg;
+    panel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+    panel.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+    panel.left = '10px';
+    panel.top = '30px';
+    gui.addControl(panel);
+    this.statusPanel = panel;
+
+    this.barFills.hp = this.buildBarBrowser(gui, 'hp', 38);
+    this.barFills.stamina = this.buildBarBrowser(gui, 'stamina', 54);
+    this.barFills.hunger = this.buildBarBrowser(gui, 'hunger', 70);
 
     const vstatus = new TextBlock('hud-vehicle', '');
-    vstatus.color = '#FF8A5C';
+    vstatus.color = UI.warnOrange;
     vstatus.fontSize = 14;
     vstatus.fontFamily = UI.font;
     vstatus.height = '22px';
@@ -227,19 +244,32 @@ export class WorldHud {
     this.vehicleStatusBlock = vstatus;
   }
 
-  /** Track + fill rectangle pair (Lesson 48 pattern — % width, no calc()). */
+  /** Labelled track + fill row (Lesson 48 pattern — % width, no calc()). */
   /* istanbul ignore next — browser GUI only */
   private buildBarBrowser(gui: AdvancedDynamicTexture, key: string, topPx: number): Rectangle {
+    const label = new TextBlock(`hud-bar-${key}-label`, t(`hud.${key}`));
+    label.color = UI.textMeta;
+    label.fontSize = UI.fontMeta;
+    label.fontFamily = UI.font;
+    label.width = '36px';
+    label.height = '12px';
+    label.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+    label.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+    label.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+    label.left = '18px';
+    label.top = `${topPx - 1}px`;
+    gui.addControl(label);
+    this.barLabels.push(label);
+
     const track = new Rectangle(`hud-bar-${key}`);
     track.width = '150px';
     track.height = '10px';
-    track.cornerRadius = 3;
-    track.thickness = 1;
-    track.color = UI.cardBorder;
-    track.background = UI.cardBg;
+    track.cornerRadius = UI.cornerSm;
+    track.thickness = 0;
+    track.background = UI.barTrack;
     track.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
     track.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-    track.left = '18px';
+    track.left = '58px';
     track.top = `${topPx}px`;
     gui.addControl(track);
     this.barTracks.push(track);
@@ -247,7 +277,7 @@ export class WorldHud {
     const fill = new Rectangle(`hud-bar-${key}-fill`);
     fill.height = '100%';
     fill.width = '100%';
-    fill.cornerRadius = 3;
+    fill.cornerRadius = UI.cornerSm;
     fill.thickness = 0;
     fill.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
     track.addControl(fill);
@@ -265,10 +295,12 @@ export class WorldHud {
       this.vehicleStatusBlock.text = this.vehicleStatus ?? '';
       this.vehicleStatusBlock.isVisible = this.vehicleStatus !== null;
     }
+    if (this.statusPanel) this.statusPanel.isVisible = this.hudTextVisible;
     for (const track of this.barTracks) track.isVisible = this.hudTextVisible;
+    for (const label of this.barLabels) label.isVisible = this.hudTextVisible;
     this.renderBarBrowser(this.barFills.hp, this.playerHpFraction, WorldHud.healthBarColor(this.playerHpFraction));
     this.renderBarBrowser(this.barFills.stamina, this.playerStaminaFraction, UI.accent);
-    this.renderBarBrowser(this.barFills.hunger, this.playerHungerFraction, '#FF8A5C');
+    this.renderBarBrowser(this.barFills.hunger, this.playerHungerFraction, UI.warnOrange);
     this.renderToastsBrowser();
   }
 
@@ -287,18 +319,28 @@ export class WorldHud {
     this.toastBlocks = [];
     const list = this.toasts.getToasts();
     for (let i = 0; i < list.length; i++) {
-      const tb = new TextBlock(`hud-toast-${list[i].id}`, list[i].text);
-      tb.color = '#9CFFE9';
-      tb.fontSize = 13;
+      // Card-backed row (same neon card pattern as the overlay lists).
+      const card = new Rectangle(`hud-toast-${list[i].id}`);
+      card.height = '22px';
+      card.cornerRadius = UI.cornerSm;
+      card.thickness = 1;
+      card.color = UI.cardBorder;
+      card.background = UI.cardBg;
+      card.adaptWidthToChildren = true;
+      card.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+      card.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+      card.left = '-18px';
+      card.top = `${40 + i * 26}px`;
+      const tb = new TextBlock(`hud-toast-text-${list[i].id}`, list[i].text);
+      tb.color = UI.textPrimary;
+      tb.fontSize = UI.fontBody;
       tb.fontFamily = UI.font;
-      tb.height = '20px';
-      tb.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
-      tb.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
-      tb.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-      tb.paddingRight = '18px';
-      tb.top = `${40 + i * 20}px`;
-      this.gui.addControl(tb);
-      this.toastBlocks.push(tb);
+      tb.resizeToFit = true;
+      tb.paddingLeft = '8px';
+      tb.paddingRight = '8px';
+      card.addControl(tb);
+      this.gui.addControl(card);
+      this.toastBlocks.push(card);
     }
   }
 
@@ -318,16 +360,16 @@ export class WorldHud {
     const label = new Rectangle(`label-${key}`);
     label.width = '120px';
     label.height = '26px';
-    label.cornerRadius = 6;
+    label.cornerRadius = UI.cornerSm;
     label.thickness = 1;
-    label.color = '#00FFCC';
-    label.background = 'rgba(0,18,26,0.7)';
+    label.color = UI.accent;
+    label.background = UI.cardBg;
     this.gui.addControl(label);
     label.linkWithMesh(node);
     label.linkOffsetY = -70;
 
     const tb = new TextBlock(`label-text-${key}`, text);
-    tb.color = '#CCFFF4';
+    tb.color = UI.textPrimary;
     tb.fontSize = 14;
     tb.fontFamily = UI.font;
     label.addControl(tb);
@@ -346,6 +388,8 @@ export class WorldHud {
       this.vehicleStatusBlock = null;
       this.barFills = { hp: null, stamina: null, hunger: null };
       this.barTracks = [];
+      this.barLabels = [];
+      this.statusPanel = null;
       this.toastBlocks = [];
     }
     this.labels.clear();

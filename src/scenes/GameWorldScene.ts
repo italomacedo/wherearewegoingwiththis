@@ -37,6 +37,7 @@ import {
   SKILL_ACTION_RADIUS,
 } from '@systems/skills/SkillActions';
 import { craftTargetFromText, scrapCostFor, sabotageDamage } from '@systems/skills/Crafting';
+import { checkLine } from '@systems/skills/CheckLine';
 import {
   canTrade, canOfferMission, priceFor, sellableItems, creditBalance, payCredits, grantCredits,
 } from '@systems/economy/Economy';
@@ -2094,6 +2095,12 @@ export class GameWorldScene extends BaseScene {
     this.animateCombatBeat(entry);
     for (const cue of sfxForBeat(entry)) this.sfx(cue);
     this.applyFriendlyFire(entry);
+    // Learn-by-doing: every player attack (hit OR miss) trains the weapon skill
+    // — and via applySkillUse, its governing attribute (owner's rule). Spectator
+    // fights use a '__none__' playerId, so isPlayerActor never fires there.
+    if (entry.isPlayerActor && entry.attackKind && entry.attackOutcome) {
+      this.gainSkill(entry.attackKind === 'melee' ? 'combate_corpo_a_corpo' : 'armas_de_fogo');
+    }
   }
 
   /** Intentionally striking an ally worsens its disposition and may flip it against you. */
@@ -3107,6 +3114,10 @@ export class GameWorldScene extends BaseScene {
       const roll = Math.round(result.roll);
       const outcome = result.success ? (result.critical ? 'CRIT' : 'HIT') : 'MISS';
       this.logSkill(`verbal verb=${cls.verb} · roll=${roll} vs P=${pct}% → ${outcome} · ${result.mutations.length} mutation(s)`);
+      // The deterministic result, visible in chat. The check's skill lives on
+      // the apply_skill_use mutation the Resolver emitted for this roll.
+      this.showCheckLine(this.skillIdFromMutations(result.mutations), 'carisma',
+        result.roll, result.probability, result.success, result.critical);
     } else {
       this.logSkill(`verbal verb=${cls.verb} (no check) · ${result.mutations.length} mutation(s)`);
     }
@@ -3612,9 +3623,10 @@ export class GameWorldScene extends BaseScene {
     // Diagnostic for the deterministic-but-no-effect path (mirrors applySkillEffect).
     this.logSkill(`classified effect=${cls.effect} skill=${cls.skillId ?? '—'} attr=${attribute} diff=${cls.difficulty} value=${value}`);
     this.logSkill(`unresisted · roll=${result.roll.toFixed(0)} vs P=${(result.probability * 100).toFixed(0)}% → ${result.success ? 'HIT' : 'MISS'}${critical ? ' (CRIT)' : ''}`);
+    this.showCheckLine(cls.skillId, attribute, result.roll, result.probability, result.success, critical);
 
-    // Learning by doing — only on success (owner's rule), × the Options multiplier.
-    if (result.success && cls.skillId) this.gainSkill(cls.skillId);
+    // Learning by doing — every rolled check trains, success or failure (owner's rule).
+    if (cls.skillId) this.gainSkill(cls.skillId);
 
     const narration = await this.npcManager.narrateOutcome(message, result.success, languageName(getLocale()), critical);
     {
@@ -3671,9 +3683,12 @@ export class GameWorldScene extends BaseScene {
 
     const mode = !res.rolled ? 'no-check' : res.surprise ? 'SURPRISE' : (target ? 'RESISTED' : 'unresisted');
     this.logSkill(`${mode} · roll=${res.roll.toFixed(0)} vs P=${(res.probability * 100).toFixed(0)}% → ${res.success ? 'HIT' : 'MISS'}${res.critical ? ' (CRIT)' : ''}`);
+    if (res.rolled) {
+      this.showCheckLine(cls.skillId, cls.attribute ?? GameWorldScene.DEFAULT_CHECK_ATTRIBUTE, res.roll, res.probability, res.success, res.critical);
+    }
 
-    // Learn-by-doing on a successful, skilled check (owner's rule).
-    if (res.success && cls.skillId) this.gainSkill(cls.skillId);
+    // Learn-by-doing — every rolled check trains, success or failure (owner's rule).
+    if (res.rolled && cls.skillId) this.gainSkill(cls.skillId);
 
     // medicine_check: a self-read of your own condition (diegetic, no numbers).
     // Unlike other effects the result is INFORMATION, not a world mutation, and it
@@ -3760,6 +3775,30 @@ export class GameWorldScene extends BaseScene {
       if (a.definition.name.toLowerCase() === n) return a;
     }
     return null;
+  }
+
+  /**
+   * Show a player-rolled check's deterministic outcome in the chat transcript
+   * ("Furtividade: 23 vs 65% — FALHA") as an out-of-world system line. States
+   * only the roll result, never the world mutation (owner's rule). The pure
+   * formatting lives in `checkLine` (fully tested); this is chat glue.
+   */
+  /* istanbul ignore next — browser-only chat glue over the tested checkLine */
+  private showCheckLine(
+    skillId: string | null | undefined, attribute: AttributeId,
+    roll: number, probability: number, success: boolean, critical: boolean
+  ): void {
+    const label = skillId
+      ? (skillDef(skillId)?.label ?? skillId)
+      : (ATTRIBUTES.find((a) => a.id === attribute)?.label ?? attribute);
+    this.dialog?.addSystemLine(checkLine(label, roll, probability, success, critical));
+  }
+
+  /** The skillId of the apply_skill_use mutation the Resolver emitted for this roll. */
+  /* istanbul ignore next — browser-only chat glue */
+  private skillIdFromMutations(mutations: readonly Mutation[]): string | null {
+    const used = mutations.find((m) => m.kind === 'apply_skill_use' && m.actor === 'player');
+    return used && 'skillId' in used ? used.skillId : null;
   }
 
   /** Dev console trace for the skill-action pipeline (browser only; silent in tests). */
@@ -3994,7 +4033,10 @@ export class GameWorldScene extends BaseScene {
     if (!this.dialog || !this.npcManager || !this.player) return false;
     const value = checkValue(this.playerStats, cls.skillId ?? 'combate_corpo_a_corpo', cls.attribute ?? 'forca');
     const result = resolveCheck({ value, opponent: cls.difficulty });
-    if (result.success && cls.skillId) this.gainSkill(cls.skillId);
+    this.showCheckLine(cls.skillId ?? 'combate_corpo_a_corpo', cls.attribute ?? 'forca',
+      result.roll, result.probability, result.success, result.success && result.roll < 5);
+    // Learn-by-doing — every rolled check trains, success or failure (owner's rule).
+    this.gainSkill(cls.skillId ?? 'combate_corpo_a_corpo');
     agent.onHostilePlayerAction();
     const narration = await this.npcManager.narrateOutcome(message, result.success, languageName(getLocale()));
     {

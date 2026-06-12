@@ -1,5 +1,6 @@
 import { NullEngine, Scene, MeshBuilder } from '@babylonjs/core';
 import { WorldHud } from '../../../src/systems/WorldHud';
+import { UI } from '../../../src/systems/UiStyle';
 
 describe('WorldHud', () => {
   let engine: NullEngine;
@@ -97,13 +98,13 @@ describe('WorldHud', () => {
     expect(() => hud.setPlayerHunger(0)).not.toThrow();
   });
 
-  it('healthBarColor maps fraction to green/amber/red', () => {
-    expect(WorldHud.healthBarColor(1)).toBe('#4CAF50');
-    expect(WorldHud.healthBarColor(0.51)).toBe('#4CAF50');
-    expect(WorldHud.healthBarColor(0.5)).toBe('#FFC04D');
-    expect(WorldHud.healthBarColor(0.26)).toBe('#FFC04D');
-    expect(WorldHud.healthBarColor(0.25)).toBe('#FF5566');
-    expect(WorldHud.healthBarColor(0)).toBe('#FF5566');
+  it('healthBarColor maps fraction to the UiStyle hp tokens (green/amber/red)', () => {
+    expect(WorldHud.healthBarColor(1)).toBe(UI.hpHigh);
+    expect(WorldHud.healthBarColor(0.51)).toBe(UI.hpHigh);
+    expect(WorldHud.healthBarColor(0.5)).toBe(UI.hpMid);
+    expect(WorldHud.healthBarColor(0.26)).toBe(UI.hpMid);
+    expect(WorldHud.healthBarColor(0.25)).toBe(UI.hpLow);
+    expect(WorldHud.healthBarColor(0)).toBe(UI.hpLow);
   });
 
   it('pushToast queues gain notifications and updateToasts prunes expired ones', () => {

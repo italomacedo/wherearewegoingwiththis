@@ -33,6 +33,12 @@ export const UI = {
   btnDangerBgHover: 'rgba(120,0,20,0.95)',
   btnDangerFg: '#ff6680',
   btnDangerFgHover: '#ffaabb',
+  // ── Status bars / HUD ──
+  barTrack: 'rgba(255,255,255,0.08)',   // progress-bar track (CharacterSheet pattern)
+  hpHigh: '#4CAF50',                    // HP bar > 50%
+  hpMid: '#FFC04D',                     // HP bar > 25%
+  hpLow: '#FF5566',                     // HP bar critical
+  warnOrange: '#FF8A5C',                // hunger bar + vehicle status
   // ── Sizes ──
   cornerLg: 12,
   cornerMd: 8,

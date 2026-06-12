@@ -119,8 +119,15 @@ export const STRINGS: Record<string, Entry> = {
   'hud.pickUp': e('[E] Pick up {name}', '[E] Pegar {name}'),
   'hud.carStatus': e('CAR {pct}%', 'CARRO {pct}%'),
   'hud.carDestroyed': e('CAR DESTROYED', 'CARRO DESTRUÍDO'),
+  'hud.hp': e('HP', 'HP'),
+  'hud.stamina': e('STA', 'STA'),
+  'hud.hunger': e('HUN', 'FOME'),
   'toast.skillGain': e('{skill} +{amount}', '{skill} +{amount}'),
   'toast.perkPoint': e('+1 Perk Point — {attr}', '+1 Ponto de Perk — {attr}'),
+  'skill.checkLine': e('{skill}: {roll} vs {chance}% — {outcome}', '{skill}: {roll} vs {chance}% — {outcome}'),
+  'skill.checkSuccess': e('SUCCESS', 'SUCESSO'),
+  'skill.checkFailure': e('FAILURE', 'FALHA'),
+  'skill.checkCrit': e('· CRITICAL', '· CRÍTICO'),
 
   // ─── Action ribbon (Phase 11) ────────────────────────────────────────────────
   'ribbon.attackRanged': e('Shoot', 'Atirar'),
