@@ -467,7 +467,8 @@ export class SceneEditorScene extends BaseScene {
     const fwd = cam.getTarget().subtract(cam.position);
     fwd.y = 0;
     const f = fwd.normalize();
-    const right = new Vector3(-f.z, 0, f.x);
+    // Babylon is left-handed: screen-right of a ground forward f is (f.z, 0, -f.x).
+    const right = new Vector3(f.z, 0, -f.x);
     const pan = 28 * dt * Math.max(0.3, cam.radius / 55);
     const move = Vector3.Zero();
     if (k.has('w') || k.has('arrowup')) move.addInPlace(f.scale(pan));
