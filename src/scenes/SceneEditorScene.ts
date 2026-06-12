@@ -522,6 +522,9 @@ export class SceneEditorScene extends BaseScene {
     if (move.lengthSquared() > 0) cam.target.addInPlace(move);
     if (k.has('z')) cam.alpha -= 1.6 * dt;
     if (k.has('c')) cam.alpha += 1.6 * dt;
+    // Holding Shift snaps the rotation gizmo ring to 90° steps.
+    const rotGizmo = this.gizmos?.gizmos.rotationGizmo;
+    if (rotGizmo) rotGizmo.snapDistance = k.has('shift') ? Math.PI / 2 : 0;
     if (k.has('r')) cam.radius = Math.max(cam.lowerRadiusLimit ?? 5, cam.radius - 40 * dt);
     if (k.has('f')) cam.radius = Math.min(cam.upperRadiusLimit ?? 160, cam.radius + 40 * dt);
   }
@@ -543,6 +546,17 @@ export class SceneEditorScene extends BaseScene {
       } else if ((ev.key === 'd' || ev.key === 'D') && ev.ctrlKey) {
         ev.preventDefault();
         if (this.state.duplicateSelected()) void this.syncVisuals();
+      } else if (ev.key === 't' || ev.key === 'T') {
+        // Quarter-turn the selection (Shift+T turns the other way).
+        const tr = this.state.selectedTransform();
+        const sel = this.state.selection;
+        if (tr && (sel?.kind === 'prop' || sel?.kind === 'npc')) {
+          const quarter = (ev.shiftKey ? -1 : 1) * (Math.PI / 2);
+          // Normalize to [0, 2π) so repeated turns don't accumulate unbounded.
+          const next = ((tr.rotationY + quarter) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2);
+          this.state.setTransform({ rotationY: next });
+          void this.syncVisuals();
+        }
       } else if (ev.key === '1') {
         this.setGizmoMode('move');
       } else if (ev.key === '2') {

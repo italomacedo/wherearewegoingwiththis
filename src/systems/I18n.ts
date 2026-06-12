@@ -63,8 +63,8 @@ export const STRINGS: Record<string, Entry> = {
   'editor.sceneName': e('name', 'nome'),
   'editor.npcName': e('NPC name', 'Nome do NPC'),
   'editor.search': e('⌕ Search…', '⌕ Buscar…'),
-  'editor.hint': e('LMB select · MMB orbit · RMB pan · wheel zoom · WASD/arrows pan · Z/C orbit · R/F zoom · 1/2/3 move/rotate/scale · Del · Ctrl+D · ESC menu',
-    'BEM seleciona · BMM orbita · BDM pan · roda zoom · WASD/setas pan · Z/C orbita · R/F zoom · 1/2/3 mover/girar/escalar · Del · Ctrl+D · ESC menu'),
+  'editor.hint': e('LMB select · MMB orbit · RMB pan · wheel zoom · WASD/arrows pan · Z/C orbit · R/F zoom · 1/2/3 move/rotate/scale · T turn 90° · Del · Ctrl+D · ESC menu',
+    'BEM seleciona · BMM orbita · BDM pan · roda zoom · WASD/setas pan · Z/C orbita · R/F zoom · 1/2/3 mover/girar/escalar · T gira 90° · Del · Ctrl+D · ESC menu'),
 
   // ─── Options ───────────────────────────────────────────────────────────
   'options.title': e('OPTIONS', 'OPÇÕES'),
