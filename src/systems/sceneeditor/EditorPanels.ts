@@ -463,6 +463,19 @@ export class EditorPanels {
     }
     const fmt = (n: number): string => n.toFixed(1);
     list.addControl(this.propLabel(`${sel.kind.toUpperCase()}`, UI.accent));
+    if (sel.kind === 'npc') {
+      // Name block FIRST, at a deterministic offset from the panel top: a label
+      // + a reserved 30px gap row the DOM <input> overlays (Lesson 15 — Babylon
+      // GUI can't do text entry; the gap keeps GUI rows from rendering under it).
+      const npc = this.state.selectedNpc()!;
+      list.addControl(this.propLabel(t('editor.npcName')));
+      const gap = new Rectangle('npc-name-gap');
+      gap.height = '30px';
+      gap.thickness = 0;
+      list.addControl(gap);
+      this.buildNpcNameInput(npc.name);
+      list.addControl(this.propLabel(npc.role));
+    }
     list.addControl(this.stepperRow('x', fmt(tr.position[0]), () => h.onTransformNudge('px', -0.5), () => h.onTransformNudge('px', +0.5)));
     list.addControl(this.stepperRow('y', fmt(tr.position[1]), () => h.onTransformNudge('py', -0.5), () => h.onTransformNudge('py', +0.5)));
     list.addControl(this.stepperRow('z', fmt(tr.position[2]), () => h.onTransformNudge('pz', -0.5), () => h.onTransformNudge('pz', +0.5)));
@@ -480,8 +493,6 @@ export class EditorPanels {
 
     if (sel.kind === 'npc') {
       const npc = this.state.selectedNpc()!;
-      list.addControl(this.propLabel(`${npc.name} · ${npc.role}`));
-      this.buildNpcNameInput(npc.name);
       list.addControl(this.actionButton(`◄ ${npc.outfit} ►`, () => h.onNpcOutfitCycle(1)));
       list.addControl(this.actionButton(`mood: ${npc.defaultMood}`, () => h.onNpcMoodCycle()));
       list.addControl(this.actionButton(`disp: ${npc.initialDisposition}`, () => h.onNpcDispositionCycle()));
@@ -511,13 +522,19 @@ export class EditorPanels {
 
   // ─── DOM inputs (scene id/name + NPC name) ─────────────────────────────────
 
-  private domInput(left: string, top: string, width: string, placeholder: string, onChange: (v: string) => void): HTMLInputElement {
+  /** Neon-styled DOM <input> overlay (Lesson 15). `pos` = CSS position decls
+   *  (e.g. 'left:10px;top:10px' or 'right:20px;top:96px' — right-anchoring keeps
+   *  panel-bound inputs responsive to window resizes). */
+  private domInput(pos: string, width: string, placeholder: string, onChange: (v: string) => void): HTMLInputElement {
     const input = document.createElement('input');
     input.type = 'text';
     input.placeholder = placeholder;
-    input.style.cssText = `position:fixed;left:${left};top:${top};width:${width};z-index:30;`
-      + 'background:rgba(0,18,28,0.9);border:1px solid #1d3b46;color:#00FFCC;'
-      + 'font-family:"Courier New",monospace;font-size:12px;padding:3px 6px;border-radius:4px;outline:none;';
+    input.style.cssText = `position:fixed;${pos};width:${width};height:24px;box-sizing:border-box;z-index:30;`
+      + `background:${UI.cardBg};border:1px solid ${UI.cardBorder};color:${UI.textPrimary};`
+      + `font-family:'Courier New',monospace;font-size:${UI.fontBody}px;padding:3px 8px;`
+      + `border-radius:${UI.cornerSm}px;outline:none;`;
+    input.addEventListener('focus', () => { input.style.borderColor = UI.accent; });
+    input.addEventListener('blur', () => { input.style.borderColor = UI.cardBorder; });
     input.addEventListener('keydown', (e) => e.stopPropagation());
     input.addEventListener('change', () => onChange(input.value));
     document.body.appendChild(input);
@@ -528,24 +545,30 @@ export class EditorPanels {
     const wrapper = document.createElement('div');
     wrapper.id = 'editor-dom-inputs';
     document.body.appendChild(wrapper);
-    this.idInput = this.domInput('556px', '10px', '120px', t('editor.sceneId'), (v) => {
+    this.idInput = this.domInput('left:556px;top:10px', '120px', t('editor.sceneId'), (v) => {
       const clean = v.toLowerCase().replace(/[^a-z0-9_-]/g, '');
       this.state.setMeta({ id: clean || 'untitled' });
       this.refresh();
     });
     wrapper.appendChild(this.idInput);
-    this.nameInput = this.domInput('686px', '10px', '160px', t('editor.sceneName'), (v) => {
+    this.nameInput = this.domInput('left:686px;top:10px', '160px', t('editor.sceneName'), (v) => {
       this.state.setMeta({ name: v || this.state.doc.id });
       this.refresh();
     });
     wrapper.appendChild(this.nameInput);
   }
 
+  /** Overlays the reserved 'npc-name-gap' row at the top of the properties panel
+   *  (panel top 50 + kind label 22 + name label 22 ≈ 94). Right-anchored so it
+   *  follows the right panel on resize. */
   private buildNpcNameInput(current: string): void {
     if (typeof document === 'undefined') return;
-    this.npcNameInput = this.domInput(`calc(100vw - ${PANEL_W + 4}px)`, '210px', `${PANEL_W - 40}px`, 'NPC name', (v) => {
-      if (v.trim()) this.handlers.onNpcNameEdit(v.trim());
-    });
+    this.npcNameInput = this.domInput(
+      `right:${6 + 14}px;top:${TOOLBAR_H + 6 + 22 + 22 + 2}px`,
+      `${PANEL_W - 40}px`,
+      t('editor.npcName'),
+      (v) => { if (v.trim()) this.handlers.onNpcNameEdit(v.trim()); },
+    );
     this.npcNameInput.value = current;
   }
 }
