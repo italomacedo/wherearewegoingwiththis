@@ -35,7 +35,7 @@ import type { Point2 } from './Mutations';
 export interface Actor {
   /** Stable identifier: `'player'` for the PC, NPC definition id otherwise. */
   readonly id: string;
-  /** Human-readable name for narration (may be `'Unknown'` until revealed for an NPC). */
+  /** Human-readable name for narration (always the real name — ADR-0033). */
   readonly displayName: string;
   /** `true` only for the PC adapter. */
   readonly isPlayer: boolean;

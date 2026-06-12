@@ -6,6 +6,7 @@ import { InputSystem, MovementAxis } from '@systems/InputSystem';
 import { CharacterAssembler, AssembledCharacter } from '@systems/CharacterAssembler';
 import { CharacterAppearance, DEFAULT_APPEARANCE } from '@entities/CharacterData';
 import { Health, HealthState } from '@entities/Health';
+import { Stamina, StaminaState } from '@entities/Stamina';
 import { LocoState, selectLocoState } from '@entities/Locomotion';
 import { computeLocoSpeedRatio } from '@assets/AvatarMeshCatalog';
 
@@ -42,6 +43,9 @@ export class PlayerController {
   private cameraYaw = 0;
   private facing = 0; // radians, last movement heading
   private health = new Health(100);
+  private stamina = new Stamina();
+  /** Last frame's effective (stamina-gated) sprint state. */
+  private sprintActive = false;
   private verticalVelocity = 0;
   private grounded = true;
   /** Previous-frame grounded state in the physics path (for fall-damage edge detection). */
@@ -74,6 +78,15 @@ export class PlayerController {
   setHealthState(state: HealthState): void {
     this.health = Health.fromState(state);
   }
+
+  getStamina(): Stamina { return this.stamina; }
+  getStaminaState(): StaminaState { return this.stamina.toState(); }
+  setStaminaState(state: StaminaState): void {
+    this.stamina = Stamina.fromState(state);
+  }
+
+  /** True while the hero is actually sprinting (input held AND stamina allows it). */
+  isSprintActive(): boolean { return this.sprintActive; }
 
   /** Drop the player from a given altitude; gravity + fall damage take over. */
   startFalling(fromY: number): void {
@@ -171,6 +184,7 @@ export class PlayerController {
   /** Update the Athletics skill value (called by the scene when player stats change). */
   setAtletismo(atletismo: number): void {
     this.config = { ...this.config, runSpeed: PlayerController.effectiveRunSpeed(DEFAULT_PLAYER_CONFIG.runSpeed, atletismo) };
+    this.stamina.setMaxForAtletismo(atletismo);
   }
 
   /**
@@ -209,7 +223,10 @@ export class PlayerController {
   /** Advance one frame: compute displacement from input and apply it. */
   update(dt: number): void {
     const axis = this.input.getMovementAxis();
-    const sprint = this.input.isSprinting();
+    const moving = axis.x !== 0 || axis.z !== 0;
+    const sprint = this.input.isSprinting() && this.stamina.canSprint();
+    this.sprintActive = sprint;
+    this.stamina.tick(dt, sprint && moving);
     const displacement = PlayerController.computeDisplacement(
       axis, sprint, this.cameraYaw, dt, this.config
     );

@@ -2,6 +2,7 @@ import { CharacterData, DEFAULT_APPEARANCE, cloneAppearance, migrateAppearance }
 import { ConversationState } from '@systems/npc/ConversationContext';
 import { HealthState } from '@entities/Health';
 import { HungerState } from '@entities/Hunger';
+import { StaminaState } from '@entities/Stamina';
 import { createDefaultStats, maxHpFor, isHacker } from '@entities/CharacterStats';
 import { NPCDisposition } from '@entities/NPCAgent';
 import { InventoryState, defaultInventoryState } from '@entities/Inventory';
@@ -37,6 +38,7 @@ export interface VehicleSaveState {
 
 export const DEFAULT_PLAYER_HEALTH: HealthState = { current: 100, max: 100 };
 export const DEFAULT_PLAYER_HUNGER: HungerState = { current: 100, max: 100 };
+export const DEFAULT_PLAYER_STAMINA: StaminaState = { current: 100, max: 100 };
 export const DEFAULT_VEHICLE_STATE: VehicleSaveState = {
   health: { current: 100, max: 100 },
   destroyed: false,
@@ -60,6 +62,7 @@ export interface SaveGame {
   };
   playerHealth: HealthState;
   playerHunger: HungerState;
+  playerStamina: StaminaState;
   vehicle: VehicleSaveState;
   inventory: InventoryState;
   /** Per-item held-prop transform overrides tuned in-game (Adjust tool). */
@@ -171,6 +174,7 @@ export class SaveService {
       },
       playerHealth: { current: maxHp, max: maxHp },
       playerHunger: { ...DEFAULT_PLAYER_HUNGER },
+      playerStamina: { ...DEFAULT_PLAYER_STAMINA },
       vehicle: { health: { ...DEFAULT_VEHICLE_STATE.health }, destroyed: false },
       inventory,
       heldAttach: {},
@@ -343,6 +347,7 @@ export class SaveService {
     if (!save.npcMemory) save.npcMemory = {};
     if (!save.playerHealth) save.playerHealth = { ...DEFAULT_PLAYER_HEALTH };
     if (!save.playerHunger) save.playerHunger = { ...DEFAULT_PLAYER_HUNGER };
+    if (!save.playerStamina) save.playerStamina = { ...DEFAULT_PLAYER_STAMINA };
     if (!save.vehicle) {
       save.vehicle = { health: { ...DEFAULT_VEHICLE_STATE.health }, destroyed: false };
     }

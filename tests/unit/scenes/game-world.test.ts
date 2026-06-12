@@ -181,8 +181,8 @@ describe('GameWorldScene', () => {
     scene.getNpcManager()!.getAgent('npc_zara_vendor_01')!.markDefeated();
     scene.getPlayer()!.getRoot().position.set(3, 0, 5);
     scene.update();
-    // Name is unknown until introduced → generic "search the body" prompt.
-    expect(scene.getHud()!.getActionPrompt()).toBe('[E] Search the body');
+    // Names are always visible (ADR-0033) → named search prompt.
+    expect(scene.getHud()!.getActionPrompt()).toBe('[E] Search Zara');
     scene.getInputSystem()!.handleKeyDown('KeyE');
     scene.update();
     // Searching a corpse opens the loot overlay (not a chat dialog).
@@ -348,35 +348,11 @@ describe('GameWorldScene', () => {
     expect(reloaded.world.position[2]).toBeCloseTo(6);
   });
 
-  it('HUD shows a generic talk prompt near an unintroduced NPC', async () => {
+  it('HUD shows the NPC name in the talk prompt right away (ADR-0033: names visible)', async () => {
     await scene.onEnter();
     scene.getPlayer()!.getRoot().position.set(3, 0, 5);
-    scene.update();
-    // Name is hidden until the NPC introduces itself (no metagaming).
-    expect(scene.getHud()!.getActionPrompt()).toBe('[E] Interact');
-  });
-
-  it('reveals the NPC name once it introduces itself in a reply', async () => {
-    const { service } = makeInjectedService('Name’s Zara. What do you want?');
-    scene.setClaudeService(service);
-    await scene.onEnter();
-    scene.getPlayer()!.getRoot().position.set(3, 0, 5);
-    await scene.sendToActiveNPC('who are you?');
-    const agent = scene.getNpcManager()!.getAgent('npc_zara_vendor_01')!;
-    expect(agent.isNameKnown()).toBe(true);
-    expect(scene.getDialog()!.getState().npcName).toBe('Zara');
-    // Now the prompt uses the real name.
     scene.update();
     expect(scene.getHud()!.getActionPrompt()).toBe('[E] Interact with Zara');
-  });
-
-  it('keeps the NPC name hidden when the reply does not mention it', async () => {
-    const { service } = makeInjectedService('What do you want?');
-    scene.setClaudeService(service);
-    await scene.onEnter();
-    scene.getPlayer()!.getRoot().position.set(3, 0, 5);
-    await scene.sendToActiveNPC('hey');
-    expect(scene.getNpcManager()!.getAgent('npc_zara_vendor_01')!.isNameKnown()).toBe(false);
   });
 
   it('HUD shows an enter prompt near the vehicle and exit prompt while piloting', async () => {

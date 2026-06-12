@@ -1,5 +1,6 @@
 import { NullEngine, Scene, MeshBuilder } from '@babylonjs/core';
 import { WorldHud } from '../../../src/systems/WorldHud';
+import { UI } from '../../../src/systems/UiStyle';
 
 describe('WorldHud', () => {
   let engine: NullEngine;
@@ -80,6 +81,46 @@ describe('WorldHud', () => {
     expect(hud.getVehicleStatus()).toBe('CAR 50%');
     hud.setVehicleStatus(null);
     expect(hud.getVehicleStatus()).toBeNull();
+  });
+
+  it('stamina and hunger fractions start full, update and clamp', () => {
+    expect(hud.getPlayerStamina()).toBe(1);
+    expect(hud.getPlayerHunger()).toBe(1);
+    hud.setPlayerStamina(0.4);
+    hud.setPlayerHunger(0.7);
+    expect(hud.getPlayerStamina()).toBe(0.4);
+    expect(hud.getPlayerHunger()).toBe(0.7);
+    hud.setPlayerStamina(5);
+    hud.setPlayerHunger(-1);
+    expect(hud.getPlayerStamina()).toBe(1);
+    expect(hud.getPlayerHunger()).toBe(0);
+    expect(() => hud.setPlayerStamina(1)).not.toThrow(); // no-op when unchanged
+    expect(() => hud.setPlayerHunger(0)).not.toThrow();
+  });
+
+  it('healthBarColor maps fraction to the UiStyle hp tokens (green/amber/red)', () => {
+    expect(WorldHud.healthBarColor(1)).toBe(UI.hpHigh);
+    expect(WorldHud.healthBarColor(0.51)).toBe(UI.hpHigh);
+    expect(WorldHud.healthBarColor(0.5)).toBe(UI.hpMid);
+    expect(WorldHud.healthBarColor(0.26)).toBe(UI.hpMid);
+    expect(WorldHud.healthBarColor(0.25)).toBe(UI.hpLow);
+    expect(WorldHud.healthBarColor(0)).toBe(UI.hpLow);
+  });
+
+  it('pushToast queues gain notifications and updateToasts prunes expired ones', () => {
+    hud.pushToast('Atletismo +0.1', 1000);
+    hud.pushToast('Pilotagem +0.1', 2000);
+    expect(hud.getToastTexts()).toEqual(['Atletismo +0.1', 'Pilotagem +0.1']);
+    hud.updateToasts(2500); // none expired yet
+    expect(hud.getToastTexts()).toHaveLength(2);
+    hud.updateToasts(1000 + 3000 + 1); // first toast past its ttl
+    expect(hud.getToastTexts()).toEqual(['Pilotagem +0.1']);
+  });
+
+  it('dispose clears the toasts', () => {
+    hud.pushToast('x', 0);
+    hud.dispose();
+    expect(hud.getToastTexts()).toHaveLength(0);
   });
 
   it('dispose resets prompt and vehicle status', () => {

@@ -126,7 +126,6 @@ export class NPCAgent {
 
   private state: NPCState = 'idle';
   private mood: NPCMood;
-  private nameKnown = false;
   private disposition: NPCDisposition;
   /** This NPC's relationships toward OTHER NPCs (id → disposition); default neutral. */
   private readonly relationships = new Map<string, NPCDisposition>();
@@ -353,38 +352,13 @@ export class NPCAgent {
     this.intent = intent;
   }
 
-  /** True once the NPC has revealed its name to the player. */
-  isNameKnown(): boolean {
-    return this.nameKnown;
-  }
-
-  /** Name to show in UI: the real name only after the NPC introduces itself. */
-  getDisplayName(): string {
-    return this.nameKnown ? this.definition.name : 'Unknown';
-  }
-
-  markNameKnown(): void {
-    this.nameKnown = true;
-  }
-
-  /** Replace the name-known flag from a persisted save. */
-  restoreNameKnown(known: boolean | undefined): void {
-    this.nameKnown = !!known;
-  }
-
   /**
-   * Reveal the name if the NPC's own name appears in the given text (e.g. it
-   * just introduced itself). Returns true only on the first reveal — anti-
-   * metagaming: the player shouldn't see "Zara" before she says it.
+   * Name to show in UI. Names are always visible — the old "hidden until the
+   * NPC introduces itself" anti-metagaming rule was owner-reverted (ADR-0033).
+   * Kept as a method so the ~20 call sites stay stable.
    */
-  revealNameIfMentioned(text: string): boolean {
-    if (this.nameKnown) return false;
-    const escaped = this.definition.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    if (new RegExp(`\\b${escaped}\\b`, 'i').test(text)) {
-      this.nameKnown = true;
-      return true;
-    }
-    return false;
+  getDisplayName(): string {
+    return this.definition.name;
   }
 
   getState(): NPCState {

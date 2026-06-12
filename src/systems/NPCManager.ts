@@ -38,9 +38,6 @@ export type NPCMemoryEntry = ConversationState & {
   /** The NPC's last world position [x,y,z] (Fase 20): so a corpse stays where it fell
    *  and a moved NPC reloads in place, not back at the authored spawn point. */
   position?: [number, number, number];
-  /** Whether the player has been formally introduced to this NPC (Fase 20):
-   *  persisted so the name reveal survives reload (anti-metagaming break sticks). */
-  nameKnown?: boolean;
 };
 export type NPCMemoryMap = Record<string, NPCMemoryEntry>;
 
@@ -386,14 +383,12 @@ export class NPCManager {
   private memoryOf(agent: NPCAgent): NPCMemoryEntry {
     const pos = agent.definition.position;
     const position: [number, number, number] = [pos[0], pos[1], pos[2]];
-    const nameKnown = agent.isNameKnown() || undefined;
     if (agent.isDefeated()) {
       return {
         mode: 'stateless', sessionId: null, history: [],
         defeated: true,
         inventory: agent.getInventoryState(),
         position, // so the corpse reloads where it fell, not at the spawn point
-        nameKnown, // if you knew them in life, you still know their corpse's name
       };
     }
     return {
@@ -406,7 +401,6 @@ export class NPCManager {
       tamper: agent.getTamper() ?? undefined,
       sabotaged: agent.isSabotaged() || undefined,
       position, // so an NPC that walked off reloads where it stopped, not at spawn
-      nameKnown, // anti-metagaming break sticks across reloads
     };
   }
 
@@ -436,7 +430,6 @@ export class NPCManager {
     // there (the visual reads agent.definition.position, mutated by setPosition).
     const savedPos = memory?.[def.id]?.position;
     if (savedPos) agent.setPosition(new Vector3(savedPos[0], savedPos[1], savedPos[2]));
-    agent.restoreNameKnown(memory?.[def.id]?.nameKnown); // name reveal persists (Fase 20)
     if (memory?.[def.id]?.defeated) agent.markDefeated(); // stays dead across reloads (Fase 18)
     return agent;
   }

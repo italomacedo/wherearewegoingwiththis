@@ -270,6 +270,63 @@ describe('PlayerController', () => {
   });
 });
 
+describe('PlayerController stamina (status-bar phase)', () => {
+  let engine: NullEngine;
+  let scene: Scene;
+  let input: InputSystem;
+  let player: PlayerController;
+
+  beforeEach(() => {
+    engine = new NullEngine();
+    scene = new Scene(engine);
+    input = new InputSystem();
+    player = new PlayerController(scene, input);
+  });
+
+  afterEach(() => {
+    player.dispose();
+    scene.dispose();
+    engine.dispose();
+  });
+
+  it('sprinting drains stamina and exhaustion gates sprint back to walk speed', async () => {
+    await player.spawn(new Vector3(0, 0, 0));
+    input.handleKeyDown('KeyW');
+    input.handleKeyDown('ShiftLeft');
+    player.update(1);
+    expect(player.isSprintActive()).toBe(true);
+    expect(player.getStamina().current).toBeLessThan(player.getStamina().max);
+    // Burn through the whole reserve.
+    for (let i = 0; i < 20 && player.getStamina().canSprint(); i++) player.update(1);
+    expect(player.getStamina().isExhausted()).toBe(true);
+    const before = player.getPosition().z;
+    player.update(1);
+    expect(player.isSprintActive()).toBe(false);
+    expect(player.getLocoState()).toBe('walk');
+    expect(player.getPosition().z - before).toBeCloseTo(DEFAULT_PLAYER_CONFIG.walkSpeed, 3);
+  });
+
+  it('stamina regenerates while idle (sprint key held but not moving = no drain)', async () => {
+    await player.spawn(new Vector3(0, 0, 0));
+    player.setStaminaState({ current: 50, max: 100 });
+    input.handleKeyDown('ShiftLeft'); // sprint held, no movement
+    player.update(1);
+    expect(player.getStamina().current).toBeGreaterThan(50);
+  });
+
+  it('setAtletismo rescales the stamina reserve preserving the fraction', async () => {
+    player.setStaminaState({ current: 50, max: 100 });
+    player.setAtletismo(100);
+    expect(player.getStamina().max).toBeCloseTo(135);
+    expect(player.getStamina().fraction()).toBeCloseTo(0.5);
+  });
+
+  it('get/setStaminaState round-trips for persistence', () => {
+    player.setStaminaState({ current: 33, max: 110 });
+    expect(player.getStaminaState()).toEqual({ current: 33, max: 110 });
+  });
+});
+
 describe('PlayerController.effectiveRunSpeed (Phase 19C)', () => {
   it('at atletismo=30 (neutral) returns the base run speed unchanged', () => {
     expect(PlayerController.effectiveRunSpeed(8, 30)).toBeCloseTo(8);

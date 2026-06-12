@@ -3,10 +3,10 @@ import {
 } from '../../../../src/systems/npc/Addressing';
 
 const zara = (over: Partial<AddressCandidate> = {}): AddressCandidate => ({
-  id: 'zara', name: 'Zara', nameKnown: false, position: { x: 0, z: 6 }, ...over,
+  id: 'zara', name: 'Zara', position: { x: 0, z: 6 }, ...over,
 });
 const mae = (over: Partial<AddressCandidate> = {}): AddressCandidate => ({
-  id: 'mae', name: 'Mae', nameKnown: true, position: { x: 0, z: -6 }, ...over,
+  id: 'mae', name: 'Mae', position: { x: 0, z: -6 }, ...over,
 });
 
 // Player at origin facing +Z (yaw 0).
@@ -41,9 +41,9 @@ describe('Addressing — global chat resolver (pure)', () => {
       expect(r).toEqual({ kind: 'npc', id: 'mae', tone: 'normal' });
     });
 
-    it('ignores a name the player does not yet know (falls through to aim)', () => {
-      // Zara unknown; message says "Zara" but she is being faced anyway (+Z).
-      const r = resolveAddressee('Zara?', player(), [zara({ nameKnown: false })]);
+    it('resolves any NPC by name, even one never formally introduced (ADR-0033)', () => {
+      // Zara is BEHIND the player (not faced) — only the name match can route this.
+      const r = resolveAddressee('Zara?', player(), [zara({ position: { x: 0, z: -6 } })]);
       expect(r).toEqual({ kind: 'npc', id: 'zara', tone: 'normal' });
     });
 

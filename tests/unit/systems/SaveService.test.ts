@@ -68,6 +68,19 @@ describe('SaveService', () => {
     expect(save.playerHunger).toEqual({ current: 100, max: 100 });
   });
 
+  it('createNewSave includes full player stamina', () => {
+    const save = SaveService.createNewSave(testCharacter);
+    expect(save.playerStamina).toEqual({ current: 100, max: 100 });
+  });
+
+  it('load migrates a legacy save missing the stamina field', () => {
+    const save = SaveService.createNewSave(testCharacter);
+    delete (save as Partial<SaveGame>).playerStamina;
+    SaveService.save(save);
+    const loaded = SaveService.load(save.saveId)!;
+    expect(loaded.playerStamina).toEqual({ current: 100, max: 100 });
+  });
+
   it('createNewSave seeds the procedural world (numeric seed, tile [0,0])', () => {
     const save = SaveService.createNewSave(testCharacter);
     expect(typeof save.world.worldSeed).toBe('number');
