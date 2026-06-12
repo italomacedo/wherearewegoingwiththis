@@ -67,25 +67,49 @@ export function quadrantNpcId(docId: string, tx: number, tz: number, npcId: stri
   return `q_${docId}_t${tx}_${tz}_${npcId}`;
 }
 
-/** Map a doc NPC to a full NPCDefinition at a tile placement. */
-function npcDefFor(doc: SceneDoc, tx: number, tz: number, npc: SceneDoc['npcs'][number]): NPCDefinition {
+/**
+ * Map a doc NPC to a full NPCDefinition at an explicit runtime id + world
+ * position. Full-fidelity passthroughs (appearance/home/relationships/spice
+ * traits) win over the plain editor fields — used by both the quadrant
+ * streaming path and the migrated downtown cast.
+ */
+export function sceneNpcToDefinition(
+  npc: SceneDoc['npcs'][number],
+  id: string,
+  position: [number, number, number],
+  fallbackLocation: string,
+): NPCDefinition {
   return {
-    id: quadrantNpcId(doc.id, tx, tz, npc.id),
+    id,
     name: npc.name,
     role: npc.role,
-    location: `${doc.name} block in the sprawl`,
+    location: npc.location ?? fallbackLocation,
     personalityPrompt: npc.personalityPrompt,
     defaultMood: npc.defaultMood,
     interactionRadius: 8,
     conversationRadius: 3,
-    position: tileLocalToWorld(tx, tz, npc.position),
-    appearance: appearanceFor(npc.outfit),
+    position,
+    appearance: npc.appearance ?? appearanceFor(npc.outfit),
+    home: npc.home,
     backstory: npc.backstory,
     routine: npc.routine,
     relationships: npc.relationships,
     initialDisposition: npc.initialDisposition,
+    npcRelationships: npc.npcRelationships,
     loadout: npc.loadout?.map((s) => ({ ...s })),
+    dealer: npc.dealer,
+    addict: npc.addict,
   };
+}
+
+/** Map a doc NPC to a full NPCDefinition at a tile placement. */
+function npcDefFor(doc: SceneDoc, tx: number, tz: number, npc: SceneDoc['npcs'][number]): NPCDefinition {
+  return sceneNpcToDefinition(
+    npc,
+    quadrantNpcId(doc.id, tx, tz, npc.id),
+    tileLocalToWorld(tx, tz, npc.position),
+    `${doc.name} block in the sprawl`,
+  );
 }
 
 /**

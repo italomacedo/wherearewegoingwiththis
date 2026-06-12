@@ -104,7 +104,7 @@ import { tileOf, tileKey, worldFloorBox, worldBounds, neighbors, type TileCoord 
 import { GroundItem, addGroundItem, removeGroundItemAt, nearestGroundItemIndex } from '@systems/world/GroundItems';
 import { themeOf, ARCHETYPES } from '@assets/world/ThemeRegistry';
 import {
-  generateTileAuthored, doorTriggersForTile, seedItemsForTile,
+  generateTileAuthored, doorTriggersForTile, seedItemsForTile, sceneNpcToDefinition,
   type WorldDoorTrigger,
 } from '@systems/world/SceneDocToTile';
 import { loadAllSceneDocs } from '@systems/world/SceneDocSource';
@@ -606,8 +606,19 @@ export class GameWorldScene extends BaseScene {
     }
 
     this.updateLoadingProgress(20, 'loading.label.zone');
+    // Authored scenes (Scene Editor JSON) load BEFORE the zone: tile (0,0) reads
+    // its props/NPCs from downtown.json when present (F5), quadrants join the
+    // procedural roll, interiors are door targets. Fail-open: no docs → legacy
+    // catalog downtown + pure procedural world.
+    const sceneDocs = await loadAllSceneDocs();
+    this.quadrantDocs = sceneDocs.filter((d) => d.kind === 'quadrant' && d.id !== 'downtown');
+    this.sceneDocsById = new Map(sceneDocs.map((d) => [d.id, d]));
+    const downtownDoc = this.sceneDocsById.get('downtown');
     this.zoneManager = new ZoneManager();
-    this.zoneManager.register('mercado_sombras', () => new MercadoSombrasZone());
+    this.zoneManager.register('mercado_sombras', () => new MercadoSombrasZone(
+      true,
+      downtownDoc && downtownDoc.props.length > 0 ? downtownDoc.props : null,
+    ));
     ServiceLocator.register('zoneManager', this.zoneManager);
 
     const zone = await this.zoneManager.loadZone(this.startZoneId, this.babylonScene);
@@ -749,12 +760,6 @@ export class GameWorldScene extends BaseScene {
     // (loaded ahead of a fast nave). NPCs (heavy avatars) only spawn in the inner
     // 3×3 (NPC_RADIUS), and all GLB work streams in a few props/frame (Fase 17H).
     this.assetCache = new AssetCache(babylonContainerLoader(this.babylonScene));
-    // Authored scenes (Scene Editor JSON): quadrants join the procedural roll,
-    // interiors are door-trigger targets. Loaded BEFORE the streamer so the very
-    // first ring already sees them. Fail-open: no docs → pure procedural world.
-    const sceneDocs = await loadAllSceneDocs();
-    this.quadrantDocs = sceneDocs.filter((d) => d.kind === 'quadrant');
-    this.sceneDocsById = new Map(sceneDocs.map((d) => [d.id, d]));
     const spawn = this.player.getPosition();
     this.worldStreamer = new WorldStreamer({
       onLoad: (c) => this.loadTile(c),
@@ -764,6 +769,13 @@ export class GameWorldScene extends BaseScene {
     this.worldStreamer.setCurrent(tileOf(spawn.x, spawn.z));
     this.updateNpcRing(); // seed the inner NPC ring
     this.renderGroundMarkers(); // dropped-item piles persisted in this save (Fase 18)
+    // Downtown doc content beyond props/NPCs: door triggers + seeded pickups for
+    // the static tile (0,0), which the streamer never load/unloads.
+    /* istanbul ignore next — browser-only seeding; the helpers are unit-tested */
+    if (typeof document !== 'undefined') {
+      const dt = this.sceneDocsById.get('downtown');
+      if (dt) this.seedAuthoredTileContent(dt, 0, 0, tileKey(0, 0));
+    }
 
     // A left-click commits an out-of-combat surprise attack (the ribbon entered
     // aiming). Listen on the CANVAS DOM directly — the most reliable signal (the
@@ -1708,7 +1720,12 @@ export class GameWorldScene extends BaseScene {
     // only from the driver's seat. Her conversation is ephemeral per session.
     this.roxaneAgent = new NPCAgent(createRoxane());
 
-    const definitions = [createZara(), createMback()];
+    // Tile (0,0) cast: from downtown.json when present (F5 — keeps the LEGACY ids
+    // so existing saves' npcMemory still matches), else the authored catalog.
+    const downtownDoc = this.sceneDocsById.get('downtown');
+    const definitions = downtownDoc && downtownDoc.npcs.length > 0
+      ? downtownDoc.npcs.map((n) => sceneNpcToDefinition(n, n.id, n.position, 'Mercado das Sombras'))
+      : [createZara(), createMback()];
     this.zoneNpcIds = definitions.map((d) => d.id);
     for (const def of definitions) {
       // Centralized restore (Fase 20 fix): spawnWithMemory restores conversation,

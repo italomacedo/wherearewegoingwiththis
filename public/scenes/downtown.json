@@ -1,0 +1,436 @@
+{
+ "version": 1,
+ "id": "downtown",
+ "kind": "quadrant",
+ "name": "Mercado das Sombras",
+ "props": [
+  {
+   "key": "bld-n-0",
+   "model": "world/downtown/building_medium_2_001.glb",
+   "position": [
+    -14,
+    0,
+    14
+   ],
+   "rotationY": 3.141592653589793,
+   "scale": 0.86,
+   "solid": true
+  },
+  {
+   "key": "door-bld-n-0",
+   "model": "world/downtown/door_1.glb",
+   "position": [
+    -13.57,
+    0,
+    14.05
+   ],
+   "rotationY": 3.141592653589793,
+   "scale": 0.86,
+   "solid": false
+  },
+  {
+   "key": "bld-n-1",
+   "model": "world/downtown/building_large_2.glb",
+   "position": [
+    0,
+    0,
+    14
+   ],
+   "rotationY": 3.141592653589793,
+   "scale": [
+    0.67,
+    0.85,
+    0.67
+   ],
+   "solid": true
+  },
+  {
+   "key": "door-bld-n-1",
+   "model": "world/downtown/door_2.glb",
+   "position": [
+    0.335,
+    0,
+    14.05
+   ],
+   "rotationY": 3.141592653589793,
+   "scale": [
+    0.67,
+    0.85,
+    0.67
+   ],
+   "solid": false
+  },
+  {
+   "key": "bld-n-2",
+   "model": "world/downtown/building_small_1.glb",
+   "position": [
+    14,
+    0,
+    14
+   ],
+   "rotationY": 3.141592653589793,
+   "scale": 0.89,
+   "solid": true
+  },
+  {
+   "key": "door-bld-n-2",
+   "model": "world/downtown/door_3.glb",
+   "position": [
+    14.445,
+    0.89,
+    14.05
+   ],
+   "rotationY": 3.141592653589793,
+   "scale": 0.89,
+   "solid": false
+  },
+  {
+   "key": "bld-s-0",
+   "model": "world/downtown/building_small_1.glb",
+   "position": [
+    -14,
+    0,
+    -14
+   ],
+   "rotationY": 0,
+   "scale": 0.89,
+   "solid": true
+  },
+  {
+   "key": "door-bld-s-0",
+   "model": "world/downtown/door_1.glb",
+   "position": [
+    -14.445,
+    0.89,
+    -14.05
+   ],
+   "rotationY": 0,
+   "scale": 0.89,
+   "solid": false
+  },
+  {
+   "key": "bld-s-1",
+   "model": "world/downtown/building_medium_2_001.glb",
+   "position": [
+    0,
+    0,
+    -14
+   ],
+   "rotationY": 0,
+   "scale": 0.86,
+   "solid": true
+  },
+  {
+   "key": "door-bld-s-1",
+   "model": "world/downtown/door_2.glb",
+   "position": [
+    -0.43,
+    0,
+    -14.05
+   ],
+   "rotationY": 0,
+   "scale": 0.86,
+   "solid": false
+  },
+  {
+   "key": "bld-s-2",
+   "model": "world/downtown/building_large_2.glb",
+   "position": [
+    14,
+    0,
+    -14
+   ],
+   "rotationY": 0,
+   "scale": [
+    0.67,
+    0.85,
+    0.67
+   ],
+   "solid": true
+  },
+  {
+   "key": "door-bld-s-2",
+   "model": "world/downtown/door_3.glb",
+   "position": [
+    13.665,
+    0,
+    -14.05
+   ],
+   "rotationY": 0,
+   "scale": [
+    0.67,
+    0.85,
+    0.67
+   ],
+   "solid": false
+  },
+  {
+   "key": "prop-manhole",
+   "model": "world/downtown/prop_manholecover.glb",
+   "position": [
+    -6,
+    0.03,
+    0
+   ],
+   "solid": false
+  },
+  {
+   "key": "prop-drain",
+   "model": "world/downtown/prop_drain.glb",
+   "position": [
+    8,
+    0.03,
+    3
+   ],
+   "solid": false
+  },
+  {
+   "key": "prop-bollard-0",
+   "model": "world/downtown/prop_bollard.glb",
+   "position": [
+    -12,
+    0,
+    5.5
+   ],
+   "solid": true
+  },
+  {
+   "key": "prop-bollard-1",
+   "model": "world/downtown/prop_bollard.glb",
+   "position": [
+    12,
+    0,
+    5.5
+   ],
+   "solid": true
+  },
+  {
+   "key": "prop-bollard-2",
+   "model": "world/downtown/prop_bollard.glb",
+   "position": [
+    -12,
+    0,
+    -5.5
+   ],
+   "solid": true
+  },
+  {
+   "key": "prop-bollard-3",
+   "model": "world/downtown/prop_bollard.glb",
+   "position": [
+    12,
+    0,
+    -5.5
+   ],
+   "solid": true
+  },
+  {
+   "key": "prop-planter",
+   "model": "world/downtown/prop_planter_single.glb",
+   "position": [
+    -6,
+    0,
+    7.5
+   ],
+   "solid": true
+  },
+  {
+   "key": "prop-acunit",
+   "model": "world/downtown/prop_acunit.glb",
+   "position": [
+    9,
+    0,
+    9.5
+   ],
+   "rotationY": 3.141592653589793,
+   "solid": true
+  },
+  {
+   "key": "vendor-shelf",
+   "model": "world/props/props_shelf_tall.glb",
+   "position": [
+    3,
+    0,
+    8.6
+   ],
+   "rotationY": 3.141592653589793,
+   "solid": true
+  },
+  {
+   "key": "vendor-food-0",
+   "model": "world/food/apple.glb",
+   "position": [
+    2.6,
+    1.35,
+    8.6
+   ],
+   "scale": 0.4,
+   "solid": false
+  },
+  {
+   "key": "vendor-food-1",
+   "model": "world/food/bread.glb",
+   "position": [
+    3.4,
+    1.35,
+    8.6
+   ],
+   "scale": 0.4,
+   "solid": false
+  },
+  {
+   "key": "manhole-0",
+   "model": "world/downtown/prop_manholecover.glb",
+   "position": [
+    10.97361955884844,
+    0.05,
+    28
+   ],
+   "solid": false
+  },
+  {
+   "key": "manhole-1",
+   "model": "world/downtown/prop_manholecover.glb",
+   "position": [
+    1.4713752586394548,
+    0.05,
+    -28
+   ],
+   "solid": false
+  }
+ ],
+ "items": [],
+ "npcs": [
+  {
+   "id": "npc_zara_vendor_01",
+   "name": "Zara",
+   "role": "underground hacker and street activist",
+   "personalityPrompt": "You are an underground hacker and activist who despises the corporate world with your whole heart. You run ops against the corps, leak what they bury, and protect the people on the strip. You are wary of strangers and trust no one fully, speaking in short, clipped sentences — but under the armour you genuinely care about the little people the corps grind down. You believe the system is rotten and someone has to fight it. You have nothing but contempt for sell-outs and corporate suits.",
+   "backstory": "Grew up in the flooded lower decks; lost her brother to a corpo data-raid and turned that grief into a war — she has been hacking, leaking, and organising against the corporations ever since.",
+   "routine": "Keeps a market stall as a front by day, then runs the nets till dawn — cracking corp systems, feeding leaks to the strip, and watching for retaliation.",
+   "relationships": "Loathes Mback, the smug corporate fixer who slums the strip dangling money to buy people off — to her he is everything wrong with this city. Steers clear of the Vyse-Tek enforcers who patrol it.",
+   "defaultMood": "suspicious",
+   "initialDisposition": "wary",
+   "outfit": "w_punk",
+   "loadout": [
+    {
+     "id": "pipe",
+     "qty": 1
+    },
+    {
+     "id": "medkit",
+     "qty": 1
+    },
+    {
+     "id": "scrap",
+     "qty": 2
+    },
+    {
+     "id": "cyberdeck",
+     "qty": 1
+    },
+    {
+     "id": "credstick",
+     "qty": 100
+    }
+   ],
+   "position": [
+    3,
+    0,
+    6
+   ],
+   "appearance": {
+    "bodyBase": "w_punk",
+    "slots": {},
+    "morphs": {},
+    "colors": {
+     "skin": "#8A6552",
+     "hair": "#C81E5A",
+     "eyebrow": "#1A1A1A",
+     "eye": "#2A3A2A",
+     "beard": "#1A1A1A",
+     "makeup": "#A03050",
+     "outfit": "#3A4A6B",
+     "top": "#3A4A6B",
+     "bottom": "#2A2E38",
+     "shoes": "#1A1A1A",
+     "hat": "#202833"
+    },
+    "skinTexture": "skin_01",
+    "accessories": [],
+    "implants": [],
+    "avatarPieces": {}
+   },
+   "home": "a cramped capsule flat above the noodle bar, three levels up from the market",
+   "location": "Mercado das Sombras, the stall-front that hides her netrunner bench",
+   "npcRelationships": {
+    "npc_mback_fence_01": "wary"
+   },
+   "addict": true
+  },
+  {
+   "id": "npc_mback_fence_01",
+   "name": "Mback",
+   "role": "influential corporate fixer",
+   "personalityPrompt": "You are Mback, a smooth, influential corporate fixer who works the strip looking for talent and leverage. You can open doors most people only dream of — money, contracts, a way up — but every favour comes with a price: a compromise, a debt, a piece of someone. You speak with easy, condescending charm and size up everyone as an asset or a liability. You think activists are naive babacas who would rather burn the system than profit from it, and you find their idealism faintly amusing. You are never crude — you persuade.",
+   "backstory": "Climbed the corporate ladder by trading in leverage rather than loyalty; now he brokers quiet deals on the strip, buying up promising people before his rivals can.",
+   "routine": "Holds court on the corner after dark, dangling offers and gathering leverage, then reports the night’s catch uptown before dawn.",
+   "relationships": "Regards Zara and her activist kind as naive babacas — useful only if they can be bought or broken. He would happily co-opt her talent, or have the Vyse-Tek crew handle her if she becomes a problem.",
+   "defaultMood": "neutral",
+   "initialDisposition": "neutral",
+   "outfit": "suit",
+   "loadout": [
+    {
+     "id": "knife",
+     "qty": 1
+    },
+    {
+     "id": "medkit",
+     "qty": 1
+    },
+    {
+     "id": "credstick",
+     "qty": 1000
+    },
+    {
+     "id": "spice",
+     "qty": 15
+    }
+   ],
+   "position": [
+    12,
+    0,
+    6
+   ],
+   "appearance": {
+    "bodyBase": "suit",
+    "slots": {},
+    "morphs": {},
+    "colors": {
+     "skin": "#6E5038",
+     "hair": "#B8B0A4",
+     "eyebrow": "#1A1A1A",
+     "eye": "#3A2E22",
+     "beard": "#1A1A1A",
+     "makeup": "#A03050",
+     "outfit": "#3A4A6B",
+     "top": "#3A4A6B",
+     "bottom": "#2A2E38",
+     "shoes": "#1A1A1A",
+     "hat": "#202833"
+    },
+    "skinTexture": "skin_01",
+    "accessories": [],
+    "implants": [],
+    "avatarPieces": {}
+   },
+   "home": "a serviced corporate apartment uptown; he only slums the strip for opportunities",
+   "location": "Mercado das Sombras, the corner where he holds court",
+   "npcRelationships": {
+    "npc_zara_vendor_01": "wary"
+   },
+   "dealer": true
+  }
+ ],
+ "doorTriggers": []
+}

@@ -17,6 +17,7 @@ import type { NPCMood, NPCDisposition } from '@entities/NPCAgent';
 import type { AttributeId } from '@entities/CharacterStats';
 import type { InventoryStack } from '@entities/Inventory';
 import type { ColliderBox } from '@assets/WorldAssetCatalog';
+import type { CharacterAppearance } from '@entities/CharacterData';
 
 export const SCENE_DOC_VERSION = 1;
 
@@ -57,6 +58,15 @@ export interface SceneNpcDoc {
   loadout?: InventoryStack[];
   position: [number, number, number];
   rotationY?: number;
+  // ── Full-fidelity passthroughs (authored casts like the migrated downtown;
+  //    the editor itself only writes `outfit`). ──
+  /** Custom avatar (tints etc.) — wins over the plain `outfit` look. */
+  appearance?: CharacterAppearance;
+  home?: string;
+  location?: string;
+  npcRelationships?: Record<string, NPCDisposition>;
+  dealer?: boolean;
+  addict?: boolean;
 }
 
 export interface DoorTriggerDoc {
