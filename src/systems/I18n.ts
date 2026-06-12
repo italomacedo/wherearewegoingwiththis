@@ -61,8 +61,8 @@ export const STRINGS: Record<string, Entry> = {
   'editor.ground': e('Ground', 'Chão'),
   'editor.sceneId': e('id', 'id'),
   'editor.sceneName': e('name', 'nome'),
-  'editor.hint': e('LMB select · MMB orbit · RMB pan · 1/2/3 move/rotate/scale · Del delete · Ctrl+D duplicate · ESC menu',
-    'BEM seleciona · BMM orbita · BDM pan · 1/2/3 mover/girar/escalar · Del exclui · Ctrl+D duplica · ESC menu'),
+  'editor.hint': e('LMB select · MMB orbit · RMB pan · wheel zoom · WASD/arrows pan · Z/C orbit · R/F zoom · 1/2/3 move/rotate/scale · Del · Ctrl+D · ESC menu',
+    'BEM seleciona · BMM orbita · BDM pan · roda zoom · WASD/setas pan · Z/C orbita · R/F zoom · 1/2/3 mover/girar/escalar · Del · Ctrl+D · ESC menu'),
 
   // ─── Options ───────────────────────────────────────────────────────────
   'options.title': e('OPTIONS', 'OPÇÕES'),

@@ -45,6 +45,9 @@ const DISP_CYCLE: NPCDisposition[] = ['neutral', 'friendly', 'wary', 'hostile'];
 
 export class SceneEditorScene extends BaseScene {
   private state = new EditorState();
+  private camera: ArcRotateCamera | null = null;
+  /** Keys currently held (keyboard navigation: pan/orbit/zoom). */
+  private keysDown = new Set<string>();
   private panels: EditorPanels | null = null;
   private cache: AssetCache | null = null;
   private gizmos: GizmoManager | null = null;
@@ -66,16 +69,20 @@ export class SceneEditorScene extends BaseScene {
     const camera = new ArcRotateCamera('editor-cam', -Math.PI / 2, Math.PI / 3.2, 55, Vector3.Zero(), scene);
     camera.lowerRadiusLimit = 5;
     camera.upperRadiusLimit = 160;
-    camera.wheelDeltaPercentage = 0.02;
-    camera.panningSensibility = 60;
+    camera.lowerBetaLimit = 0.15;
+    camera.upperBetaLimit = Math.PI / 2.05; // never below the ground plane
+    camera.wheelDeltaPercentage = 0.03; // wheel = zoom
+    camera.panningSensibility = 25; // RIGHT-drag = pan (lower = faster)
+    camera.panningAxis = new Vector3(1, 0, 1); // pan slides on the ground plane
+    this.camera = camera;
     scene.activeCamera = camera;
     if (typeof document !== 'undefined') {
-      const canvas = this.engine.getRenderingCanvas();
-      if (canvas) camera.attachControl(canvas, true);
-      // LEFT button is for pick/gizmo: camera orbits with MIDDLE, pans with RIGHT.
+      // (noPreventDefault=false → Babylon owns wheel/middle-drag,
+      //  useCtrlForPanning=false, panningMouseButton=2 → RIGHT-drag pans.)
+      camera.attachControl(false, false, 2);
+      // LEFT button stays free for pick/gizmo: orbit on MIDDLE, pan on RIGHT.
       const pointers = camera.inputs.attached.pointers as unknown as { buttons: number[] } | undefined;
       if (pointers) pointers.buttons = [1, 2];
-      camera._panningMouseButton = 2;
     }
 
     const ambient = new HemisphericLight('editor-light', new Vector3(0.2, 1, 0.3), scene);
@@ -100,6 +107,7 @@ export class SceneEditorScene extends BaseScene {
   }
 
   async onExit(): Promise<void> {
+    this.keysDown.clear();
     this.panels?.dispose();
     this.panels = null;
     this.gizmos?.dispose();
@@ -448,10 +456,40 @@ export class SceneEditorScene extends BaseScene {
     return null;
   }
 
+  /** Keyboard navigation each frame: WASD/arrows pan, Z/C orbit, R/F zoom. */
+  update(): void {
+    const cam = this.camera;
+    if (!cam || typeof document === 'undefined') return;
+    const dt = Math.min(0.1, this.engine.getDeltaTime() / 1000);
+    const k = this.keysDown;
+    if (k.size === 0) return;
+    // Camera-relative ground pan (W = away from the camera), scaled by zoom.
+    const fwd = cam.getTarget().subtract(cam.position);
+    fwd.y = 0;
+    const f = fwd.normalize();
+    const right = new Vector3(-f.z, 0, f.x);
+    const pan = 28 * dt * Math.max(0.3, cam.radius / 55);
+    const move = Vector3.Zero();
+    if (k.has('w') || k.has('arrowup')) move.addInPlace(f.scale(pan));
+    if (k.has('s') || k.has('arrowdown')) move.addInPlace(f.scale(-pan));
+    if (k.has('d') || k.has('arrowright')) move.addInPlace(right.scale(pan));
+    if (k.has('a') || k.has('arrowleft')) move.addInPlace(right.scale(-pan));
+    if (move.lengthSquared() > 0) cam.target.addInPlace(move);
+    if (k.has('z')) cam.alpha += 1.6 * dt;
+    if (k.has('c')) cam.alpha -= 1.6 * dt;
+    if (k.has('r')) cam.radius = Math.max(cam.lowerRadiusLimit ?? 5, cam.radius - 40 * dt);
+    if (k.has('f')) cam.radius = Math.min(cam.upperRadiusLimit ?? 160, cam.radius + 40 * dt);
+  }
+
   private setupKeys(scene: Scene): void {
     scene.onKeyboardObservable.add((kb) => {
-      if (kb.type !== KeyboardEventTypes.KEYDOWN) return;
       const ev = kb.event as KeyboardEvent;
+      if (kb.type === KeyboardEventTypes.KEYUP) {
+        this.keysDown.delete(ev.key.toLowerCase());
+        return;
+      }
+      if (kb.type !== KeyboardEventTypes.KEYDOWN) return;
+      if (!ev.ctrlKey && !ev.altKey && !ev.metaKey) this.keysDown.add(ev.key.toLowerCase());
       // DOM inputs stopPropagation their own keydowns; anything here is world input.
       if (ev.key === 'Escape') {
         this.onEsc();
