@@ -5,116 +5,12 @@
  "name": "Mercado das Sombras",
  "props": [
   {
-   "key": "bld-n-0",
-   "model": "world/downtown/building_medium_2_001.glb",
-   "position": [
-    -14,
-    0,
-    14
-   ],
-   "rotationY": 3.141592653589793,
-   "scale": 0.86,
-   "solid": true
-  },
-  {
-   "key": "door-bld-n-0",
-   "model": "world/downtown/door_1.glb",
-   "position": [
-    -13.57,
-    0,
-    14.05
-   ],
-   "rotationY": 3.141592653589793,
-   "scale": 0.86,
-   "solid": false
-  },
-  {
-   "key": "bld-n-1",
-   "model": "world/downtown/building_large_2.glb",
-   "position": [
-    0,
-    0,
-    14
-   ],
-   "rotationY": 3.141592653589793,
-   "scale": [
-    0.67,
-    0.85,
-    0.67
-   ],
-   "solid": true
-  },
-  {
-   "key": "door-bld-n-1",
-   "model": "world/downtown/door_2.glb",
-   "position": [
-    0.335,
-    0,
-    14.05
-   ],
-   "rotationY": 3.141592653589793,
-   "scale": [
-    0.67,
-    0.85,
-    0.67
-   ],
-   "solid": false
-  },
-  {
-   "key": "bld-n-2",
-   "model": "world/downtown/building_small_1.glb",
-   "position": [
-    14,
-    0,
-    14
-   ],
-   "rotationY": 3.141592653589793,
-   "scale": 0.89,
-   "solid": true
-  },
-  {
-   "key": "door-bld-n-2",
-   "model": "world/downtown/door_3.glb",
-   "position": [
-    14.445,
-    0.89,
-    14.05
-   ],
-   "rotationY": 3.141592653589793,
-   "scale": 0.89,
-   "solid": false
-  },
-  {
-   "key": "bld-s-0",
-   "model": "world/downtown/building_small_1.glb",
-   "position": [
-    -14,
-    0,
-    -14
-   ],
-   "rotationY": 0,
-   "scale": 0.89,
-   "solid": true
-  },
-  {
-   "key": "door-bld-s-0",
-   "model": "world/downtown/door_1.glb",
-   "position": [
-    -14.445,
-    0.89,
-    -14.05
-   ],
-   "rotationY": 0,
-   "scale": 0.89,
-   "solid": false
-  },
-  {
    "key": "bld-s-1",
    "model": "world/downtown/building_medium_2_001.glb",
    "position": [
     0,
     0,
-    -14
+    -9.084213256835938
    ],
    "rotationY": 0,
    "scale": 0.86,
@@ -124,44 +20,12 @@
    "key": "door-bld-s-1",
    "model": "world/downtown/door_2.glb",
    "position": [
-    -0.43,
+    -0.4300000071525574,
     0,
-    -14.05
+    -9.110559463500977
    ],
    "rotationY": 0,
    "scale": 0.86,
-   "solid": false
-  },
-  {
-   "key": "bld-s-2",
-   "model": "world/downtown/building_large_2.glb",
-   "position": [
-    14,
-    0,
-    -14
-   ],
-   "rotationY": 0,
-   "scale": [
-    0.67,
-    0.85,
-    0.67
-   ],
-   "solid": true
-  },
-  {
-   "key": "door-bld-s-2",
-   "model": "world/downtown/door_3.glb",
-   "position": [
-    13.665,
-    0,
-    -14.05
-   ],
-   "rotationY": 0,
-   "scale": [
-    0.67,
-    0.85,
-    0.67
-   ],
    "solid": false
   },
   {
@@ -233,50 +97,6 @@
     7.5
    ],
    "solid": true
-  },
-  {
-   "key": "prop-acunit",
-   "model": "world/downtown/prop_acunit.glb",
-   "position": [
-    9,
-    0,
-    9.5
-   ],
-   "rotationY": 3.141592653589793,
-   "solid": true
-  },
-  {
-   "key": "vendor-shelf",
-   "model": "world/props/props_shelf_tall.glb",
-   "position": [
-    3,
-    0,
-    8.6
-   ],
-   "rotationY": 3.141592653589793,
-   "solid": true
-  },
-  {
-   "key": "vendor-food-0",
-   "model": "world/food/apple.glb",
-   "position": [
-    2.6,
-    1.35,
-    8.6
-   ],
-   "scale": 0.4,
-   "solid": false
-  },
-  {
-   "key": "vendor-food-1",
-   "model": "world/food/bread.glb",
-   "position": [
-    3.4,
-    1.35,
-    8.6
-   ],
-   "scale": 0.4,
-   "solid": false
   },
   {
    "key": "manhole-0",

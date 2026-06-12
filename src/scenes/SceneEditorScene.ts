@@ -24,7 +24,7 @@ import { framePlanes, crosswalkStripes } from '@assets/world/CityFrame';
 import { EditorState } from '@systems/sceneeditor/EditorState';
 import { EditorPanels } from '@systems/sceneeditor/EditorPanels';
 import { parseGalleryManifest, type GalleryEntry } from '@systems/sceneeditor/GalleryManifest';
-import { SceneDoc, SceneKind, QUADRANT_BAND } from '@systems/sceneeditor/SceneDoc';
+import { SceneDoc, SceneKind, QUADRANT_BAND, INTERIOR_BAND } from '@systems/sceneeditor/SceneDoc';
 import { loadAllSceneDocs, writeSceneDoc } from '@systems/world/SceneDocSource';
 import { randomNpc } from '@systems/sceneeditor/NpcRandomizer';
 import { OUTFITS } from '@assets/AvatarMeshCatalog';
@@ -567,8 +567,12 @@ export class SceneEditorScene extends BaseScene {
   // ─── Panel handlers ────────────────────────────────────────────────────────
 
   private spawnPos(): [number, number, number] {
-    // Centre of the authorable area; the user drags from there.
-    return [0, 0, 0];
+    // Where the camera is looking (its orbit target), clamped to the scene's
+    // authorable band, on the ground — so new objects appear in view.
+    const band = this.state.doc.kind === 'quadrant' ? QUADRANT_BAND : INTERIOR_BAND;
+    const t = this.camera?.getTarget();
+    const clamp = (v: number): number => Math.max(-band, Math.min(band, v));
+    return t ? [clamp(t.x), 0, clamp(t.z)] : [0, 0, 0];
   }
 
   private buildHandlers(): import('@systems/sceneeditor/EditorPanels').EditorPanelHandlers {
