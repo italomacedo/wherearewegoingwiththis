@@ -13,7 +13,7 @@
 import {
   Engine, Color4, Color3, ArcRotateCamera, Vector3, HemisphericLight,
   MeshBuilder, StandardMaterial, TransformNode, GizmoManager,
-  KeyboardEventTypes, PointerEventTypes, AbstractMesh, Node, Scene,
+  KeyboardEventTypes, AbstractMesh, Node, Scene,
 } from '@babylonjs/core';
 import { BaseScene } from './BaseScene';
 import { SceneManager } from '@core/SceneManager';
@@ -452,11 +452,16 @@ export class SceneEditorScene extends BaseScene {
   }
 
   private setupPick(scene: Scene): void {
-    scene.onPointerObservable.add((pi) => {
-      if (pi.type !== PointerEventTypes.POINTERDOWN) return;
-      const ev = pi.event as PointerEvent;
-      if (ev.button !== 0) return;
-      const pick = scene.pick(scene.pointerX, scene.pointerY, (m) => m.isPickable);
+    // Lesson 32: with the ArcRotateCamera attached, scene.onPointerObservable
+    // never delivers the left click — listen on the canvas DOM directly.
+    const canvas = this.engine.getRenderingCanvas();
+    if (!canvas) return;
+    const onDown = (e: PointerEvent): void => {
+      if (e.button !== 0) return;
+      const x = scene.pointerX;
+      const y = scene.pointerY;
+      if (this.isOverPanel(x, y)) return; // GUI paints on the same canvas
+      const pick = scene.pick(x, y, (m) => m.isPickable);
       const key = this.editorKeyOf(pick?.pickedMesh ?? null);
       if (!key) return;
       const [, kind, id] = key.split(':');
@@ -466,7 +471,22 @@ export class SceneEditorScene extends BaseScene {
       else if (kind === 'door') this.state.select({ kind: 'door', key: id });
       this.panels?.refresh();
       this.reattachGizmo();
-    });
+    };
+    canvas.addEventListener('pointerdown', onDown);
+    const prevDetach = this.detachNav;
+    this.detachNav = () => {
+      prevDetach?.();
+      canvas.removeEventListener('pointerdown', onDown);
+    };
+  }
+
+  /** Is the pointer over the toolbar / gallery / properties panel regions? */
+  private isOverPanel(x: number, y: number): boolean {
+    const w = this.engine.getRenderWidth();
+    if (y <= 48) return true; // toolbar strip
+    if (x <= 262) return true; // left gallery panel (6 + 250 + margin)
+    if (x >= w - 262) return true; // right properties panel
+    return false;
   }
 
   private editorKeyOf(mesh: AbstractMesh | null): string | null {
