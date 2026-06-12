@@ -123,13 +123,7 @@ describe('NpcActor', () => {
     expect(actor.isDefeated()).toBe(true);
   });
 
-  it('uses the agent display name (anti-metagaming aware)', () => {
-    // Pre-reveal: getDisplayName falls back to 'Unknown' (per the NPCAgent rule).
-    // Post-reveal (e.g. NPC self-introduced in a reply): the real name comes through.
-    const initial = actor.displayName;
-    expect(typeof initial).toBe('string');
-    expect(initial.length).toBeGreaterThan(0);
-    agent.revealNameIfMentioned(`Hi there — call me ${def.name}.`);
+  it('uses the agent display name (always the real name — ADR-0033)', () => {
     expect(actor.displayName).toBe(def.name);
   });
 });

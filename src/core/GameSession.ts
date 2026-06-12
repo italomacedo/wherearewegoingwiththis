@@ -1,10 +1,11 @@
 import { CharacterData } from '@entities/CharacterData';
 import {
   NPCMemory, SaveGame, VehicleSaveState,
-  DEFAULT_PLAYER_HEALTH, DEFAULT_PLAYER_HUNGER, DEFAULT_VEHICLE_STATE,
+  DEFAULT_PLAYER_HEALTH, DEFAULT_PLAYER_HUNGER, DEFAULT_PLAYER_STAMINA, DEFAULT_VEHICLE_STATE,
 } from '@systems/SaveService';
 import { HealthState } from '@entities/Health';
 import { HungerState } from '@entities/Hunger';
+import { StaminaState } from '@entities/Stamina';
 import { InventoryState, defaultInventoryState } from '@entities/Inventory';
 import type { AttachOverrides } from '@systems/HeldItems';
 import type { Mission } from '@systems/economy/Missions';
@@ -50,6 +51,7 @@ export class GameSession {
     public groundItems: GroundItem[] = [],
     public pda: PdaEntry[] = [],
     public spiceContracts: SpiceContract[] = [],
+    public playerStamina: StaminaState = { ...DEFAULT_PLAYER_STAMINA },
   ) {}
 
   /** Builds a session from a persisted save. */
@@ -69,6 +71,7 @@ export class GameSession {
       save.groundItems ?? [],
       save.pda ?? [],
       save.spiceContracts ?? [],
+      save.playerStamina ?? { ...DEFAULT_PLAYER_STAMINA },
     );
   }
 }

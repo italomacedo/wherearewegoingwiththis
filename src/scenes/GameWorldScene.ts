@@ -9,10 +9,11 @@ import { ServiceLocator } from '@core/ServiceLocator';
 import { GameSession } from '@core/GameSession';
 import { SceneManager } from '@core/SceneManager';
 import {
-  SaveService, VehicleSaveState, DEFAULT_PLAYER_HEALTH, DEFAULT_VEHICLE_STATE,
+  SaveService, VehicleSaveState, DEFAULT_PLAYER_HEALTH, DEFAULT_PLAYER_STAMINA, DEFAULT_VEHICLE_STATE,
 } from '@systems/SaveService';
 import { HealthState, describeCondition } from '@entities/Health';
 import { Hunger } from '@entities/Hunger';
+import { StaminaState } from '@entities/Stamina';
 import { ZoneManager } from '@systems/ZoneManager';
 import { PauseMenu } from '@systems/PauseMenu';
 import { GameOverMenu } from '@systems/GameOverMenu';
@@ -77,7 +78,7 @@ import { applyMutations, ApplierContext } from '@systems/actions/Applier';
 import type { Mutation } from '@systems/actions/Mutations';
 import {
   CharacterStats, AttributeId, createDefaultStats, checkValue, applySkillUse,
-  detectPerkPointGrants, grantPerkPoints,
+  detectPerkPointGrants, grantPerkPoints, skillDef, ATTRIBUTES,
 } from '@entities/CharacterStats';
 import { CharacterSheetOverlay } from '@systems/CharacterSheetOverlay';
 import { PdaOverlay } from '@systems/PdaOverlay';
@@ -374,6 +375,8 @@ export class GameWorldScene extends BaseScene {
   private playerHunger: Hunger = new Hunger();
   /** Edge-trigger for the diegetic "stomach growling" line. */
   private hungerWasLow = false;
+  /** Saved sprint stamina, applied to the player on spawn (persisted). */
+  private playerStaminaState: StaminaState = { ...DEFAULT_PLAYER_STAMINA };
   private vehicleState: VehicleSaveState = {
     health: { ...DEFAULT_VEHICLE_STATE.health }, destroyed: false,
   };
@@ -421,6 +424,7 @@ export class GameWorldScene extends BaseScene {
     this.gameTimeSeconds = session.gameTimeSeconds;
     this.playerHealthState = session.playerHealth ?? { ...DEFAULT_PLAYER_HEALTH };
     this.playerHunger = Hunger.fromState(session.playerHunger);
+    this.playerStaminaState = session.playerStamina ?? { ...DEFAULT_PLAYER_STAMINA };
     this.missions = session.missions ?? [];
     this.spiceContracts = session.spiceContracts ?? [];
     this.groundItems = session.groundItems ?? [];
@@ -489,9 +493,10 @@ export class GameWorldScene extends BaseScene {
     const character = { ...save.character, stats: this.playerStats };
     const inventory = this.playerInventory.toState();
     const playerHunger = this.playerHunger.toState();
+    const playerStamina = this.player?.getStaminaState() ?? { ...DEFAULT_PLAYER_STAMINA };
     SaveService.save({
       ...save, character, world, gameTimeSeconds: this.gameTimeSeconds, npcMemory: memory, playerHealth, vehicle, inventory,
-      heldAttach: this.heldAttach, playerHunger, missions: this.missions, spiceContracts: this.spiceContracts,
+      heldAttach: this.heldAttach, playerHunger, playerStamina, missions: this.missions, spiceContracts: this.spiceContracts,
       groundItems: this.groundItems, pda: this.pda,
     });
 
@@ -506,6 +511,7 @@ export class GameWorldScene extends BaseScene {
       session.inventory = inventory;
       session.heldAttach = this.heldAttach;
       session.playerHunger = playerHunger;
+      session.playerStamina = playerStamina;
       session.missions = this.missions;
       session.spiceContracts = this.spiceContracts;
       session.groundItems = this.groundItems;
@@ -598,6 +604,9 @@ export class GameWorldScene extends BaseScene {
     // non-finite Y back to the zone's ground spawn height.
     const safeSpawn = GameWorldScene.sanitizeSpawn(this.spawnOverride, zone.getSpawnPoint());
     await this.player.spawn(safeSpawn, this.appearance);
+    // Restore the saved stamina, then let Atletismo rescale the reserve
+    // (setMaxForAtletismo preserves the saved fraction).
+    this.player.setStaminaState(this.playerStaminaState);
     // Apply skill-driven movement speed (Phase 19C).
     this.player.setAtletismo(this.playerStats.skills['atletismo'] ?? 10);
     ServiceLocator.register('player', this.player);
@@ -2636,7 +2645,9 @@ export class GameWorldScene extends BaseScene {
     const axis = this.inputSystem.getMovementAxis();
     const moving = axis.x !== 0 || axis.z !== 0;
     if (!moving) return 'idle';
-    return this.inputSystem.isSprinting() ? 'running' : 'walking';
+    // Sprint intent gated by stamina (exhausted = can't actually be running).
+    const sprinting = this.inputSystem.isSprinting() && (this.player?.getStamina().canSprint() ?? true);
+    return sprinting ? 'running' : 'walking';
   }
 
   // ─── Dropped ground items (Fase 18) ──────────────────────────────────────────
@@ -2713,7 +2724,7 @@ export class GameWorldScene extends BaseScene {
     if (agent && agent.isDefeated()) {
       // A corpse never converses (no live persona) — searching it opens the loot
       // overlay, transferring the dead NPC's items to the player (Phase 9).
-      const name = agent.isNameKnown() ? agent.definition.name : t('inventory.corpseUnknown');
+      const name = agent.definition.name;
       this.inventoryOverlay?.openLoot(this.playerInventory, agent.getInventory(), name);
       const holder = this.npcHolderById.get(agent.definition.id);
       if (holder) this.cameraSystem?.enterConversationMode(holder);
@@ -2957,7 +2968,6 @@ export class GameWorldScene extends BaseScene {
         this.dialog.setNpcText(t('dialog.noReply'));
       } else {
         this.dialog.setNpcText(reply);
-        if (agent.revealNameIfMentioned(reply)) this.dialog.setNpcName(agent.definition.name);
         this.speakNpc(agent, reply); // voice the NPC's spoken words (TTS, fail-open)
         // Fase 21: maybeHandleCommerce removed — pending trade/mission staging
         // is now handled BEFORE the reply by tryVerbalAction (verbal classifier
@@ -3501,9 +3511,7 @@ export class GameWorldScene extends BaseScene {
       // ── Learn-by-doing ───────────────────────────────────────────────
       applySkillUse(actor, skillId) {
         if (actor !== 'player') return;
-        const before = self.playerStats;
-        self.playerStats = applySkillUse(before, skillId, SettingsService.get('skillGainMultiplier'));
-        self.applyPerkPointGrants(before, self.playerStats);
+        self.gainSkill(skillId);
       },
       // ── Pure narration / TTS gateway ─────────────────────────────────
       narrate(line, voice, agentId) {
@@ -3606,11 +3614,7 @@ export class GameWorldScene extends BaseScene {
     this.logSkill(`unresisted · roll=${result.roll.toFixed(0)} vs P=${(result.probability * 100).toFixed(0)}% → ${result.success ? 'HIT' : 'MISS'}${critical ? ' (CRIT)' : ''}`);
 
     // Learning by doing — only on success (owner's rule), × the Options multiplier.
-    if (result.success && cls.skillId) {
-      const before = this.playerStats;
-      this.playerStats = applySkillUse(this.playerStats, cls.skillId, SettingsService.get('skillGainMultiplier'));
-      this.applyPerkPointGrants(before, this.playerStats);
-    }
+    if (result.success && cls.skillId) this.gainSkill(cls.skillId);
 
     const narration = await this.npcManager.narrateOutcome(message, result.success, languageName(getLocale()), critical);
     {
@@ -3669,11 +3673,7 @@ export class GameWorldScene extends BaseScene {
     this.logSkill(`${mode} · roll=${res.roll.toFixed(0)} vs P=${(res.probability * 100).toFixed(0)}% → ${res.success ? 'HIT' : 'MISS'}${res.critical ? ' (CRIT)' : ''}`);
 
     // Learn-by-doing on a successful, skilled check (owner's rule).
-    if (res.success && cls.skillId) {
-      const before = this.playerStats;
-      this.playerStats = applySkillUse(this.playerStats, cls.skillId, SettingsService.get('skillGainMultiplier'));
-      this.applyPerkPointGrants(before, this.playerStats);
-    }
+    if (res.success && cls.skillId) this.gainSkill(cls.skillId);
 
     // medicine_check: a self-read of your own condition (diegetic, no numbers).
     // Unlike other effects the result is INFORMATION, not a world mutation, and it
@@ -3757,7 +3757,7 @@ export class GameWorldScene extends BaseScene {
     const n = name.trim().toLowerCase();
     for (const a of this.npcManager?.getAgents() ?? []) {
       if (a.isDefeated()) continue;
-      if (a.definition.name.toLowerCase() === n || a.getDisplayName().toLowerCase() === n) return a;
+      if (a.definition.name.toLowerCase() === n) return a;
     }
     return null;
   }
@@ -3884,15 +3884,14 @@ export class GameWorldScene extends BaseScene {
   }
 
   /**
-   * Record intel on an NPC into the player's PDA (Fase 20 'info'/scan result): crack
-   * the identity (anti-metagaming break), build a dossier of what the hack reveals
-   * (role, attitude, credits, gear) and upsert it into the persisted PDA, then narrate.
+   * Record intel on an NPC into the player's PDA (Fase 20 'info'/scan result): build
+   * a dossier of what the hack reveals (role, attitude, credits, gear) and upsert it
+   * into the persisted PDA, then narrate.
    */
   /* istanbul ignore next — browser-only (reads runtime agents; PDA store is tested) */
   private recordPda(subjectId: string, silent?: boolean): void {
     const a = this.npcManager?.getAgent(subjectId);
     if (!a) return;
-    a.markNameKnown(); // recording an entry cracks their identity
     this.pda = upsertPdaEntry(this.pda, { subjectId, subjectName: a.definition.name, lines: this.dossierLinesFor(a) });
     if (silent) return; // commerce paths skip the "you identified X" narration
     const line = t('skill.scanned', { name: a.definition.name, role: a.definition.role });
@@ -3995,11 +3994,7 @@ export class GameWorldScene extends BaseScene {
     if (!this.dialog || !this.npcManager || !this.player) return false;
     const value = checkValue(this.playerStats, cls.skillId ?? 'combate_corpo_a_corpo', cls.attribute ?? 'forca');
     const result = resolveCheck({ value, opponent: cls.difficulty });
-    if (result.success && cls.skillId) {
-      const before = this.playerStats;
-      this.playerStats = applySkillUse(this.playerStats, cls.skillId, SettingsService.get('skillGainMultiplier'));
-      this.applyPerkPointGrants(before, this.playerStats);
-    }
+    if (result.success && cls.skillId) this.gainSkill(cls.skillId);
     agent.onHostilePlayerAction();
     const narration = await this.npcManager.narrateOutcome(message, result.success, languageName(getLocale()));
     {
@@ -4152,7 +4147,7 @@ export class GameWorldScene extends BaseScene {
       .filter((a) => !a.isDefeated()) // the dead are not addressable in chat (Fase 20)
       .map((a) => {
         const pos = a.getPosition();
-        return { id: a.definition.id, name: a.definition.name, nameKnown: a.isNameKnown(), position: { x: pos.x, z: pos.z } };
+        return { id: a.definition.id, name: a.definition.name, position: { x: pos.x, z: pos.z } };
       });
   }
 
@@ -4430,11 +4425,31 @@ export class GameWorldScene extends BaseScene {
     }
   }
 
+  /**
+   * Learn-by-doing: apply the skill gain (× the Options multiplier), toast the
+   * gain on the HUD, and grant any perk points earned. Single seam shared by
+   * every successful skill check (verbal/emote/hostile/interpreter paths).
+   */
+  private gainSkill(skillId: string): void {
+    const before = this.playerStats;
+    this.playerStats = applySkillUse(before, skillId, SettingsService.get('skillGainMultiplier'));
+    const def = skillDef(skillId);
+    const gained = (this.playerStats.skills[skillId] ?? 0) - (before.skills[skillId] ?? 0);
+    if (def && gained > 0) {
+      this.hud?.pushToast(t('toast.skillGain', { skill: def.label, amount: gained.toFixed(1) }));
+    }
+    this.applyPerkPointGrants(before, this.playerStats);
+  }
+
   /** Check if any perk points were earned after a skill-use; update stats. */
   private applyPerkPointGrants(before: CharacterStats, after: CharacterStats): void {
     const grants = detectPerkPointGrants(before, after);
     if (Object.keys(grants).length > 0) {
       this.playerStats = grantPerkPoints(after, grants);
+      for (const attrId of Object.keys(grants) as AttributeId[]) {
+        const label = ATTRIBUTES.find((a) => a.id === attrId)?.label ?? attrId;
+        this.hud?.pushToast(t('toast.perkPoint', { attr: label }));
+      }
     }
   }
 
@@ -4516,12 +4531,17 @@ export class GameWorldScene extends BaseScene {
     });
   }
 
-  /** Refresh the HUD each frame: bike status and the contextual action prompt.
-   * (No hero HP bar — health is learned diegetically; see WorldHud.) */
+  /** Refresh the HUD each frame: status bars (HP/Stamina/Hunger), gain toasts,
+   * bike status and the contextual action prompt. */
   private updateHud(dialogOpen: boolean): void {
     if (!this.hud) return;
 
     this.hud.setHudTextVisible(true); // restored when not in combat
+    const health = this.player?.getHealth();
+    this.hud.setPlayerHealth(health ? health.fraction() : 1);
+    this.hud.setPlayerStamina(this.player?.getStamina().fraction() ?? 1);
+    this.hud.setPlayerHunger(this.playerHunger.fraction());
+    this.hud.updateToasts();
     this.hud.setVehicleStatus(this.deriveVehicleStatus());
     this.hud.setActionPrompt(this.deriveActionPrompt(dialogOpen));
   }
@@ -4569,9 +4589,9 @@ export class GameWorldScene extends BaseScene {
       const agent = this.npcManager.getConversableAgent(this.player.getPosition());
       // Don't leak the name in the prompt before the NPC introduces itself.
       if (agent && agent.isDefeated()) {
-        return agent.isNameKnown() ? t('hud.searchTo', { name: agent.definition.name }) : t('hud.search');
+        return t('hud.searchTo', { name: agent.definition.name });
       }
-      if (agent) return agent.isNameKnown() ? t('hud.talkTo', { name: agent.definition.name }) : t('hud.talk');
+      if (agent) return t('hud.talkTo', { name: agent.definition.name });
     }
     // No NPC/bike in reach — offer to pick up a nearby dropped pile (Fase 18).
     if (this.player) {

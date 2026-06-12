@@ -83,6 +83,15 @@ describe('GameSession', () => {
     expect(GameSession.fromSave(save).playerHunger).toEqual({ current: 100, max: 100 });
   });
 
+  it('carries player stamina (full by default; fromSave defaults on a legacy save)', () => {
+    expect(new GameSession('s', character).playerStamina).toEqual({ current: 100, max: 100 });
+    const save = SaveService.createNewSave(character);
+    save.playerStamina = { current: 12, max: 135 };
+    expect(GameSession.fromSave(save).playerStamina).toEqual({ current: 12, max: 135 });
+    (save as { playerStamina?: unknown }).playerStamina = undefined;
+    expect(GameSession.fromSave(save).playerStamina).toEqual({ current: 100, max: 100 });
+  });
+
   it('fromSave carries the inventory, defaulting to empty on a legacy save', () => {
     const save = SaveService.createNewSave(character);
     save.inventory = { items: [{ id: 'knife', qty: 1 }], equippedWeaponId: 'knife', capacityWeight: 30 };

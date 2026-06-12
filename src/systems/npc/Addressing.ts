@@ -23,7 +23,6 @@ export interface Vec2 {
 export interface AddressCandidate {
   id: string;
   name: string;
-  nameKnown: boolean;
   position: Vec2;
 }
 
@@ -85,8 +84,8 @@ export function resolveAddressee(
   const cone = opts.faceCone ?? FACE_CONE;
   const inReach = candidates.filter((c) => dist(player, c.position) <= range);
 
-  // 1) name match — only NPCs the player has already been introduced to.
-  const named = inReach.find((c) => c.nameKnown && mentionsName(message, c.name));
+  // 1) name match — names are always visible (anti-metagaming reverted, ADR-0033).
+  const named = inReach.find((c) => mentionsName(message, c.name));
   if (named) return { kind: 'npc', id: named.id, tone };
 
   // 2) aim — the in-reach NPC closest to the player's facing direction (within the cone),

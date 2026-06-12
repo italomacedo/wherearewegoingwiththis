@@ -512,26 +512,15 @@ describe('NPCManager — covert-action detection (Fase 20G)', () => {
     m.dispose(); m2.dispose();
   });
 
-  it('serializeMemory persists nameKnown and spawnWithMemory restores it (Fase 20)', () => {
-    const m = new NPCManager();
-    const agent = m.spawn(def);
-    expect(agent.isNameKnown()).toBe(false);
-    agent.markNameKnown(); // e.g. the NPC just introduced themselves
-    const mem = m.serializeMemory();
-    expect(mem.npc_a!.nameKnown).toBe(true);
-    const m2 = new NPCManager();
-    const restored = m2.spawnWithMemory(def, mem);
-    expect(restored.isNameKnown()).toBe(true);
-    expect(restored.getDisplayName()).toBe(def.name);
-    m.dispose(); m2.dispose();
-  });
-
-  it('serializeMemory omits nameKnown when the NPC is still anonymous (lean save)', () => {
+  it('spawnWithMemory tolerates a legacy save carrying the removed nameKnown key', () => {
     const m = new NPCManager();
     m.spawn(def);
     const mem = m.serializeMemory();
-    expect(mem.npc_a!.nameKnown).toBeUndefined();
-    m.dispose();
+    (mem.npc_a as unknown as Record<string, unknown>).nameKnown = true; // pre-ADR-0033 save
+    const m2 = new NPCManager();
+    const restored = m2.spawnWithMemory(def, mem);
+    expect(restored.getDisplayName()).toBe(def.name);
+    m.dispose(); m2.dispose();
   });
 
   it('serializeMemory persists position even for defeated NPCs (corpse stays where it fell)', () => {

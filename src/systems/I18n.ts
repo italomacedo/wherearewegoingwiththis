@@ -112,15 +112,15 @@ export const STRINGS: Record<string, Entry> = {
     'WASD move · Shift run · Z/C turn cam · E talk · T chat · I inventory · K sheet · O adjust · F vehicle · Space/Ctrl altitude · ESC pause',
     'WASD mover · Shift correr · Z/C girar câmera · E falar · T chat · I inventário · K ficha · O ajustar · F veículo · Espaço/Ctrl altitude · ESC pausar'
   ),
-  'hud.talk': e('[E] Interact', '[E] Interagir'),
   'hud.talkTo': e('[E] Interact with {name}', '[E] Interagir com {name}'),
-  'hud.search': e('[E] Search the body', '[E] Revistar o corpo'),
   'hud.searchTo': e('[E] Search {name}', '[E] Revistar {name}'),
   'hud.enterCar': e('[F] Enter car', '[F] Entrar no carro'),
   'hud.exitCar': e('[F] Exit car', '[F] Sair do carro'),
   'hud.pickUp': e('[E] Pick up {name}', '[E] Pegar {name}'),
   'hud.carStatus': e('CAR {pct}%', 'CARRO {pct}%'),
   'hud.carDestroyed': e('CAR DESTROYED', 'CARRO DESTRUÍDO'),
+  'toast.skillGain': e('{skill} +{amount}', '{skill} +{amount}'),
+  'toast.perkPoint': e('+1 Perk Point — {attr}', '+1 Ponto de Perk — {attr}'),
 
   // ─── Action ribbon (Phase 11) ────────────────────────────────────────────────
   'ribbon.attackRanged': e('Shoot', 'Atirar'),
