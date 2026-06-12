@@ -44,6 +44,11 @@ export class MainMenuScene extends BaseScene {
     void sm.loadScene('options');
   }
 
+  onSceneEditor(): void {
+    const sm = ServiceLocator.get<SceneManager>('sceneManager');
+    void sm.loadScene('scene-editor');
+  }
+
   onQuit(): void {
     /* istanbul ignore next — Electron-only, tested via smoke test */
     if (typeof window !== 'undefined' && window.electronAPI) {
@@ -207,6 +212,7 @@ export class MainMenuScene extends BaseScene {
       { label: `▶  ${t('menu.newGame')}`,  action: () => this.onNewGame() },
       { label: `⊙  ${t('menu.loadGame')}`, action: () => this.onLoadGame() },
       { label: `⚙  ${t('menu.options')}`,  action: () => this.onOptions() },
+      { label: `✎  ${t('menu.sceneEditor')}`, action: () => this.onSceneEditor() },
       { label: `✕  ${t('menu.quit')}`,     action: () => this.onQuit() },
     ];
 

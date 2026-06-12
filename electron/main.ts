@@ -437,6 +437,91 @@ ipcMain.handle('save:delete', (_event, saveId: string) => {
   catch { return false; }
 });
 
+// ─── Scene Editor docs: JSON files in public/scenes (dev) ─────────────────────
+// Authored scenes are GAME CONTENT: in dev the editor writes straight into the
+// project's public/scenes (git-versioned, served by Vite at /scenes/...). In the
+// packaged build the bundled scenes ship read-only under dist/scenes; edits go
+// to a userData overlay and scene:list merges the two (userData wins by id).
+const SCENE_ID_RE = /^[a-z0-9_-]+$/;
+
+function bundledScenesDir(): string {
+  // Dev: app.getAppPath() = project root under vite-plugin-electron.
+  const dir = VITE_DEV_SERVER_URL
+    ? path.join(app.getAppPath(), 'public', 'scenes')
+    : path.join(RENDERER_DIST, 'scenes');
+  try { fs.mkdirSync(dir, { recursive: true }); } catch { /* ignore */ }
+  return dir;
+}
+
+function writableScenesDir(): string {
+  if (VITE_DEV_SERVER_URL) return bundledScenesDir();
+  const dir = path.join(app.getPath('userData'), 'scenes');
+  try { fs.mkdirSync(dir, { recursive: true }); } catch { /* ignore */ }
+  return dir;
+}
+
+function readSceneDocs(dir: string): Map<string, unknown> {
+  const out = new Map<string, unknown>();
+  let files: string[] = [];
+  try { files = fs.readdirSync(dir); } catch { return out; }
+  for (const f of files) {
+    if (!f.endsWith('.json') || f === 'index.json') continue;
+    try {
+      const doc = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf-8'));
+      if (doc && typeof doc.id === 'string') out.set(doc.id, doc);
+    } catch { /* skip corrupt */ }
+  }
+  return out;
+}
+
+/** Regenerate public/scenes/index.json ({ids}) so the no-IPC browser preview can discover scenes. */
+function rewriteSceneIndex(): void {
+  try {
+    const dir = writableScenesDir();
+    const ids = [...readSceneDocs(dir).keys()].sort();
+    fs.writeFileSync(path.join(dir, 'index.json'), JSON.stringify({ ids }));
+  } catch (err) { console.error('[Scene] index rewrite failed:', err); }
+}
+
+ipcMain.handle('scene:list', () => {
+  const merged = readSceneDocs(bundledScenesDir());
+  if (writableScenesDir() !== bundledScenesDir()) {
+    for (const [id, doc] of readSceneDocs(writableScenesDir())) merged.set(id, doc);
+  }
+  return [...merged.values()];
+});
+
+ipcMain.handle('scene:load', (_event, sceneId: string) => {
+  if (!SCENE_ID_RE.test(sceneId)) return null;
+  for (const dir of [writableScenesDir(), bundledScenesDir()]) {
+    try { return JSON.parse(fs.readFileSync(path.join(dir, `${sceneId}.json`), 'utf-8')); }
+    catch { /* try next */ }
+  }
+  return null;
+});
+
+ipcMain.handle('scene:write', (_event, doc: { id: string }) => {
+  try {
+    if (!doc || typeof doc.id !== 'string' || !SCENE_ID_RE.test(doc.id)) return false;
+    const final = path.join(writableScenesDir(), `${doc.id}.json`);
+    const tmp = `${final}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(doc, null, 1));
+    fs.renameSync(tmp, final);
+    rewriteSceneIndex();
+    console.log('[Scene] wrote', final);
+    return true;
+  } catch (err) { console.error('[Scene] write failed:', err); return false; }
+});
+
+ipcMain.handle('scene:delete', (_event, sceneId: string) => {
+  try {
+    if (!SCENE_ID_RE.test(sceneId)) return false;
+    fs.rmSync(path.join(writableScenesDir(), `${sceneId}.json`), { force: true });
+    rewriteSceneIndex();
+    return true;
+  } catch { return false; }
+});
+
 /* eslint-disable-next-line no-console */
 app.on('child-process-gone', (_e, details) => console.error('[CRASH] child-process-gone:', JSON.stringify(details)));
 

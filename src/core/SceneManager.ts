@@ -13,7 +13,8 @@ export type SceneName =
   | 'character-creator'
   | 'load-game'
   | 'options'
-  | 'game-world';
+  | 'game-world'
+  | 'scene-editor';
 
 type SceneFactory = (engine: Engine) => BaseScene;
 
