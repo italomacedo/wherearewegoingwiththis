@@ -8,7 +8,7 @@
    "key": "bld-s-1",
    "model": "world/downtown/building_medium_2_001.glb",
    "position": [
-    0,
+    -0.005040180403739214,
     0,
     -9.084213256835938
    ],
@@ -117,6 +117,66 @@
     -28
    ],
    "solid": false
+  },
+  {
+   "key": "doordouble_wall_sidea",
+   "model": "world/scifi/doordouble_wall_sidea.glb",
+   "position": [
+    -13.84961986541748,
+    0,
+    -8.730570793151855
+   ],
+   "solid": true,
+   "rotationY": 0,
+   "scale": 1
+  },
+  {
+   "key": "threewindows_wall_sidea",
+   "model": "world/scifi/threewindows_wall_sidea.glb",
+   "position": [
+    -15.647143363952637,
+    0,
+    -10.73499584197998
+   ],
+   "solid": true,
+   "rotationY": 1.5707963267948963,
+   "scale": 1
+  },
+  {
+   "key": "threewindows_wall_sideb",
+   "model": "world/scifi/threewindows_wall_sideb.glb",
+   "position": [
+    -12.08679485321045,
+    0,
+    -10.752605438232422
+   ],
+   "solid": true,
+   "rotationY": -1.5707963267948963,
+   "scale": 1
+  },
+  {
+   "key": "longwindow_wall_sidea",
+   "model": "world/scifi/longwindow_wall_sidea.glb",
+   "position": [
+    -13.867417335510254,
+    0,
+    -12.41154956817627
+   ],
+   "solid": true,
+   "rotationY": 0,
+   "scale": 1
+  },
+  {
+   "key": "rooftile_empty",
+   "model": "world/scifi/rooftile_empty.glb",
+   "position": [
+    -10.366634368896484,
+    3.7869627475738525,
+    -8.582222938537598
+   ],
+   "solid": true,
+   "rotationY": 0,
+   "scale": 1
   }
  ],
  "items": [],

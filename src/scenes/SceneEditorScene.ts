@@ -461,6 +461,11 @@ export class SceneEditorScene extends BaseScene {
       const x = scene.pointerX;
       const y = scene.pointerY;
       if (this.isOverPanel(x, y)) return; // GUI paints on the same canvas
+      // Gizmos live on the utility layer (invisible to scene.pick): if the
+      // pointer is over a gizmo handle, the click belongs to the drag — don't
+      // let the world mesh BEHIND it steal the selection.
+      const utilScene = this.gizmos?.utilityLayer?.utilityLayerScene;
+      if (utilScene && utilScene.pick(x, y)?.hit) return;
       const pick = scene.pick(x, y, (m) => m.isPickable);
       const key = this.editorKeyOf(pick?.pickedMesh ?? null);
       if (!key) return;
