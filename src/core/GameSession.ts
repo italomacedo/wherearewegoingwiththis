@@ -52,6 +52,8 @@ export class GameSession {
     public pda: PdaEntry[] = [],
     public spiceContracts: SpiceContract[] = [],
     public playerStamina: StaminaState = { ...DEFAULT_PLAYER_STAMINA },
+    /** Collected Scene-Editor seeded pickups, by seededItemKey (Scene Editor). */
+    public collectedSceneItems: string[] = [],
   ) {}
 
   /** Builds a session from a persisted save. */
@@ -72,6 +74,7 @@ export class GameSession {
       save.pda ?? [],
       save.spiceContracts ?? [],
       save.playerStamina ?? { ...DEFAULT_PLAYER_STAMINA },
+      save.collectedSceneItems ?? [],
     );
   }
 }

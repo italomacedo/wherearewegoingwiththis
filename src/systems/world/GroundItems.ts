@@ -14,6 +14,12 @@ export interface GroundItem {
   id: string;
   /** Stack size dropped. */
   qty: number;
+  /**
+   * Present only on scene-seeded pickups (Scene Editor docs): the stable
+   * seededItemKey of the placement. Seeded piles are NOT persisted in
+   * SaveGame.groundItems — collecting one records this key instead.
+   */
+  seedKey?: string;
 }
 
 /** Append a dropped pile (immutable; piles never auto-merge). */

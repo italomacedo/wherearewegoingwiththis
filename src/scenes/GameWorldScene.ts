@@ -102,7 +102,13 @@ import { WorldStreamer } from '@systems/world/WorldStreamer';
 import { TileScenery } from '@systems/world/TileScenery';
 import { tileOf, tileKey, worldFloorBox, worldBounds, neighbors, type TileCoord } from '@systems/world/WorldGrid';
 import { GroundItem, addGroundItem, removeGroundItemAt, nearestGroundItemIndex } from '@systems/world/GroundItems';
-import { generateTile, themeOf, ARCHETYPES } from '@assets/world/ThemeRegistry';
+import { themeOf, ARCHETYPES } from '@assets/world/ThemeRegistry';
+import {
+  generateTileAuthored, doorTriggersForTile, seedItemsForTile,
+  type WorldDoorTrigger,
+} from '@systems/world/SceneDocToTile';
+import { loadAllSceneDocs } from '@systems/world/SceneDocSource';
+import type { SceneDoc } from '@systems/sceneeditor/SceneDoc';
 import { buildMinimapView, type MinimapEntity } from '@systems/MinimapModel';
 import { AssetCache, babylonContainerLoader } from '@systems/world/AssetCache';
 
@@ -233,6 +239,14 @@ export class GameWorldScene extends BaseScene {
   private groundItems: GroundItem[] = [];
   /** Live pickup markers, keyed by their GroundItem (browser-only). */
   private groundMarkers = new Map<GroundItem, AbstractMesh>();
+  /** Authored quadrant docs (editor JSON), id-sorted — the streaming roll's input. */
+  private quadrantDocs: SceneDoc[] = [];
+  /** Every authored doc by id (quadrants + interiors — door-trigger targets). */
+  protected sceneDocsById = new Map<string, SceneDoc>();
+  /** seededItemKey entries the player already collected (persisted). */
+  private collectedSceneItems: string[] = [];
+  /** World-space door triggers of the loaded authored quadrant tiles. */
+  private tileDoorTriggers = new Map<string, WorldDoorTrigger[]>();
   /** Cached AudioManager (resolved lazily) + footstep cadence accumulator. */
   private audio: AudioManager | null = null;
   private tts: TTSService | null = null;
@@ -429,6 +443,7 @@ export class GameWorldScene extends BaseScene {
     this.missions = session.missions ?? [];
     this.spiceContracts = session.spiceContracts ?? [];
     this.groundItems = session.groundItems ?? [];
+    this.collectedSceneItems = session.collectedSceneItems ?? [];
     this.pda = session.pda ?? [];
     this.vehicleState = session.vehicle ?? {
       health: { ...DEFAULT_VEHICLE_STATE.health }, destroyed: false,
@@ -495,10 +510,12 @@ export class GameWorldScene extends BaseScene {
     const inventory = this.playerInventory.toState();
     const playerHunger = this.playerHunger.toState();
     const playerStamina = this.player?.getStaminaState() ?? { ...DEFAULT_PLAYER_STAMINA };
+    // Scene-seeded pickups regenerate from their docs — persist only real drops.
+    const groundItems = this.groundItems.filter((g) => !g.seedKey);
     SaveService.save({
       ...save, character, world, gameTimeSeconds: this.gameTimeSeconds, npcMemory: memory, playerHealth, vehicle, inventory,
       heldAttach: this.heldAttach, playerHunger, playerStamina, missions: this.missions, spiceContracts: this.spiceContracts,
-      groundItems: this.groundItems, pda: this.pda,
+      groundItems, pda: this.pda, collectedSceneItems: this.collectedSceneItems,
     });
 
     const session = ServiceLocator.tryGet<GameSession>('gameSession');
@@ -515,7 +532,8 @@ export class GameWorldScene extends BaseScene {
       session.playerStamina = playerStamina;
       session.missions = this.missions;
       session.spiceContracts = this.spiceContracts;
-      session.groundItems = this.groundItems;
+      session.groundItems = groundItems;
+      session.collectedSceneItems = this.collectedSceneItems;
       session.pda = this.pda;
     }
   }
@@ -731,6 +749,12 @@ export class GameWorldScene extends BaseScene {
     // (loaded ahead of a fast nave). NPCs (heavy avatars) only spawn in the inner
     // 3×3 (NPC_RADIUS), and all GLB work streams in a few props/frame (Fase 17H).
     this.assetCache = new AssetCache(babylonContainerLoader(this.babylonScene));
+    // Authored scenes (Scene Editor JSON): quadrants join the procedural roll,
+    // interiors are door-trigger targets. Loaded BEFORE the streamer so the very
+    // first ring already sees them. Fail-open: no docs → pure procedural world.
+    const sceneDocs = await loadAllSceneDocs();
+    this.quadrantDocs = sceneDocs.filter((d) => d.kind === 'quadrant');
+    this.sceneDocsById = new Map(sceneDocs.map((d) => [d.id, d]));
     const spawn = this.player.getPosition();
     this.worldStreamer = new WorldStreamer({
       onLoad: (c) => this.loadTile(c),
@@ -968,10 +992,21 @@ export class GameWorldScene extends BaseScene {
     if (typeof document === 'undefined') return; // headless: bookkeeping only
     const key = tileKey(c.tx, c.tz);
     if (this.tileScenery.has(key)) return;
-    const gen = generateTile(c.tx, c.tz, this.worldSeed);
+    const { tile: gen, doc } = generateTileAuthored(c.tx, c.tz, this.worldSeed, this.quadrantDocs);
     const scenery = new TileScenery(this.babylonScene, gen.coord, gen.props, this.worldSeed, gen.ground, gen.urban);
     scenery.build(); // cheap synchronous frame; props instantiate via pumpTileLoads
     this.tileScenery.set(key, scenery);
+    if (doc) this.seedAuthoredTileContent(doc, c.tx, c.tz, key);
+  }
+
+  /** Register an authored quadrant tile's door triggers + uncollected item pickups. */
+  /* istanbul ignore next — browser-only; the per-tile data helpers are unit-tested */
+  private seedAuthoredTileContent(doc: SceneDoc, tx: number, tz: number, key: string): void {
+    this.tileDoorTriggers.set(key, doorTriggersForTile(doc, tx, tz));
+    for (const g of seedItemsForTile(doc, tx, tz, this.collectedSceneItems)) {
+      this.groundItems = addGroundItem(this.groundItems, g);
+      this.spawnGroundMarker(g);
+    }
   }
 
   /** Tear down a procedural neighbor tile's scenery + any NPCs still on it. */
@@ -982,6 +1017,18 @@ export class GameWorldScene extends BaseScene {
     this.tileScenery.get(key)?.dispose();
     this.tileScenery.delete(key);
     this.despawnTileNpcs(key); // belt-and-braces (NPCs normally leave via the r1 ring first)
+    // Authored-tile content streams out with the tile (it re-seeds on reload).
+    this.tileDoorTriggers.delete(key);
+    const keep: GroundItem[] = [];
+    for (const g of this.groundItems) {
+      if (g.seedKey && g.tile[0] === c.tx && g.tile[1] === c.tz) {
+        this.groundMarkers.get(g)?.dispose();
+        this.groundMarkers.delete(g);
+      } else {
+        keep.push(g);
+      }
+    }
+    this.groundItems = keep;
   }
 
   /** Instantiate a few queued props per frame across loading tiles (no burst hitch). */
@@ -1046,7 +1093,7 @@ export class GameWorldScene extends BaseScene {
   private enqueueTileNpcs(key: string): void {
     if (this.npcTiles.has(key) || !this.npcManager) return;
     const [tx, tz] = key.split(',').map(Number);
-    const gen = generateTile(tx, tz, this.worldSeed);
+    const { tile: gen } = generateTileAuthored(tx, tz, this.worldSeed, this.quadrantDocs);
     if (gen.npcDefs.length === 0) { this.npcTiles.add(key); return; }
     this.npcManager.spawnTile(key, gen.npcDefs, this.npcMemory); // logical agents (cheap)
     this.tileNpcIds.set(key, gen.npcDefs.map((d) => d.id));
@@ -2705,6 +2752,10 @@ export class GameWorldScene extends BaseScene {
       this.groundMarkers.get(item)?.dispose();
       this.groundMarkers.delete(item);
       this.groundItems = removeGroundItemAt(this.groundItems, idx);
+      // A fully-taken scene-seeded pickup never respawns (persisted by key).
+      if (item.seedKey && !this.collectedSceneItems.includes(item.seedKey)) {
+        this.collectedSceneItems.push(item.seedKey);
+      }
     } else {
       item.qty -= moved; // partial pickup — the rest stays in the pile
     }

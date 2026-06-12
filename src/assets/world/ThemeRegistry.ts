@@ -353,7 +353,7 @@ const THEME_WEIGHTS: { theme: ThemeId; weight: number }[] = [
   { theme: 'desert', weight: 1 },
 ];
 
-function appearanceFor(outfit: string): CharacterAppearance {
+export function appearanceFor(outfit: string): CharacterAppearance {
   return {
     bodyBase: outfit, slots: {}, morphs: {},
     colors: { ...DEFAULT_COLORS }, skinTexture: 'skin_01',

@@ -77,6 +77,8 @@ export interface SaveGame {
   spiceContracts: SpiceContract[];
   /** Items the player dropped into the world, by tile (Fase 18). */
   groundItems: GroundItem[];
+  /** Scene-Editor seeded pickups already collected, by seededItemKey. */
+  collectedSceneItems: string[];
   /** Intel dossiers gathered by scanning/hacking NPCs (Fase 20 PDA). */
   pda: PdaEntry[];
   flags: Record<string, boolean | number | string>;
@@ -182,6 +184,7 @@ export class SaveService {
       pendings: [],
       spiceContracts: [],
       groundItems: [],
+      collectedSceneItems: [],
       pda: [],
       flags: {},
       npcMemory: {},
@@ -365,6 +368,8 @@ export class SaveService {
     // Fase 22: spice-trafficking contracts. Legacy saves get an empty list.
     if (!save.spiceContracts) save.spiceContracts = [];
     if (!save.groundItems) save.groundItems = [];
+    // Scene Editor: collected seeded-pickup keys. Legacy saves get an empty list.
+    if (!save.collectedSceneItems) save.collectedSceneItems = [];
     if (!save.pda) save.pda = [];
     // Fase 17: backfill the procedural-world seed (derived stably from the saveId
     // so a legacy save always regenerates the same world) + the current tile.
