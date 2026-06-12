@@ -19,7 +19,8 @@ import { ATTRIBUTES, type AttributeId } from '@entities/CharacterStats';
 import type { GalleryEntry } from './GalleryManifest';
 import { entriesByCategory } from './GalleryManifest';
 import type { EditorState, EditorTab } from './EditorState';
-import type { SceneKind } from './SceneDoc';
+import type { SceneKind, SceneNpcDoc } from './SceneDoc';
+import type { NPCDisposition } from '@entities/NPCAgent';
 
 export interface EditorPanelHandlers {
   onNew(kind: SceneKind): void;
@@ -46,6 +47,9 @@ export interface EditorPanelHandlers {
 
 const PANEL_W = 250;
 const TOOLBAR_H = 44;
+// "Edit NPC" modal (fixed size so the DOM textareas can centre with CSS calc).
+const MODAL_W = 680;
+const MODAL_H = 560;
 
 export class EditorPanels {
   private gui: AdvancedDynamicTexture | null = null;
@@ -59,6 +63,12 @@ export class EditorPanels {
   private nameInput: HTMLInputElement | null = null;
   private npcNameInput: HTMLInputElement | null = null;
   private searchInput: HTMLInputElement | null = null;
+  // "Edit NPC" modal (persona texts + loadout + relationship ledger).
+  private npcModal: Rectangle | null = null;
+  private npcModalDom: HTMLElement[] = [];
+  private modalLoadoutList: StackPanel | null = null;
+  private modalRelList: StackPanel | null = null;
+  private loadoutPickIdx = 0;
   /** Live gallery filter (lowercased) typed in the search field. */
   private filter = '';
   private entries: GalleryEntry[] = [];
@@ -110,6 +120,7 @@ export class EditorPanels {
   }
 
   dispose(): void {
+    this.closeNpcModal();
     this.idInput?.parentElement?.remove();
     this.idInput = null;
     this.nameInput = null;
@@ -512,6 +523,7 @@ export class EditorPanels {
         const v = npc.attributes?.[a.id] ?? 20;
         list.addControl(this.stepperRow(a.id.slice(0, 5), `${v}`, () => h.onNpcAttrNudge(a.id, -5), () => h.onNpcAttrNudge(a.id, +5)));
       }
+      list.addControl(this.actionButton(t('editor.npcEdit'), () => this.openNpcModal()));
     }
 
     if (sel.kind === 'door') {
@@ -576,6 +588,213 @@ export class EditorPanels {
       this.renderGallery();
     });
     wrapper.appendChild(this.searchInput);
+  }
+
+  // ─── "Edit NPC" modal — persona texts + inventory + relationship ledger ────
+
+  isModalOpen(): boolean {
+    return this.npcModal !== null;
+  }
+
+  closeNpcModal(): void {
+    this.npcModalDom.forEach((el) => el.remove());
+    this.npcModalDom = [];
+    this.npcModal?.dispose();
+    this.npcModal = null;
+    this.modalLoadoutList = null;
+    this.modalRelList = null;
+    this.refresh();
+  }
+
+  /** Neon-styled DOM <textarea> centred against the fixed-size modal frame. */
+  private domTextarea(topOffset: number, height: number, value: string, onChange: (v: string) => void): HTMLTextAreaElement {
+    const ta = document.createElement('textarea');
+    ta.value = value;
+    ta.style.cssText = `position:fixed;left:calc(50% - ${MODAL_W / 2 - 16}px);`
+      + `top:calc(50% - ${MODAL_H / 2 - topOffset}px);width:${MODAL_W - 32}px;height:${height}px;`
+      + `box-sizing:border-box;z-index:40;resize:none;`
+      + `background:${UI.cardBg};border:1px solid ${UI.cardBorder};color:${UI.textBody};`
+      + `font-family:'Courier New',monospace;font-size:${UI.fontBody}px;padding:4px 8px;`
+      + `border-radius:${UI.cornerSm}px;outline:none;`;
+    ta.addEventListener('focus', () => { ta.style.borderColor = UI.accent; });
+    ta.addEventListener('blur', () => { ta.style.borderColor = UI.cardBorder; });
+    ta.addEventListener('keydown', (e) => e.stopPropagation());
+    ta.addEventListener('change', () => onChange(ta.value));
+    document.body.appendChild(ta);
+    this.npcModalDom.push(ta);
+    return ta;
+  }
+
+  private modalLabel(frame: Rectangle, text: string, top: number, left = 16, color: string = UI.textMeta): void {
+    const tb = new TextBlock(`ml-${text}-${top}`, text);
+    tb.color = color;
+    tb.fontSize = UI.fontMeta;
+    tb.fontFamily = UI.font;
+    tb.height = '18px';
+    tb.top = `${top}px`;
+    tb.left = `${left}px`;
+    tb.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+    tb.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+    tb.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+    frame.addControl(tb);
+  }
+
+  private openNpcModal(): void {
+    if (this.npcModal) this.closeNpcModal();
+    const npc = this.state.selectedNpc();
+    if (!npc || !this.gui || typeof document === 'undefined') return;
+
+    const frame = new Rectangle('npc-modal');
+    frame.width = `${MODAL_W}px`;
+    frame.height = `${MODAL_H}px`;
+    frame.background = UI.frameBg;
+    frame.color = UI.frameBorder;
+    frame.thickness = 1;
+    frame.cornerRadius = UI.cornerLg;
+    this.gui.addControl(frame);
+    this.npcModal = frame;
+
+    // Header strip + accent line + close (the game's modal pattern).
+    const header = new Rectangle('npc-modal-header');
+    header.height = '40px';
+    header.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+    header.background = UI.headerBg;
+    header.thickness = 0;
+    frame.addControl(header);
+    const title = new TextBlock('npc-modal-title', `${t('editor.npcEditTitle')} — ${npc.name}`);
+    title.color = UI.accent;
+    title.fontSize = UI.fontSub;
+    title.fontFamily = UI.font;
+    title.paddingLeft = '16px';
+    title.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+    header.addControl(title);
+    const closeBtn = Button.CreateSimpleButton('npc-modal-close', '✕');
+    closeBtn.width = '36px';
+    closeBtn.height = '28px';
+    closeBtn.top = '6px';
+    closeBtn.left = '-8px';
+    closeBtn.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+    closeBtn.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+    closeBtn.color = UI.btnFg;
+    closeBtn.fontSize = UI.fontSub;
+    closeBtn.fontFamily = UI.font;
+    closeBtn.thickness = 0;
+    closeBtn.onPointerUpObservable.add(() => this.closeNpcModal());
+    frame.addControl(closeBtn);
+    const line = new Rectangle('npc-modal-line');
+    line.height = '2px';
+    line.top = '40px';
+    line.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+    line.background = UI.accent;
+    line.thickness = 0;
+    frame.addControl(line);
+
+    // Persona texts (DOM textareas over reserved bands — Lesson 15).
+    const patch = (p: Partial<Omit<SceneNpcDoc, 'id' | 'position'>>): void => {
+      this.state.setNpcField(p);
+      this.refresh();
+    };
+    this.modalLabel(frame, t('editor.personality'), 50);
+    this.domTextarea(70, 58, npc.personalityPrompt, (v) => patch({ personalityPrompt: v }));
+    this.modalLabel(frame, t('editor.backstory'), 134);
+    this.domTextarea(154, 58, npc.backstory ?? '', (v) => patch({ backstory: v || undefined }));
+    this.modalLabel(frame, t('editor.routine'), 218);
+    this.domTextarea(238, 58, npc.routine ?? '', (v) => patch({ routine: v || undefined }));
+
+    // Two columns: inventory (left) + relationship ledger (right).
+    this.modalLabel(frame, t('editor.loadout'), 306, 16, UI.textPrimary);
+    this.modalLabel(frame, t('editor.relationships'), 306, MODAL_W / 2 + 8, UI.textPrimary);
+    const mkColumn = (name: string, left: number): StackPanel => {
+      const scroll = new ScrollViewer(`npc-modal-${name}`);
+      scroll.width = `${MODAL_W / 2 - 24}px`;
+      scroll.height = `${MODAL_H - 306 - 24 - 14}px`;
+      scroll.top = '328px';
+      scroll.left = `${left}px`;
+      scroll.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+      scroll.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+      scroll.thickness = 0;
+      scroll.barColor = UI.accentSoft;
+      frame.addControl(scroll);
+      const list = new StackPanel(`npc-modal-${name}-list`);
+      list.width = '100%';
+      scroll.addControl(list);
+      return list;
+    };
+    this.modalLoadoutList = mkColumn('loadout', 12);
+    this.modalRelList = mkColumn('rel', MODAL_W / 2 + 4);
+    this.renderNpcModalLists();
+  }
+
+  /** Re-render the loadout + relationship columns from the selected NPC. */
+  private renderNpcModalLists(): void {
+    const npc = this.state.selectedNpc();
+    if (!npc || !this.modalLoadoutList || !this.modalRelList) return;
+    const patch = (p: Partial<Omit<SceneNpcDoc, 'id' | 'position'>>): void => {
+      this.state.setNpcField(p);
+      this.renderNpcModalLists();
+      this.refresh();
+    };
+
+    // ── Inventory: one row per stack (− / qty / + / remove) + an add picker. ──
+    const lo = this.modalLoadoutList;
+    lo.clearControls();
+    const stacks = npc.loadout ?? [];
+    stacks.forEach((s, i) => {
+      const row = this.stepperRow(s.id.slice(0, 10), `×${s.qty}`,
+        () => {
+          const next = stacks.map((x) => ({ ...x }));
+          next[i].qty -= 1;
+          patch({ loadout: next[i].qty <= 0 ? next.filter((_, j) => j !== i) : next });
+        },
+        () => {
+          const next = stacks.map((x) => ({ ...x }));
+          next[i].qty += 1;
+          patch({ loadout: next });
+        });
+      const del = Button.CreateSimpleButton(`lo-del-${i}`, '✕');
+      del.width = '22px';
+      del.height = '22px';
+      del.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+      del.color = UI.btnDangerFg;
+      del.fontSize = UI.fontMeta;
+      del.thickness = 0;
+      del.onPointerUpObservable.add(() => patch({ loadout: stacks.filter((_, j) => j !== i) }));
+      row.addControl(del);
+      lo.addControl(row);
+    });
+    const itemIds = Object.keys(ITEM_REGISTRY);
+    this.loadoutPickIdx = ((this.loadoutPickIdx % itemIds.length) + itemIds.length) % itemIds.length;
+    const pick = itemIds[this.loadoutPickIdx];
+    lo.addControl(this.stepperRow(t('editor.addItem'), pick.slice(0, 10),
+      () => { this.loadoutPickIdx -= 1; this.renderNpcModalLists(); },
+      () => { this.loadoutPickIdx += 1; this.renderNpcModalLists(); }));
+    const addBtn = this.actionButton(`+ ${pick}`, () => {
+      const next = stacks.map((x) => ({ ...x }));
+      const found = next.find((x) => x.id === pick);
+      if (found) found.qty += 1; else next.push({ id: pick, qty: 1 });
+      patch({ loadout: next });
+    });
+    lo.addControl(addBtn);
+
+    // ── Relationship ledger: a disposition cycler per OTHER NPC in the doc. ──
+    const rl = this.modalRelList;
+    rl.clearControls();
+    const others = this.state.doc.npcs.filter((n) => n.id !== npc.id);
+    if (others.length === 0) {
+      rl.addControl(this.propLabel('—'));
+    }
+    const CYCLE: Array<NPCDisposition | null> = [null, 'friendly', 'neutral', 'wary', 'hostile'];
+    for (const other of others) {
+      const cur = npc.npcRelationships?.[other.id] ?? null;
+      const label = `${other.name.slice(0, 12)}: ${cur ?? '—'}`;
+      rl.addControl(this.actionButton(label, () => {
+        const next = CYCLE[(CYCLE.indexOf(cur) + 1) % CYCLE.length];
+        const rels = { ...(npc.npcRelationships ?? {}) };
+        if (next === null) delete rels[other.id];
+        else rels[other.id] = next;
+        patch({ npcRelationships: Object.keys(rels).length > 0 ? rels : undefined });
+      }));
+    }
   }
 
   /** Overlays the reserved 'npc-name-gap' row at the top of the properties panel

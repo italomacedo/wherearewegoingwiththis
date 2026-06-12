@@ -170,9 +170,129 @@
    "key": "rooftile_empty",
    "model": "world/scifi/rooftile_empty.glb",
    "position": [
-    -10.366634368896484,
-    3.7869627475738525,
-    -8.582222938537598
+    -13.802172660827637,
+    4.403849124908447,
+    -10.535602569580078
+   ],
+   "solid": true,
+   "rotationY": 0,
+   "scale": 2.5
+  },
+  {
+   "key": "props_shelf_tall",
+   "model": "world/props/props_shelf_tall.glb",
+   "position": [
+    -13.840056419372559,
+    0,
+    -11.951047897338867
+   ],
+   "solid": true,
+   "rotationY": 0,
+   "scale": 1
+  },
+  {
+   "key": "apple_green",
+   "model": "world/food/apple_green.glb",
+   "position": [
+    -14.491952896118164,
+    1.1024982929229736,
+    -11.988556861877441
+   ],
+   "solid": true,
+   "scale": 0.2,
+   "rotationY": 0
+  },
+  {
+   "key": "apple_green_2",
+   "model": "world/food/apple_green.glb",
+   "position": [
+    -14.295495986938477,
+    1.074031949043274,
+    -12.08837604522705
+   ],
+   "solid": true,
+   "scale": 0.2,
+   "rotationY": 0
+  },
+  {
+   "key": "apple",
+   "model": "world/food/apple.glb",
+   "position": [
+    -14.004881858825684,
+    1.0948023796081543,
+    -11.937880516052246
+   ],
+   "solid": true,
+   "scale": 0.2,
+   "rotationY": 0
+  },
+  {
+   "key": "apple_2",
+   "model": "world/food/apple.glb",
+   "position": [
+    -13.83913516998291,
+    1.0948023796081543,
+    -12.178900718688965
+   ],
+   "solid": true,
+   "scale": 0.2,
+   "rotationY": 0
+  },
+  {
+   "key": "bottle1",
+   "model": "world/food/bottle1.glb",
+   "position": [
+    -13.119741439819336,
+    0.4080350995063782,
+    -11.822371482849121
+   ],
+   "solid": true,
+   "scale": 0.3,
+   "rotationY": 0
+  },
+  {
+   "key": "bottle1_2",
+   "model": "world/food/bottle1.glb",
+   "position": [
+    -13.357013702392578,
+    0.4080350995063782,
+    -11.957548141479492
+   ],
+   "solid": true,
+   "scale": 0.3,
+   "rotationY": 0
+  },
+  {
+   "key": "bread",
+   "model": "world/food/bread.glb",
+   "position": [
+    -13.178604125976562,
+    1.0090265274047852,
+    -11.950065612792969
+   ],
+   "solid": true,
+   "scale": 0.3,
+   "rotationY": 0
+  },
+  {
+   "key": "bread_2",
+   "model": "world/food/bread.glb",
+   "position": [
+    -13.47037124633789,
+    1.0090265274047852,
+    -11.944920539855957
+   ],
+   "solid": true,
+   "scale": 0.3,
+   "rotationY": -0.14948301045656512
+  },
+  {
+   "key": "building_small_1",
+   "model": "world/downtown/building_small_1.glb",
+   "position": [
+    13.671004295349121,
+    0,
+    20.445819854736328
    ],
    "solid": true,
    "rotationY": 0,
@@ -215,9 +335,9 @@
     }
    ],
    "position": [
-    3,
+    -15.092230796813965,
     0,
-    6
+    -11.015715599060059
    ],
    "appearance": {
     "bodyBase": "w_punk",
@@ -246,7 +366,8 @@
    "npcRelationships": {
     "npc_mback_fence_01": "wary"
    },
-   "addict": true
+   "addict": true,
+   "rotationY": 0.9956050674433058
   },
   {
    "id": "npc_mback_fence_01",
@@ -278,9 +399,9 @@
     }
    ],
    "position": [
-    12,
+    11.603788375854492,
     0,
-    6
+    21.069122314453125
    ],
    "appearance": {
     "bodyBase": "suit",
@@ -309,7 +430,8 @@
    "npcRelationships": {
     "npc_zara_vendor_01": "wary"
    },
-   "dealer": true
+   "dealer": true,
+   "rotationY": 0
   }
  ],
  "doorTriggers": []

@@ -458,6 +458,7 @@ export class SceneEditorScene extends BaseScene {
     if (!canvas) return;
     const onDown = (e: PointerEvent): void => {
       if (e.button !== 0) return;
+      if (this.panels?.isModalOpen()) return; // modal owns the pointer
       const x = scene.pointerX;
       const y = scene.pointerY;
       if (this.isOverPanel(x, y)) return; // GUI paints on the same canvas
@@ -542,6 +543,11 @@ export class SceneEditorScene extends BaseScene {
         return;
       }
       if (kb.type !== KeyboardEventTypes.KEYDOWN) return;
+      // While the Edit-NPC modal is open, only ESC (close) gets through.
+      if (this.panels?.isModalOpen()) {
+        if (ev.key === 'Escape') this.panels.closeNpcModal();
+        return;
+      }
       if (!ev.ctrlKey && !ev.altKey && !ev.metaKey) this.keysDown.add(ev.key.toLowerCase());
       // DOM inputs stopPropagation their own keydowns; anything here is world input.
       if (ev.key === 'Escape') {
