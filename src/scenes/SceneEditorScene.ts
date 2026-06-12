@@ -1,5 +1,6 @@
-/* istanbul ignore file -- Babylon/browser glue; the editor's logic lives in the
-   pure, fully-tested EditorState/SceneDoc/GalleryManifest/NpcRandomizer modules. */
+/* istanbul ignore file */
+// Babylon/browser glue; the editor's logic lives in the pure, fully-tested
+// EditorState/SceneDoc/GalleryManifest/NpcRandomizer modules.
 /**
  * SceneEditorScene — WYSIWYG editor for authored scenes (quadrants/interiors).
  *

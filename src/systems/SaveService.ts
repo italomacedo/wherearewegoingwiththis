@@ -59,6 +59,8 @@ export interface SaveGame {
     worldSeed: number;
     /** The mosaic tile [tx,tz] the player was last in (Fase 17). */
     currentTile: [number, number];
+    /** Inside an authored interior (Scene Editor F6): doc id + entry door. */
+    interior?: { sceneId: string; entry: import('@systems/world/SceneDocToTile').WorldDoorTrigger };
   };
   playerHealth: HealthState;
   playerHunger: HungerState;

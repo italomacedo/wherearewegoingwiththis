@@ -21,6 +21,9 @@ export interface WorldState {
   worldSeed: number;
   /** The mosaic tile [tx,tz] the player was last in (Fase 17). */
   currentTile: [number, number];
+  /** Set while the player is inside an authored interior (Scene Editor F6):
+   *  the interior's doc id + the entry door, so a reload rebuilds the room. */
+  interior?: { sceneId: string; entry: import('@systems/world/SceneDocToTile').WorldDoorTrigger };
 }
 
 /**

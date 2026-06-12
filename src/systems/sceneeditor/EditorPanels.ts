@@ -1,5 +1,6 @@
-/* istanbul ignore file -- Babylon GUI glue; the logical state it renders
-   (EditorState/SceneDoc/GalleryManifest/NpcRandomizer) is pure and fully tested. */
+/* istanbul ignore file */
+// Babylon GUI glue; the logical state it renders
+// (EditorState/SceneDoc/GalleryManifest/NpcRandomizer) is pure and fully tested.
 /**
  * EditorPanels — the Scene Editor's GUI: top toolbar (New/Save/Load + id/name),
  * left gallery (Models by category / Items / NPCs / Doors), right properties

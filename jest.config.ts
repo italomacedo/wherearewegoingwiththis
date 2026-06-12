@@ -30,6 +30,10 @@ const config: Config = {
     '!src/**/*.d.ts',
     '!src/main.ts',
     '!src/vite-env.d.ts',
+    // Scene-Editor GUI glue: carries `istanbul ignore file`, but the pragma is
+    // not honored for this file in the never-imported coverage pass (unlike its
+    // siblings) — excluded here explicitly. Pure editor logic is fully tested.
+    '!src/systems/sceneeditor/EditorPanels.ts',
   ],
   coverageThreshold: {
     global: {
