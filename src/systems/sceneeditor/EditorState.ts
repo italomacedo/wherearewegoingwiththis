@@ -10,7 +10,7 @@ import {
   emptySceneDoc, uniqueKey,
 } from './SceneDoc';
 
-export type EditorTab = 'models' | 'items' | 'npcs' | 'doors';
+export type EditorTab = 'models' | 'items' | 'npcs';
 
 export type Selection =
   | { kind: 'prop'; key: string }
@@ -231,6 +231,22 @@ export class EditorState {
     const prop = this.selectedProp();
     if (!prop) return false;
     prop.solid = solid;
+    this.dirty = true;
+    return true;
+  }
+
+  /** Turn the selected prop into a door (or clear it). Empty target drops the
+   *  door fields; a target keeps/creates a spawn point in the target scene. */
+  setPropDoor(targetSceneId: string, spawnPoint?: [number, number, number]): boolean {
+    const prop = this.selectedProp();
+    if (!prop) return false;
+    if (!targetSceneId) {
+      delete prop.targetSceneId;
+      delete prop.spawnPoint;
+    } else {
+      prop.targetSceneId = targetSceneId;
+      prop.spawnPoint = spawnPoint ?? prop.spawnPoint ?? [0, 0, 0];
+    }
     this.dirty = true;
     return true;
   }

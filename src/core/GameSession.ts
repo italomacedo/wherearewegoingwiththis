@@ -22,8 +22,14 @@ export interface WorldState {
   /** The mosaic tile [tx,tz] the player was last in (Fase 17). */
   currentTile: [number, number];
   /** Set while the player is inside an authored interior (Scene Editor F6):
-   *  the interior's doc id + the entry door, so a reload rebuilds the room. */
-  interior?: { sceneId: string; entry: import('@systems/world/SceneDocToTile').WorldDoorTrigger };
+   *  the interior's doc id + the mosaic tile entered from, so a reload rebuilds
+   *  the room and the exit door lands the player back on the right tile.
+   *  `entry` is the legacy field (older saves) kept for restore-time migration. */
+  interior?: {
+    sceneId: string;
+    originTile?: [number, number];
+    entry?: import('@systems/world/SceneDocToTile').WorldDoorTrigger;
+  };
 }
 
 /**

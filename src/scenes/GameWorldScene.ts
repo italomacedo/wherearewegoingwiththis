@@ -29,6 +29,7 @@ import { downsampleBars } from '@systems/audio/Waveform';
 import { MercadoSombrasZone } from '@entities/zones/MercadoSombrasZone';
 import { WorldZone } from '@entities/WorldZone';
 import { GameClock, DayPeriod } from '@systems/GameClock';
+import { SkyRenderer, computeSkyState } from '@systems/SkySystem';
 import { CharacterAppearance, DEFAULT_APPEARANCE, applyArmorOverlay } from '@entities/CharacterData';
 import { Inventory, defaultInventoryState } from '@entities/Inventory';
 import { weaponProfile, itemDef, isMeleeWeapon, isFirearm, armorOverlayParts, itemValue } from '@entities/items/ItemCatalog';
@@ -100,18 +101,18 @@ import { recruitSides, RecruitParticipant, SIDE_INITIATOR, SIDE_TARGET } from '@
 import { COMBAT_OBSTACLES, COMBAT_BOUNDS } from '@assets/WorldAssetCatalog';
 import { WorldStreamer } from '@systems/world/WorldStreamer';
 import { TileScenery } from '@systems/world/TileScenery';
-import { tileOf, tileKey, worldFloorBox, worldBounds, neighbors, type TileCoord } from '@systems/world/WorldGrid';
+import { tileOf, tileKey, tileLocalToWorld, worldFloorBox, worldBounds, neighbors, type TileCoord } from '@systems/world/WorldGrid';
 import { GroundItem, addGroundItem, removeGroundItemAt, nearestGroundItemIndex } from '@systems/world/GroundItems';
 import { themeOf, ARCHETYPES } from '@assets/world/ThemeRegistry';
 import {
-  generateTileAuthored, doorTriggersForTile, seedItemsForTile, sceneNpcToDefinition,
+  generateTileAuthored, doorTriggersForTile, propDoorTriggersForTile, seedItemsForTile, sceneNpcToDefinition,
   type WorldDoorTrigger,
 } from '@systems/world/SceneDocToTile';
 import {
-  interiorWorldPos, doorTriggerHit, returnTrigger, interiorItemKey, INTERIOR_HALF, INTERIOR_ORIGIN,
+  interiorWorldPos, doorTriggerHit, interiorItemKey, INTERIOR_HALF, INTERIOR_ORIGIN,
 } from '@systems/world/InteriorRuntime';
 import { loadAllSceneDocs } from '@systems/world/SceneDocSource';
-import type { SceneDoc } from '@systems/sceneeditor/SceneDoc';
+import { partnerDoor, arrivalPoint, contentCentroid, type SceneDoc } from '@systems/sceneeditor/SceneDoc';
 import { buildMinimapView, type MinimapEntity } from '@systems/MinimapModel';
 import { AssetCache, babylonContainerLoader } from '@systems/world/AssetCache';
 
@@ -213,6 +214,8 @@ export class GameWorldScene extends BaseScene {
   private worldSeed = 1;
   private clock = new GameClock({ mode: 'fixed' }); // fixed: 1 game-day = 2 real hours
   private lastPeriod: DayPeriod | null = null;
+  /** Dynamic sky (gradient dome + sun/moon/stars) following the GameClock. Browser-only. */
+  private sky: SkyRenderer | null = null;
   private cameraSystem: CameraSystem | null = null;
   private inputSystem: InputSystem | null = null;
   private physics: PhysicsService | null = null;
@@ -254,15 +257,21 @@ export class GameWorldScene extends BaseScene {
   private doorVisuals = new Map<string, AbstractMesh[]>();
   // ── Active interior (one at a time, built at INTERIOR_ORIGIN — F6) ──
   private interiorId: string | null = null;
-  private interiorEntry: WorldDoorTrigger | null = null;
-  private interiorReturn: WorldDoorTrigger | null = null;
+  /** The interior's OWN door triggers (its exit doors), built on enter. */
+  private interiorDoorTriggers: WorldDoorTrigger[] = [];
+  /** The mosaic tile the player entered the interior from — the exit door lands
+   *  them back on this tile (a quadrant doc placed there). */
+  private interiorOriginTile: [number, number] | null = null;
   private interiorRoot: TransformNode | null = null;
   private interiorAggregates: PhysicsAggregate[] = [];
   /** Door triggers fire only when armed: disarmed on teleport, re-armed once
    *  the player is clear of every trigger (prevents enter/exit ping-pong). */
   private doorArmed = true;
+  /** The authored quadrant doc id per loaded tile key (for reciprocal door
+   *  pairing: a door's partner is the target scene's door pointing back here). */
+  private tileDocId = new Map<string, string>();
   /** A save made inside an interior: rebuild it after the world boots. */
-  private pendingInteriorRestore: { sceneId: string; entry: WorldDoorTrigger } | null = null;
+  private pendingInteriorRestore: { sceneId: string; originTile?: [number, number]; entry?: WorldDoorTrigger } | null = null;
   /** Cached AudioManager (resolved lazily) + footstep cadence accumulator. */
   private audio: AudioManager | null = null;
   private tts: TTSService | null = null;
@@ -514,8 +523,8 @@ export class GameWorldScene extends BaseScene {
       rotation: 0,
       worldSeed: this.worldSeed,
       currentTile: (ct ? [ct.tx, ct.tz] : [0, 0]) as [number, number],
-      ...(this.interiorId && this.interiorEntry
-        ? { interior: { sceneId: this.interiorId, entry: this.interiorEntry } }
+      ...(this.interiorId
+        ? { interior: { sceneId: this.interiorId, originTile: this.interiorOriginTile ?? [0, 0] as [number, number] } }
         : {}),
     };
     const playerHealth = this.player?.getHealth().toState() ?? this.playerHealthState;
@@ -649,6 +658,15 @@ export class GameWorldScene extends BaseScene {
     const zone = await this.zoneManager.loadZone(this.startZoneId, this.babylonScene);
     this.zone = zone;
     this.updateTimeOfDay(); // initial light/fog tint for the current time of day
+
+    // Dynamic sky: a gradient dome + sun/moon/stars that follow the GameClock, so the
+    // open horizon camera looks out on a real sky instead of the near-black void.
+    /* istanbul ignore next — browser-only sky renderer (SkySystem math is unit-tested) */
+    if (typeof document !== 'undefined' && this.cameraSystem) {
+      this.sky = new SkyRenderer();
+      await this.sky.init(this.babylonScene, this.cameraSystem.getCamera());
+      this.updateSky();
+    }
 
     this.updateLoadingProgress(40, 'loading.label.player');
     this.player = new PlayerController(this.babylonScene, this.inputSystem!);
@@ -804,10 +822,19 @@ export class GameWorldScene extends BaseScene {
       if (dt) this.seedAuthoredTileContent(dt, 0, 0, tileKey(0, 0));
       // Saved inside an interior → rebuild it around the saved player position.
       if (this.pendingInteriorRestore) {
-        const { sceneId, entry } = this.pendingInteriorRestore;
+        const { sceneId, originTile, entry } = this.pendingInteriorRestore;
         this.pendingInteriorRestore = null;
         const doc = this.sceneDocsById.get(sceneId);
-        if (doc) await this.enterInterior(doc, entry, false);
+        if (doc) {
+          // Rebuild the room + its exit doors and remember the origin tile. Migrate a
+          // legacy `entry` (older saves) by deriving the tile from its position. We
+          // respawn the player IN FRONT OF a door (teleport=true) rather than at the
+          // raw saved position — this self-heals a save made at a bad spot (e.g. the
+          // old origin-pad bug that dropped the player outside the room perimeter).
+          const tile: [number, number] = originTile
+            ?? (entry ? (() => { const t = tileOf(entry.position[0], entry.position[2]); return [t.tx, t.tz]; })() : [0, 0]);
+          await this.enterInterior(doc, this.arrivalLocalFor(doc, ''), tile, true);
+        }
       }
     }
 
@@ -1048,11 +1075,16 @@ export class GameWorldScene extends BaseScene {
   /** Register an authored quadrant tile's door triggers + uncollected item pickups. */
   /* istanbul ignore next — browser-only; the per-tile data helpers are unit-tested */
   private seedAuthoredTileContent(doc: SceneDoc, tx: number, tz: number, key: string): void {
-    const triggers = doorTriggersForTile(doc, tx, tz);
-    this.tileDoorTriggers.set(key, triggers);
-    // Visible neon volume per door so the player can find the entrance.
+    // Two kinds of door: invisible authored `doorTriggers` (need a neon marker so
+    // the player can find them) and door PROPS (a placed door GLB carrying a
+    // targetSceneId — the model is its own visual, no marker). Both are activated
+    // by F (handleDoorInput).
+    const invisible = doorTriggersForTile(doc, tx, tz);
+    this.tileDoorTriggers.set(key, [...invisible, ...propDoorTriggersForTile(doc, tx, tz)]);
+    this.tileDocId.set(key, doc.id); // for reciprocal door pairing
+    // Visible neon volume per invisible door so the player can find the entrance.
     const visuals: AbstractMesh[] = [];
-    for (const t of triggers) {
+    for (const t of invisible) {
       const vol = MeshBuilder.CreateBox(`door-vol-${t.key}`, { width: t.size[0], height: t.size[1], depth: t.size[2] }, this.babylonScene);
       vol.position.set(t.position[0], t.position[1] + t.size[1] / 2, t.position[2]);
       const mat = new StandardMaterial(`door-vol-mat-${t.key}`, this.babylonScene);
@@ -1079,6 +1111,7 @@ export class GameWorldScene extends BaseScene {
     this.despawnTileNpcs(key); // belt-and-braces (NPCs normally leave via the r1 ring first)
     // Authored-tile content streams out with the tile (it re-seeds on reload).
     this.tileDoorTriggers.delete(key);
+    this.tileDocId.delete(key);
     this.doorVisuals.get(key)?.forEach((m) => m.dispose());
     this.doorVisuals.delete(key);
     const keep: GroundItem[] = [];
@@ -1245,44 +1278,103 @@ export class GameWorldScene extends BaseScene {
   }
 
   /**
-   * Door triggers (F6): on foot, walking into an authored door volume enters its
-   * target interior; the interior's return volume teleports back to the entry.
-   * Triggers only fire when "armed" — disarmed on every teleport and re-armed
-   * once the player is clear of all volumes, so doors never ping-pong.
+   * Door triggers (F6): a door is entered/left by pressing F while standing in its
+   * volume (handleDoorInput) — quadrant prop-doors and the interior return alike.
+   * This tick only manages the anti-ping-pong latch: `doorArmed` is cleared on every
+   * teleport and re-armed once the player steps clear of all volumes, so the spawn
+   * lands the player inside the return volume without an instant re-trigger.
    */
   /* istanbul ignore next — per-frame browser glue; InteriorRuntime math is unit-tested */
   private tickDoors(): void {
     if (typeof document === 'undefined' || !this.player) return;
     if (this.vehicle?.isOccupied() || this.combatEnc) return;
-    const p = this.player.getPosition();
-    const triggers: WorldDoorTrigger[] = this.interiorId
-      ? (this.interiorReturn ? [this.interiorReturn] : [])
-      : (() => {
-          const cur = this.worldStreamer?.getCurrentTile();
-          return cur ? (this.tileDoorTriggers.get(tileKey(cur.tx, cur.tz)) ?? []) : [];
-        })();
-    const hit = doorTriggerHit(p, triggers);
-    if (!this.doorArmed) {
-      if (!hit) this.doorArmed = true; // clear of every volume → re-arm
-      return;
-    }
-    if (!hit) return;
-    if (this.interiorId) {
-      this.exitInterior();
-    } else {
-      const target = this.sceneDocsById.get(hit.targetSceneId);
-      if (target) void this.enterInterior(target, hit, true);
+    if (!this.doorArmed && !doorTriggerHit(this.player.getPosition(), this.currentDoorTriggers())) {
+      this.doorArmed = true; // clear of every volume → re-arm
     }
   }
 
-  /** Build the target interior at INTERIOR_ORIGIN and move the player inside. */
+  /** The door triggers in reach right now: the return volume inside an interior,
+   *  else the current tile's doors (invisible triggers + door props). */
+  /* istanbul ignore next — browser-only (worldStreamer/interior exist at runtime) */
+  private currentDoorTriggers(): WorldDoorTrigger[] {
+    if (this.interiorId) return this.interiorDoorTriggers;
+    const cur = this.worldStreamer?.getCurrentTile();
+    return cur ? (this.tileDoorTriggers.get(tileKey(cur.tx, cur.tz)) ?? []) : [];
+  }
+
+  /** The authored quadrant doc id of the scene the player is currently in (the
+   *  interior doc inside one, else the current tile's quadrant doc). '' = none. */
+  /* istanbul ignore next — browser-only (worldStreamer exists at runtime) */
+  private currentSceneId(): string {
+    if (this.interiorId) return this.interiorId;
+    const cur = this.worldStreamer?.getCurrentTile();
+    return cur ? (this.tileDocId.get(tileKey(cur.tx, cur.tz)) ?? '') : '';
+  }
+
+  /**
+   * F near a door: enter its target interior (or leave the current one). Returns
+   * true when it consumed the F press, so the vehicle handler doesn't also fire.
+   */
+  /* istanbul ignore next — browser-only input glue; the door helpers are unit-tested */
+  private handleDoorInput(): boolean {
+    if (typeof document === 'undefined' || !this.inputSystem || !this.player) return false;
+    if (this.vehicle?.isOccupied() || this.combatEnc) return false;
+    const hit = doorTriggerHit(this.player.getPosition(), this.currentDoorTriggers());
+    if (!hit || !this.doorArmed) return false;
+    if (!this.inputSystem.wasJustPressed('vehicle.enter')) return false; // near a door, F not pressed
+    return this.traverseDoor(hit);
+  }
+
+  /**
+   * Paired-door travel: go to the hit door's target SCENE and spawn at the PARTNER
+   * door's pad there — the partner is the target scene's door that points back to
+   * the scene we're leaving (reciprocal), else its first door. Entering a quadrant
+   * door builds the interior; an interior door drops back onto the entry tile.
+   */
+  /* istanbul ignore next — browser-only travel glue; partnerDoor/pads are unit-tested */
+  private traverseDoor(hit: WorldDoorTrigger): boolean {
+    const targetDoc = this.sceneDocsById.get(hit.targetSceneId);
+    if (!targetDoc) return false;
+    const local = this.arrivalLocalFor(targetDoc, this.currentSceneId());
+    if (targetDoc.kind === 'interior') {
+      if (this.interiorId) return false; // no interior→interior chaining
+      const cur = this.worldStreamer?.getCurrentTile() ?? { tx: 0, tz: 0 };
+      void this.enterInterior(targetDoc, local, [cur.tx, cur.tz], true);
+    } else if (this.interiorId) {
+      // Back out to a quadrant: spawn in front of the partner door, in the tile we
+      // came from.
+      const [tx, tz] = this.interiorOriginTile ?? [0, 0];
+      this.exitInteriorTo(new Vector3(...tileLocalToWorld(tx, tz, local)));
+    } else {
+      // Quadrant→quadrant on the same tile (edge): spawn in front of the partner door.
+      const cur = this.worldStreamer?.getCurrentTile() ?? { tx: 0, tz: 0 };
+      this.player?.teleport(new Vector3(...tileLocalToWorld(cur.tx, cur.tz, local)));
+      this.doorArmed = false;
+    }
+    return true;
+  }
+
+  /** Scene-local arrival spot in `targetDoc` for someone arriving from `fromScene`:
+   *  automatically in front of the partner door (reciprocal, else first), toward
+   *  the room's content. Falls back to the content centre when there's no door. */
+  private arrivalLocalFor(targetDoc: SceneDoc, fromScene: string): [number, number, number] {
+    const partner = partnerDoor(targetDoc, fromScene);
+    return partner ? arrivalPoint(targetDoc, partner.position) : contentCentroid(targetDoc);
+  }
+
+  /**
+   * Build the target interior at INTERIOR_ORIGIN and move the player inside, at
+   * `spawnPad` (interior-local — the partner door's pad). `originTile` is the
+   * mosaic tile entered from, so an exit door can drop back onto it.
+   */
   /* istanbul ignore next — browser-only meshes/physics/teleport */
-  private async enterInterior(doc: SceneDoc, entry: WorldDoorTrigger, teleport: boolean): Promise<void> {
+  private async enterInterior(
+    doc: SceneDoc, spawnPad: [number, number, number], originTile: [number, number], teleport: boolean,
+  ): Promise<void> {
     if (this.interiorId) return;
     const scene = this.babylonScene;
     this.interiorId = doc.id;
-    this.interiorEntry = entry;
-    this.interiorReturn = returnTrigger(entry);
+    this.interiorOriginTile = originTile;
     this.doorArmed = false;
     const root = new TransformNode('interior-root', scene);
     this.interiorRoot = root;
@@ -1343,16 +1435,39 @@ export class GameWorldScene extends BaseScene {
       }
     }
 
-    // Return-door volume (visible neon, at the interior spawn point).
-    const ret = this.interiorReturn;
-    const vol = MeshBuilder.CreateBox('interior-return-vol', { width: ret.size[0], height: ret.size[1], depth: ret.size[2] }, scene);
-    vol.position.set(ret.position[0], ret.position[1] + ret.size[1] / 2, ret.position[2]);
-    const vmat = new StandardMaterial('interior-return-mat', scene);
-    vmat.emissiveColor = new Color3(0, 0.5, 0.4);
-    vmat.alpha = 0.3;
-    vol.material = vmat;
-    vol.isPickable = false;
-    vol.parent = root;
+    // The interior's OWN exit doors (paired-door model — no auto-return). Invisible
+    // doorTriggers get a neon marker; door PROPS are their own GLB visual (built in
+    // the prop loop above). Both transition on F via traverseDoor.
+    const triggers: WorldDoorTrigger[] = [];
+    for (const d of doc.doorTriggers) {
+      triggers.push({
+        key: `int-${doc.id}-${d.key}`,
+        position: interiorWorldPos(d.position),
+        size: [...d.size] as [number, number, number],
+        targetSceneId: d.targetSceneId,
+        spawnPoint: [...d.spawnPoint] as [number, number, number],
+      });
+      const vol = MeshBuilder.CreateBox(`int-door-${d.key}`, { width: d.size[0], height: d.size[1], depth: d.size[2] }, scene);
+      const [vx, vy, vz] = interiorWorldPos(d.position);
+      vol.position.set(vx, vy + d.size[1] / 2, vz);
+      const vmat = new StandardMaterial(`int-door-mat-${d.key}`, scene);
+      vmat.emissiveColor = new Color3(0, 0.5, 0.4);
+      vmat.alpha = 0.3;
+      vol.material = vmat;
+      vol.isPickable = false;
+      vol.parent = root;
+    }
+    for (const p of doc.props) {
+      if (typeof p.targetSceneId !== 'string' || p.targetSceneId.length === 0) continue;
+      triggers.push({
+        key: `int-${doc.id}-prop-${p.key}`,
+        position: interiorWorldPos(p.position),
+        size: [2.5, 3, 2.5],
+        targetSceneId: p.targetSceneId,
+        spawnPoint: [...(p.spawnPoint ?? [0, 0, 0])] as [number, number, number],
+      });
+    }
+    this.interiorDoorTriggers = triggers;
 
     // NPCs: logical agents now (memory-restored by unique id), avatars via the pump.
     const intKey = `interior:${doc.id}`;
@@ -1377,15 +1492,14 @@ export class GameWorldScene extends BaseScene {
     });
 
     this.updateAwakeNpcs();
-    if (teleport) this.player?.teleport(new Vector3(...interiorWorldPos(entry.spawnPoint)));
+    if (teleport) this.player?.teleport(new Vector3(...interiorWorldPos(spawnPad)));
   }
 
-  /** Tear the interior down, merge its NPC memory back, return to the entry door. */
+  /** Tear the interior down, merge its NPC memory back, teleport to `back` (world). */
   /* istanbul ignore next — browser-only teardown/teleport */
-  private exitInterior(): void {
+  private exitInteriorTo(back: Vector3): void {
     const id = this.interiorId;
     if (!id) return;
-    const back = this.interiorReturn?.spawnPoint ?? this.interiorEntry?.position ?? [0, 0, 0];
     this.despawnTileNpcs(`interior:${id}`);
     this.interiorAggregates.forEach((a) => a.dispose());
     this.interiorAggregates = [];
@@ -1401,10 +1515,10 @@ export class GameWorldScene extends BaseScene {
     }
     this.groundItems = keep;
     this.interiorId = null;
-    this.interiorEntry = null;
-    this.interiorReturn = null;
+    this.interiorDoorTriggers = [];
+    this.interiorOriginTile = null;
     this.doorArmed = false;
-    this.player?.teleport(new Vector3(back[0], back[1], back[2]));
+    this.player?.teleport(back);
     this.updateAwakeNpcs();
   }
 
@@ -1623,6 +1737,9 @@ export class GameWorldScene extends BaseScene {
     this.cockpit?.dispose(); // LCD DynamicTexture isn't a pivot child — dispose explicitly
     this.vehicle?.dispose();
     this.zoneManager?.dispose();
+    // Sky dome is parented to the camera — dispose it before the camera.
+    this.sky?.dispose();
+    this.sky = null;
     this.cameraSystem?.dispose();
     this.npcManager?.dispose();
     this.dialog?.dispose();
@@ -1781,7 +1898,9 @@ export class GameWorldScene extends BaseScene {
     const dialogOpen = this.dialog?.isOpen() ?? false;
     if (!dialogOpen) {
       this.handleCameraKeys(dt);
-      this.handleVehicleInput();
+      // F is shared: a door in reach takes priority (enter/leave), otherwise it
+      // mounts/dismounts the vehicle.
+      if (!this.handleDoorInput()) this.handleVehicleInput();
       this.handleViewSwitch();
       const driving = this.vehicle?.isOccupied() ?? false;
       if (!driving) {
@@ -1807,6 +1926,7 @@ export class GameWorldScene extends BaseScene {
     this.cameraSystem?.update();
     this.updateNPCs(dt);
     this.updateTimeOfDay();
+    this.updateSky();
     // On foot, E interacts with NPCs/pickups; while piloting it's suppressed.
     if (!(this.vehicle?.isOccupied() ?? false)) {
       this.handleInteractInput();
@@ -4540,6 +4660,19 @@ export class GameWorldScene extends BaseScene {
     this.zone.applyTimeOfDay(period);
   }
 
+  /**
+   * Drive the dynamic sky each frame (sun/moon arc, gradient + clearColor). Hidden
+   * inside interiors (the player is far off-grid at INTERIOR_ORIGIN, in an enclosed
+   * room — no sky should show). Browser-only; no-op until the renderer is built.
+   */
+  /* istanbul ignore next — browser-only sky update (SkySystem math is unit-tested) */
+  private updateSky(): void {
+    if (!this.sky) return;
+    if (this.interiorId) { this.sky.setEnabled(false); return; }
+    this.sky.setEnabled(true);
+    this.sky.update(computeSkyState(this.clock.hour(this.gameTimeSeconds)), this.babylonScene);
+  }
+
   // ─── Vehicles ───────────────────────────────────────────────────────────────
 
   /**
@@ -4959,6 +5092,11 @@ export class GameWorldScene extends BaseScene {
   private deriveActionPrompt(dialogOpen: boolean): string | null {
     if (dialogOpen) return null;
     if (this.vehicle?.isOccupied()) return t('hud.exitCar');
+    // A door in reach takes the F prompt (quadrant prop-door / interior return).
+    if (this.player && this.doorArmed
+      && doorTriggerHit(this.player.getPosition(), this.currentDoorTriggers())) {
+      return t(this.interiorId ? 'hud.exitDoor' : 'hud.enterDoor');
+    }
     if (this.player && this.vehicle?.canEnter(this.player.getPosition())) return t('hud.enterCar');
     if (this.npcManager && this.player) {
       const agent = this.npcManager.getConversableAgent(this.player.getPosition());

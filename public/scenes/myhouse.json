@@ -1,0 +1,375 @@
+{
+ "version": 1,
+ "id": "myhouse",
+ "kind": "interior",
+ "name": "my house",
+ "props": [
+  {
+   "key": "brick_inset",
+   "model": "world/downtown/brick_inset.glb",
+   "position": [
+    0.04309976977969081,
+    0,
+    19.774434735823068
+   ],
+   "solid": true
+  },
+  {
+   "key": "brick_inset_2",
+   "model": "world/downtown/brick_inset.glb",
+   "position": [
+    4.017627239227295,
+    0,
+    19.771570205688477
+   ],
+   "solid": true,
+   "rotationY": 0,
+   "scale": 1
+  },
+  {
+   "key": "brick_inset_2_2",
+   "model": "world/downtown/brick_inset.glb",
+   "position": [
+    -3.9041707515716553,
+    0,
+    19.716014862060547
+   ],
+   "solid": true,
+   "rotationY": 0,
+   "scale": 1
+  },
+  {
+   "key": "brick_inset_2_2_2",
+   "model": "world/downtown/brick_inset.glb",
+   "position": [
+    -6.075737953186035,
+    0,
+    21.515195846557617
+   ],
+   "solid": true,
+   "rotationY": -1.5707963267948963,
+   "scale": 1
+  },
+  {
+   "key": "brick_inset_2_2_2_2",
+   "model": "world/downtown/brick_inset.glb",
+   "position": [
+    -6.079909324645996,
+    0,
+    25.446056365966797
+   ],
+   "solid": true,
+   "rotationY": -1.5707963267948963,
+   "scale": 1
+  },
+  {
+   "key": "brick_inset_2_2_2_2_2",
+   "model": "world/downtown/brick_inset.glb",
+   "position": [
+    -6.097302436828613,
+    0,
+    28.00093650817871
+   ],
+   "solid": true,
+   "rotationY": -1.5707963267948963,
+   "scale": 1
+  },
+  {
+   "key": "brick_inset_2_2_3",
+   "model": "world/downtown/brick_inset.glb",
+   "position": [
+    -4.09250545501709,
+    0,
+    30.098411560058594
+   ],
+   "solid": true,
+   "rotationY": 0,
+   "scale": 1
+  },
+  {
+   "key": "brick_inset_2_2_3_2",
+   "model": "world/downtown/brick_inset.glb",
+   "position": [
+    -0.09294259548187256,
+    0,
+    30.106853485107422
+   ],
+   "solid": true,
+   "rotationY": 0,
+   "scale": 1
+  },
+  {
+   "key": "brick_inset_2_2_3_2_2",
+   "model": "world/downtown/brick_inset.glb",
+   "position": [
+    3.867034673690796,
+    0,
+    30.09764289855957
+   ],
+   "solid": true,
+   "rotationY": 0,
+   "scale": 1
+  },
+  {
+   "key": "brick_inset_2_2_3_2_2_2",
+   "model": "world/downtown/brick_inset.glb",
+   "position": [
+    5.890917778015137,
+    0,
+    27.986343383789062
+   ],
+   "solid": true,
+   "rotationY": 1.5707963267948963,
+   "scale": 1
+  },
+  {
+   "key": "brick_inset_2_2_3_2_2_2_2",
+   "model": "world/downtown/brick_inset.glb",
+   "position": [
+    5.875635147094727,
+    0,
+    24.09618377685547
+   ],
+   "solid": true,
+   "rotationY": 1.5707963267948963,
+   "scale": 1
+  },
+  {
+   "key": "brick_inset_2_2_3_2_2_2_2_2",
+   "model": "world/downtown/brick_inset.glb",
+   "position": [
+    5.963338375091553,
+    0,
+    21.594331741333008
+   ],
+   "solid": true,
+   "rotationY": 1.5707963267948963,
+   "scale": 1
+  },
+  {
+   "key": "floor_4x4",
+   "model": "world/downtown/floor_4x4.glb",
+   "position": [
+    -0.08253832906484604,
+    0.023432496935129166,
+    21.69393539428711
+   ],
+   "solid": true,
+   "rotationY": 0,
+   "scale": 1
+  },
+  {
+   "key": "floor_4x4_2",
+   "model": "world/downtown/floor_4x4.glb",
+   "position": [
+    3.8788604736328125,
+    0.023432496935129166,
+    21.6810359954834
+   ],
+   "solid": true,
+   "rotationY": 0,
+   "scale": 1
+  },
+  {
+   "key": "floor_4x4_2_2",
+   "model": "world/downtown/floor_4x4.glb",
+   "position": [
+    -4.036289215087891,
+    0.023432496935129166,
+    21.66485023498535
+   ],
+   "solid": true,
+   "rotationY": 0,
+   "scale": 1
+  },
+  {
+   "key": "floor_4x4_2_2_2",
+   "model": "world/downtown/floor_4x4.glb",
+   "position": [
+    -4.0517659187316895,
+    0.023432496935129166,
+    25.61749839782715
+   ],
+   "solid": true,
+   "rotationY": 0,
+   "scale": 1
+  },
+  {
+   "key": "floor_4x4_2_2_2_2",
+   "model": "world/downtown/floor_4x4.glb",
+   "position": [
+    -0.05551030859351158,
+    0.023432496935129166,
+    25.67384910583496
+   ],
+   "solid": true,
+   "rotationY": 0,
+   "scale": 1
+  },
+  {
+   "key": "floor_4x4_2_2_2_2_2",
+   "model": "world/downtown/floor_4x4.glb",
+   "position": [
+    3.9207558631896973,
+    0.023432496935129166,
+    25.65690803527832
+   ],
+   "solid": true,
+   "rotationY": 0,
+   "scale": 1
+  },
+  {
+   "key": "floor_4x4_2_2_2_2_2_2",
+   "model": "world/downtown/floor_4x4.glb",
+   "position": [
+    3.923408031463623,
+    0.023432496935129166,
+    29.64063262939453
+   ],
+   "solid": true,
+   "rotationY": 0,
+   "scale": 1
+  },
+  {
+   "key": "floor_4x4_2_2_2_2_2_2_2",
+   "model": "world/downtown/floor_4x4.glb",
+   "position": [
+    -0.06026334688067436,
+    0.03299880772829056,
+    29.559480667114258
+   ],
+   "solid": true,
+   "rotationY": 0,
+   "scale": 1
+  },
+  {
+   "key": "floor_4x4_2_2_2_2_2_2_2_2",
+   "model": "world/downtown/floor_4x4.glb",
+   "position": [
+    -4.04902982711792,
+    0.03299880772829056,
+    29.519105911254883
+   ],
+   "solid": true,
+   "rotationY": 0,
+   "scale": 1
+  },
+  {
+   "key": "bed_single",
+   "model": "world/interior/bed_single.glb",
+   "position": [
+    -4.389655590057373,
+    0,
+    22.171295166015625
+   ],
+   "solid": true,
+   "rotationY": 0.11010198940358532,
+   "scale": 1
+  },
+  {
+   "key": "drawer_1",
+   "model": "world/interior/drawer_1.glb",
+   "position": [
+    -0.08971624821424484,
+    0,
+    20.558242797851562
+   ],
+   "solid": true,
+   "rotationY": -0.07292606348843786,
+   "scale": 1
+  },
+  {
+   "key": "kitchen_cabinet1",
+   "model": "world/interior/kitchen_cabinet1.glb",
+   "position": [
+    3.799513339996338,
+    0,
+    20.182653427124023
+   ],
+   "solid": true,
+   "rotationY": 0,
+   "scale": 1
+  },
+  {
+   "key": "kitchen_cabinetsmall",
+   "model": "world/interior/kitchen_cabinetsmall.glb",
+   "position": [
+    3.8008739948272705,
+    1.5343374013900757,
+    20.047618865966797
+   ],
+   "solid": true,
+   "rotationY": 0,
+   "scale": 1.2
+  },
+  {
+   "key": "bathroom_bathtub",
+   "model": "world/interior/bathroom_bathtub.glb",
+   "position": [
+    4.35464334487915,
+    0,
+    27.546878814697266
+   ],
+   "solid": true,
+   "rotationY": -0.12070204600796774,
+   "scale": 1
+  },
+  {
+   "key": "bathroom_shower1",
+   "model": "world/interior/bathroom_shower1.glb",
+   "position": [
+    4.443929195404053,
+    0,
+    26.324811935424805
+   ],
+   "solid": true,
+   "rotationY": 3.0306568412360813,
+   "scale": 1
+  },
+  {
+   "key": "bathroom_toilet2",
+   "model": "world/interior/bathroom_toilet2.glb",
+   "position": [
+    5.011415958404541,
+    0,
+    23.7701416015625
+   ],
+   "solid": true,
+   "rotationY": -1.5577441012004618,
+   "scale": 1
+  },
+  {
+   "key": "bathroom_washingmachine",
+   "model": "world/interior/bathroom_washingmachine.glb",
+   "position": [
+    -1.532236099243164,
+    0,
+    29.178131103515625
+   ],
+   "solid": true,
+   "rotationY": 3.063900642143157,
+   "scale": 1
+  },
+  {
+   "key": "door_1",
+   "model": "world/interior/door_1.glb",
+   "position": [
+    -1.968250247776581e-15,
+    0,
+    29.91192626953125
+   ],
+   "solid": true,
+   "scale": 0.7,
+   "rotationY": 0,
+   "targetSceneId": "downtown",
+   "spawnPoint": [
+    0,
+    0,
+    0
+   ]
+  }
+ ],
+ "items": [],
+ "npcs": [],
+ "doorTriggers": []
+}

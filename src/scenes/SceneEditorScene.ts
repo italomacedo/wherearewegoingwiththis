@@ -24,7 +24,7 @@ import { framePlanes, crosswalkStripes } from '@assets/world/CityFrame';
 import { EditorState } from '@systems/sceneeditor/EditorState';
 import { EditorPanels } from '@systems/sceneeditor/EditorPanels';
 import { parseGalleryManifest, type GalleryEntry } from '@systems/sceneeditor/GalleryManifest';
-import { SceneDoc, SceneKind, QUADRANT_BAND, INTERIOR_BAND } from '@systems/sceneeditor/SceneDoc';
+import { SceneDoc, SceneKind, QUADRANT_BAND, INTERIOR_BAND, doorsOf, arrivalPoint } from '@systems/sceneeditor/SceneDoc';
 import { loadAllSceneDocs, writeSceneDoc } from '@systems/world/SceneDocSource';
 import { randomNpc } from '@systems/sceneeditor/NpcRandomizer';
 import { buildPersonaPrompt, parsePersonaResponse, type GeneratedPersona } from '@systems/sceneeditor/PersonaGen';
@@ -255,6 +255,7 @@ export class SceneEditorScene extends BaseScene {
     doc.items.forEach((_, i) => wanted.add(this.holderKey('item', i)));
     doc.npcs.forEach((n) => wanted.add(this.holderKey('npc', n.id)));
     doc.doorTriggers.forEach((d) => wanted.add(this.holderKey('door', d.key)));
+    doorsOf(doc).forEach((d) => wanted.add(this.holderKey('pad', d.key)));
 
     // Remove orphans (also when a delete/load swapped the doc).
     for (const [key, node] of [...this.holders]) {
@@ -370,6 +371,26 @@ export class SceneEditorScene extends BaseScene {
       box.position.y = door.size[1] / 2;
       this.markPickable(holder, key);
       holder.position.set(door.position[0], door.position[1], door.position[2]);
+    }
+
+    // Spawn squares (EDITOR-ONLY): each door's AUTOMATIC arrival spot — computed in
+    // front of the door toward the room's content (no hand-placed coords). Shows
+    // where the player lands when arriving through this door. Not pickable.
+    for (const d of doorsOf(doc)) {
+      const key = this.holderKey('pad', d.key);
+      let holder = this.holders.get(key);
+      if (!holder) { holder = new TransformNode(key, scene); this.holders.set(key, holder); }
+      holder.getChildMeshes().forEach((m) => m.dispose());
+      const sq = MeshBuilder.CreateGround(`${key}-sq`, { width: 1.6, height: 1.6 }, scene);
+      const mat = new StandardMaterial(`${key}-mat`, scene);
+      mat.diffuseColor = new Color3(0.95, 0.8, 0.1);
+      mat.emissiveColor = new Color3(0.5, 0.42, 0.05);
+      mat.alpha = 0.5;
+      sq.material = mat;
+      sq.isPickable = false;
+      sq.parent = holder;
+      const ap = arrivalPoint(doc, d.position);
+      holder.position.set(ap[0], 0.03, ap[2]);
     }
 
     this.panels?.refresh();
@@ -646,10 +667,6 @@ export class SceneEditorScene extends BaseScene {
         this.state.addNpc(randomNpc(this.rng, this.spawnPos()));
         void this.syncVisuals();
       },
-      onAddDoor: () => {
-        this.state.addDoor(this.spawnPos());
-        void this.syncVisuals();
-      },
       onTransformNudge: (field, delta) => {
         const tr = this.state.selectedTransform();
         if (!tr) return;
@@ -723,13 +740,14 @@ export class SceneEditorScene extends BaseScene {
         this.state.setDoorSize(size);
         void this.syncVisuals();
       },
-      onDoorSpawnNudge: (axis, delta) => {
-        const door = this.state.selectedDoor();
-        if (!door) return;
-        const sp: [number, number, number] = [...door.spawnPoint];
-        sp[axis] += delta;
-        this.state.setDoorTarget(door.targetSceneId, sp);
-        this.panels?.refresh();
+      onPropDoorTargetCycle: (dir) => {
+        const prop = this.state.selectedProp();
+        if (!prop) return;
+        const targets = ['', ...this.docs.map((d) => d.id).filter((id) => id !== this.state.doc.id)];
+        const idx = Math.max(0, targets.indexOf(prop.targetSceneId ?? ''));
+        const next = targets[(idx + dir + targets.length) % targets.length];
+        this.state.setPropDoor(next);
+        void this.syncVisuals();
       },
       onGroundCycle: () => {
         const cur = this.state.doc.ground;

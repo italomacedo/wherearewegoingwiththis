@@ -178,6 +178,20 @@ describe('EditorState', () => {
     expect(s.doc.props[0].solid).toBe(false);
   });
 
+  test('setPropDoor turns the selected prop into a door and clears it', () => {
+    expect(s.setPropDoor('bar')).toBe(false); // no prop selected
+    s.addProp('world/downtown/door_1.glb', [0, 0, 0]);
+    expect(s.setPropDoor('bar')).toBe(true);
+    expect(s.doc.props[0].targetSceneId).toBe('bar');
+    expect(s.doc.props[0].spawnPoint).toEqual([0, 0, 0]); // default spawn
+    expect(s.setPropDoor('bar', [1, 0, -2])).toBe(true);
+    expect(s.doc.props[0].spawnPoint).toEqual([1, 0, -2]);
+    // empty target drops the door fields
+    expect(s.setPropDoor('')).toBe(true);
+    expect(s.doc.props[0].targetSceneId).toBeUndefined();
+    expect(s.doc.props[0].spawnPoint).toBeUndefined();
+  });
+
   test('setNpcField patches the selected NPC', () => {
     expect(s.setNpcField({ name: 'X' })).toBe(false);
     fullNpc(s);

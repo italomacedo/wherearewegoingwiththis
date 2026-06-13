@@ -88,12 +88,12 @@ describe('CameraSystem', () => {
     expect(cam.getCamera().alpha).toBeLessThan(before);
   });
 
-  it('setElevation clamps to 30-60 range', () => {
+  it('setElevation clamps to 15-65 range', () => {
     const cam = new CameraSystem(scene);
     cam.setElevation(100);
-    expect(cam.getConfig().elevationDeg).toBe(60);
+    expect(cam.getConfig().elevationDeg).toBe(65);
     cam.setElevation(0);
-    expect(cam.getConfig().elevationDeg).toBe(30);
+    expect(cam.getConfig().elevationDeg).toBe(15);
   });
 
   it('setElevation sets value within range', () => {

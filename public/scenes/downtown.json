@@ -17,18 +17,6 @@
    "solid": true
   },
   {
-   "key": "door-bld-s-1",
-   "model": "world/downtown/door_2.glb",
-   "position": [
-    -0.4300000071525574,
-    0,
-    -9.110559463500977
-   ],
-   "rotationY": 0,
-   "scale": 0.86,
-   "solid": false
-  },
-  {
    "key": "prop-manhole",
    "model": "world/downtown/prop_manholecover.glb",
    "position": [
@@ -359,6 +347,24 @@
    "rotationY": 0,
    "scale": 1.06,
    "solid": false
+  },
+  {
+   "key": "door_1",
+   "model": "world/downtown/door_1.glb",
+   "position": [
+    -0.4761830270290375,
+    -0.0697813332080841,
+    -9.183821678161621
+   ],
+   "solid": true,
+   "rotationY": 0,
+   "scale": 0.9,
+   "targetSceneId": "myhouse",
+   "spawnPoint": [
+    0,
+    0,
+    0
+   ]
   }
  ],
  "items": [],
@@ -491,7 +497,7 @@
    "position": [
     11.668122291564941,
     0,
-    23.208349227905273
+    23.838443756103516
    ],
    "appearance": {
     "bodyBase": "suit",
@@ -499,13 +505,13 @@
     "morphs": {},
     "colors": {
      "skin": "#6E5038",
-     "hair": "#B8B0A4",
+     "hair": "#C9A24B",
      "eyebrow": "#1A1A1A",
      "eye": "#3A2E22",
      "beard": "#1A1A1A",
      "makeup": "#A03050",
      "outfit": "#3A4A6B",
-     "top": "#3A4A6B",
+     "top": "#6B2A2A",
      "bottom": "#2A2E38",
      "shoes": "#1A1A1A",
      "hat": "#202833"
@@ -513,7 +519,13 @@
     "skinTexture": "skin_01",
     "accessories": [],
     "implants": [],
-    "avatarPieces": {}
+    "avatarPieces": {},
+    "materialColors": {
+     "clothing:top:Suit": "#101010",
+     "clothing:top:Tie": "#101010",
+     "clothing:lower:Suit.001": "#101010",
+     "clothing:lower:Black": "#101010"
+    }
    },
    "home": "a serviced corporate apartment uptown; he only slums the strip for opportunities",
    "location": "Mercado das Sombras, the corner where he holds court",
@@ -563,71 +575,6 @@
     "colors": {
      "skin": "#8B6355",
      "hair": "#0A0A0A",
-     "eyebrow": "#1A1A1A",
-     "eye": "#3A2A1A",
-     "beard": "#1A1A1A",
-     "makeup": "#A03050",
-     "outfit": "#3A4A6B",
-     "top": "#3A4A6B",
-     "bottom": "#2A2E38",
-     "shoes": "#1A1A1A",
-     "hat": "#202833"
-    },
-    "skinTexture": "skin_01",
-    "accessories": [],
-    "implants": [],
-    "avatarPieces": {},
-    "keepRegionColor": {
-     "top": true,
-     "bottom": true
-    }
-   }
-  },
-  {
-   "name": "Chaddarius Toney",
-   "role": "street vendor",
-   "personalityPrompt": "You are a slick operator with a razor-sharp mind for angles, data, and people—always three moves ahead in the information game. Your worldview is one of calculated neutrality; everyone's got something to sell and everyone's buying, so you just facilitate the exchange without judgment or sentiment.",
-   "backstory": "Once a mid-level corp data analyst, you burned out on the lies and sold your access to the right people; now you've reinvented yourself as Mercado das Sombras' most reliable connect, trading in everything from black-market neural mods to corporate secrets. ",
-   "routine": "You work the Mercado's main corridor from dusk until the heat comes down, hawking wares from a weathered stall while your augmented eyes scan the crowd for marks, cops, and old debts still outstanding.",
-   "defaultMood": "neutral",
-   "initialDisposition": "hostile",
-   "outfit": "suit",
-   "attributes": {
-    "forca": 10,
-    "destreza": 10,
-    "inteligencia": 10,
-    "carisma": 10
-   },
-   "position": [
-    -9.292853355407715,
-    0,
-    -3.770554542541504
-   ],
-   "id": "npc_2",
-   "npcRelationships": {
-    "npc_mback_fence_01": "neutral",
-    "npc_zara_vendor_01": "hostile",
-    "npc": "friendly",
-    "npc_2_2": "friendly"
-   },
-   "loadout": [
-    {
-     "id": "credstick",
-     "qty": 50
-    },
-    {
-     "id": "knife",
-     "qty": 1
-    }
-   ],
-   "rotationY": 0,
-   "appearance": {
-    "bodyBase": "suit",
-    "slots": {},
-    "morphs": {},
-    "colors": {
-     "skin": "#8B6355",
-     "hair": "#1A1A1A",
      "eyebrow": "#1A1A1A",
      "eye": "#3A2A1A",
      "beard": "#1A1A1A",

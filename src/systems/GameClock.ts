@@ -75,28 +75,28 @@ export const DAY_PALETTES: Record<DayPeriod, DayPalette> = {
     ambient: [0.34, 0.4, 0.56],
     ground: [0.12, 0.12, 0.18],
     fog: [0.02, 0.03, 0.06],
-    fogDensity: 0.013,
+    fogDensity: 0.004,
   },
   dawn: {
     ambientIntensity: 0.6,
     ambient: [0.7, 0.56, 0.56],
     ground: [0.2, 0.18, 0.2],
     fog: [0.16, 0.11, 0.13],
-    fogDensity: 0.01,
+    fogDensity: 0.003,
   },
   day: {
     ambientIntensity: 0.85,
     ambient: [0.68, 0.71, 0.78],
     ground: [0.22, 0.22, 0.26],
     fog: [0.5, 0.55, 0.6],
-    fogDensity: 0.006,
+    fogDensity: 0.002,
   },
   dusk: {
     ambientIntensity: 0.6,
     ambient: [0.72, 0.5, 0.44],
     ground: [0.2, 0.16, 0.16],
     fog: [0.26, 0.15, 0.12],
-    fogDensity: 0.01,
+    fogDensity: 0.003,
   },
 };
 

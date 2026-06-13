@@ -13,11 +13,11 @@ export interface CameraConfig {
 }
 
 export const DEFAULT_CAMERA_CONFIG: CameraConfig = {
-  elevationDeg: 45,
+  elevationDeg: 25,
   rotationSnapDeg: 45,
   zoomMin: 6,
-  zoomMax: 50,
-  zoomDefault: 9, // tight third-person framing on the hero (limits metagaming)
+  zoomMax: 80,
+  zoomDefault: 22, // open, near-horizon framing so the procedural city reads to the distance
   followDamping: 0.1,
 };
 
@@ -80,8 +80,10 @@ export class CameraSystem {
     );
     this.camera.lowerRadiusLimit = this.config.zoomMin;
     this.camera.upperRadiusLimit = this.config.zoomMax;
-    this.camera.lowerBetaLimit = this.degToRad(90 - 60);
-    this.camera.upperBetaLimit = this.degToRad(90 - 30);
+    // Elevation 15°–65° → beta 25°–75° (from vertical). The shallow end (75°) sits
+    // near the horizon for a panoramic view of the procedural world.
+    this.camera.lowerBetaLimit = this.degToRad(90 - 65);
+    this.camera.upperBetaLimit = this.degToRad(90 - 15);
     scene.activeCamera = this.camera;
 
     // 360° orbit via middle-mouse drag (browser/Electron only).
@@ -152,7 +154,7 @@ export class CameraSystem {
   }
 
   setElevation(deg: number): void {
-    const clamped = Scalar.Clamp(deg, 30, 60);
+    const clamped = Scalar.Clamp(deg, 15, 65);
     this.config.elevationDeg = clamped;
     this.camera.beta = this.degToRad(90 - clamped);
   }
@@ -371,9 +373,12 @@ export class CameraSystem {
       if (e.button === 1) e.preventDefault(); // suppress middle-click autoscroll
     };
     const onWheel = (e: WheelEvent): void => {
-      // Wheel zoom in the free tactical-combat camera OR while the Adjust tool is open
-      // (to inspect a held prop). On foot otherwise it's blocked (anti-metagaming).
-      if (!this.freeMode && !this.wheelZoomOverride) return;
+      // Wheel zoom is allowed on foot now (the tight anti-metagaming lock was relaxed
+      // so the player can pull back to a horizon view), plus the free tactical-combat
+      // camera and the Adjust tool. Only the cinematic conversation framing suppresses
+      // it, so the zoom doesn't fight the NPC close-up (unless the Adjust tool override
+      // is on).
+      if (this.conversationMode && !this.wheelZoomOverride) return;
       this.zoom(Math.sign(e.deltaY) * 2);
       e.preventDefault();
     };

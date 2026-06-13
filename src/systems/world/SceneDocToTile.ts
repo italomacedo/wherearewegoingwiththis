@@ -147,6 +147,27 @@ export function doorTriggersForTile(doc: SceneDoc, tx: number, tz: number): Worl
   }));
 }
 
+/** Default door volume around a door PROP (the prop's GLB is the visual). */
+const PROP_DOOR_SIZE: [number, number, number] = [2.5, 3, 2.5];
+
+/**
+ * Door PROPS (props carrying a `targetSceneId`) lifted to world-space triggers.
+ * Unlike the invisible `doorTriggers`, the prop's model is the visual, so the
+ * trigger is just a default AABB centred on the prop. Keyed `qp-` to stay unique
+ * against the `q-` invisible-trigger keys.
+ */
+export function propDoorTriggersForTile(doc: SceneDoc, tx: number, tz: number): WorldDoorTrigger[] {
+  return doc.props
+    .filter((p) => typeof p.targetSceneId === 'string' && p.targetSceneId.length > 0)
+    .map((p) => ({
+      key: `qp-${doc.id}-${tx}-${tz}-${p.key}`,
+      position: tileLocalToWorld(tx, tz, p.position),
+      size: [...PROP_DOOR_SIZE] as [number, number, number],
+      targetSceneId: p.targetSceneId as string,
+      spawnPoint: [...(p.spawnPoint ?? [0, 0, 0])] as [number, number, number],
+    }));
+}
+
 /** Stable identity of a scene-seeded item placement (for collected-set persistence). */
 export function seededItemKey(docId: string, tx: number, tz: number, index: number): string {
   return `${docId}:${tx},${tz}:${index}`;

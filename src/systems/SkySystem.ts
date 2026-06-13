@@ -437,6 +437,16 @@ export class SkyRenderer {
     }
   }
 
+  /** Show/hide the whole sky (dome + sun/moon/stars) — hidden inside interiors. */
+  /* istanbul ignore next — browser-only mesh toggle */
+  setEnabled(on: boolean): void {
+    if (typeof document === 'undefined') return;
+    this.dome?.setEnabled(on);
+    this.sunMesh?.setEnabled(on);
+    this.moonMesh?.setEnabled(on);
+    this.starMesh?.setEnabled(on);
+  }
+
   /* istanbul ignore next */
   dispose(): void {
     if (typeof document === 'undefined') return;

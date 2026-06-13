@@ -62,8 +62,14 @@ export interface SaveGame {
     worldSeed: number;
     /** The mosaic tile [tx,tz] the player was last in (Fase 17). */
     currentTile: [number, number];
-    /** Inside an authored interior (Scene Editor F6): doc id + entry door. */
-    interior?: { sceneId: string; entry: import('@systems/world/SceneDocToTile').WorldDoorTrigger };
+    /** Inside an authored interior (Scene Editor F6): doc id + the mosaic tile the
+     *  player entered from (so the exit door lands them back on the right tile).
+     *  `entry` is the legacy field (older saves) read on restore for migration. */
+    interior?: {
+      sceneId: string;
+      originTile?: [number, number];
+      entry?: import('@systems/world/SceneDocToTile').WorldDoorTrigger;
+    };
   };
   playerHealth: HealthState;
   playerHunger: HungerState;

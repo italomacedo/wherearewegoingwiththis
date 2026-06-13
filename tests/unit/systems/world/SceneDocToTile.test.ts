@@ -1,5 +1,5 @@
 import {
-  tileFromSceneDoc, doorTriggersForTile, seedItemsForTile, seededItemKey,
+  tileFromSceneDoc, doorTriggersForTile, propDoorTriggersForTile, seedItemsForTile, seededItemKey,
   pickQuadrantDoc, generateTileAuthored, quadrantNpcId, AUTHORED_TILE_CHANCE,
 } from '@systems/world/SceneDocToTile';
 import { generateTile } from '@assets/world/ThemeRegistry';
@@ -78,6 +78,29 @@ describe('doorTriggersForTile', () => {
     expect(door.size).toEqual([2, 3, 1]);
     expect(door.targetSceneId).toBe('bar');
     expect(door.spawnPoint).toEqual([0, 0, -8]);
+  });
+});
+
+describe('propDoorTriggersForTile', () => {
+  test('lifts only props carrying a targetSceneId, with a default volume', () => {
+    const doc = quadrant();
+    doc.props.push({
+      key: 'front_door', model: 'world/downtown/door_1.glb', position: [4, 0, -3],
+      targetSceneId: 'myhouse', spawnPoint: [0, 0, 27],
+    });
+    const triggers = propDoorTriggersForTile(doc, 1, 0);
+    expect(triggers).toHaveLength(1); // the crate/sign props are NOT doors
+    expect(triggers[0].key).toBe('qp-plaza-1-0-front_door');
+    expect(triggers[0].position).toEqual([64, 0, -3]);
+    expect(triggers[0].size).toEqual([2.5, 3, 2.5]);
+    expect(triggers[0].targetSceneId).toBe('myhouse');
+    expect(triggers[0].spawnPoint).toEqual([0, 0, 27]);
+  });
+
+  test('defaults a missing spawn point to the origin', () => {
+    const doc = quadrant();
+    doc.props.push({ key: 'd', model: 'world/scifi/door_single.glb', position: [0, 0, 0], targetSceneId: 'lab' });
+    expect(propDoorTriggersForTile(doc, 0, 0)[0].spawnPoint).toEqual([0, 0, 0]);
   });
 });
 

@@ -35,6 +35,80 @@ export interface ScenePropDoc {
   scale?: number | [number, number, number];
   solid?: boolean; // emits a box collider at runtime (TileScenery pattern)
   fit?: number; // optional auto-fit footprint in metres
+  // ── Door mechanic (any prop can be a door; the gallery's door GLBs are the
+  //    natural fit). When `targetSceneId` is set the prop becomes a functional
+  //    DOOR: pressing F near it transitions to that SceneDoc, spawning the player
+  //    at `spawnPoint` (target-scene-local). The prop's model IS the visual, so no
+  //    separate invisible DoorTrigger volume is needed. ──
+  targetSceneId?: string;
+  spawnPoint?: [number, number, number];
+}
+
+/** A door-shaped model — the gallery ships door, doordouble and doorframe GLBs. */
+export function isDoorModel(model: string): boolean {
+  return /door/i.test(model);
+}
+
+/** A door in a scene, regardless of whether it's an invisible trigger or a door
+ *  PROP. `pad` is its arrival square (scene-local); `target` is the scene it leads to. */
+export interface DoorRef {
+  key: string;
+  target: string; // targetSceneId
+  pad: [number, number, number]; // this door's own arrival pad (scene-local)
+  position: [number, number, number]; // the door's own position (anchor)
+}
+
+/** Every door in a doc: invisible doorTriggers + props carrying a targetSceneId. */
+export function doorsOf(doc: SceneDoc): DoorRef[] {
+  const fromTriggers: DoorRef[] = doc.doorTriggers.map((d) => ({
+    key: d.key, target: d.targetSceneId, pad: d.spawnPoint, position: d.position,
+  }));
+  const fromProps: DoorRef[] = doc.props
+    .filter((p) => typeof p.targetSceneId === 'string' && p.targetSceneId.length > 0)
+    .map((p) => ({
+      key: p.key, target: p.targetSceneId as string,
+      pad: p.spawnPoint ?? [0, 0, 0], position: p.position,
+    }));
+  return [...fromTriggers, ...fromProps];
+}
+
+/**
+ * The partner door in `target` for someone arriving FROM `fromSceneId`: the door
+ * that points back (reciprocal pairing), else the first door. null when `target`
+ * has no door at all.
+ */
+export function partnerDoor(target: SceneDoc, fromSceneId: string): DoorRef | null {
+  const doors = doorsOf(target);
+  if (doors.length === 0) return null;
+  return doors.find((d) => d.target === fromSceneId) ?? doors[0];
+}
+
+/** Average XZ of a doc's props — the rough centre of its built content, used as
+ *  the "inside" direction when placing an arrival spot. [0,0,0] when it has none. */
+export function contentCentroid(doc: SceneDoc): [number, number, number] {
+  const ps = doc.props;
+  if (ps.length === 0) return [0, 0, 0];
+  let x = 0;
+  let z = 0;
+  for (const p of ps) { x += p.position[0]; z += p.position[2]; }
+  return [x / ps.length, 0, z / ps.length];
+}
+
+/**
+ * The AUTOMATIC arrival spot for someone coming through a door at `doorPos`:
+ * `dist` m from the door toward the scene's content centre, so the player lands
+ * INSIDE, just in front of the door — no hand-placed pad, it tracks the door's
+ * own position. Falls back to the door position when the centre ~coincides.
+ */
+export function arrivalPoint(
+  doc: SceneDoc, doorPos: [number, number, number], dist = 2.5,
+): [number, number, number] {
+  const c = contentCentroid(doc);
+  const dx = c[0] - doorPos[0];
+  const dz = c[2] - doorPos[2];
+  const len = Math.hypot(dx, dz);
+  if (len < 0.5) return [doorPos[0], 0, doorPos[2]];
+  return [doorPos[0] + (dx / len) * dist, 0, doorPos[2] + (dz / len) * dist];
 }
 
 export interface SceneItemDoc {
@@ -74,7 +148,10 @@ export interface DoorTriggerDoc {
   position: [number, number, number]; // AABB centre (local)
   size: [number, number, number]; // AABB full extents
   targetSceneId: string; // another SceneDoc id (usually an interior)
-  spawnPoint: [number, number, number]; // local position in the TARGET scene
+  /** This door's OWN arrival pad (scene-local) — the "imaginary square" in front
+   *  of it where the player lands when arriving at this door (i.e. when the
+   *  partner door in another scene targeted this one). Paired-door model. */
+  spawnPoint: [number, number, number];
 }
 
 export interface SceneDoc {
@@ -123,7 +200,9 @@ function validProp(p: unknown): p is ScenePropDoc {
     && typeof o.model === 'string' && o.model.length > 0
     && isVec3(o.position)
     && (o.rotationY === undefined || typeof o.rotationY === 'number')
-    && validScale(o.scale);
+    && validScale(o.scale)
+    && (o.targetSceneId === undefined || typeof o.targetSceneId === 'string')
+    && (o.spawnPoint === undefined || isVec3(o.spawnPoint));
 }
 
 function validItem(i: unknown): i is SceneItemDoc {

@@ -28,7 +28,7 @@ export interface GameSettings {
   resolution: '1280x720' | '1920x1080' | '2560x1440' | '3840x2160';
   windowMode: 'windowed' | 'fullscreen' | 'borderless';
   vsync: boolean;
-  cameraAngleDeg: number; // 30–60
+  cameraAngleDeg: number; // 15–70 (lower = more horizontal / horizon view)
 
   // Video
   shadowQuality: 'off' | 'low' | 'medium' | 'high';
@@ -68,7 +68,7 @@ export const DEFAULT_SETTINGS: Readonly<GameSettings> = {
   resolution: '1920x1080',
   windowMode: 'windowed',
   vsync: true,
-  cameraAngleDeg: 45,
+  cameraAngleDeg: 25,
 
   shadowQuality: 'medium',
   antiAliasing: 'fxaa',

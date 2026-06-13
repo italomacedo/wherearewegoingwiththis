@@ -35,7 +35,6 @@ export interface EditorPanelHandlers {
   onGalleryPick(entry: GalleryEntry): void;
   onItemPick(itemId: string): void;
   onGenerateNpc(): void;
-  onAddDoor(): void;
   onTransformNudge(field: 'px' | 'py' | 'pz' | 'rot' | 'scale', delta: number): void;
   onSolidToggle(): void;
   onNpcOutfitCycle(dir: 1 | -1): void;
@@ -45,7 +44,8 @@ export interface EditorPanelHandlers {
   onNpcNameEdit(name: string): void;
   onDoorTargetCycle(dir: 1 | -1): void;
   onDoorSizeNudge(axis: 0 | 1 | 2, delta: number): void;
-  onDoorSpawnNudge(axis: 0 | 1 | 2, delta: number): void;
+  /** Cycle the SELECTED prop's door target scene (turns the prop into a door). */
+  onPropDoorTargetCycle(dir: 1 | -1): void;
   onGroundCycle(): void;
   onDelete(): void;
   onDuplicate(): void;
@@ -282,7 +282,10 @@ export class EditorPanels {
     this.gui!.addControl(panel);
 
     // Tab row.
-    const tabs: EditorTab[] = ['models', 'items', 'npcs', 'doors'];
+    // Doors are now authored as door MODELS (a prop carrying a target scene), so the
+    // standalone invisible "Door Trigger" gallery tab was dropped. Existing triggers
+    // (e.g. the migrated downtown) stay selectable/editable by clicking them in 3D.
+    const tabs: EditorTab[] = ['models', 'items', 'npcs'];
     tabs.forEach((tab, i) => {
       const box = new Rectangle(`tab-${tab}`);
       box.width = '60px';
@@ -377,15 +380,6 @@ export class EditorPanels {
         if (!matches(npc.name, npc.role, npc.outfit)) continue;
         list.addControl(this.listButton(`${npc.name} · ${npc.outfit}`, () => {
           this.state.select({ kind: 'npc', id: npc.id });
-          this.renderProperties();
-        }));
-      }
-    } else {
-      list.addControl(this.listButton(t('editor.addDoor'), () => this.handlers.onAddDoor(), UI.accent));
-      for (const door of this.state.doc.doorTriggers) {
-        if (!matches(door.key, door.targetSceneId)) continue;
-        list.addControl(this.listButton(`${door.key} → ${door.targetSceneId || t('editor.doorNoTarget')}`, () => {
-          this.state.select({ kind: 'door', key: door.key });
           this.renderProperties();
         }));
       }
@@ -534,6 +528,12 @@ export class EditorPanels {
       list.addControl(this.stepperRow('scale', s.toFixed(2), () => h.onTransformNudge('scale', -0.1), () => h.onTransformNudge('scale', +0.1)));
       const prop = this.state.selectedProp()!;
       list.addControl(this.actionButton(`${prop.solid ? '☑' : '☐'} ${t('editor.solid')}`, () => h.onSolidToggle()));
+      // Door mechanic: any prop can carry a target scene (the gallery's door GLBs
+      // are the natural fit). With a target set, F near it transitions; the spawn
+      // point is where the player appears in the target scene.
+      list.addControl(this.propLabel(t('editor.doorTarget')));
+      list.addControl(this.actionButton(`◄ ${prop.targetSceneId || t('editor.doorNoTarget')} ►`, () => h.onPropDoorTargetCycle(1)));
+      if (prop.targetSceneId) list.addControl(this.propLabel(t('editor.doorSpawnAuto')));
     }
 
     if (sel.kind === 'npc') {
@@ -556,10 +556,7 @@ export class EditorPanels {
         list.addControl(this.stepperRow(`size ${axis}`, door.size[i].toFixed(1),
           () => h.onDoorSizeNudge(i as 0 | 1 | 2, -0.5), () => h.onDoorSizeNudge(i as 0 | 1 | 2, +0.5)));
       });
-      (['sx', 'sy', 'sz'] as const).forEach((axis, i) => {
-        list.addControl(this.stepperRow(axis, door.spawnPoint[i].toFixed(1),
-          () => h.onDoorSpawnNudge(i as 0 | 1 | 2, -1), () => h.onDoorSpawnNudge(i as 0 | 1 | 2, +1)));
-      });
+      list.addControl(this.propLabel(t('editor.doorSpawnAuto')));
     }
 
     list.addControl(this.actionButton(t('editor.duplicate'), () => h.onDuplicate()));
