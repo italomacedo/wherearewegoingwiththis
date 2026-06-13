@@ -7,7 +7,8 @@
   "scripts": {
     "copy:havok": "node scripts/copy-havok-wasm.mjs",
     "copy:kokoro": "node scripts/copy-kokoro-model.mjs",
-    "copy:assets": "npm run copy:havok && npm run copy:kokoro",
+    "gen:gallery": "node scripts/gen_gallery_manifest.mjs",
+    "copy:assets": "npm run copy:havok && npm run copy:kokoro && npm run gen:gallery",
     "predev": "npm run copy:assets",
     "dev": "vite",
     "prebuild": "npm run copy:assets",

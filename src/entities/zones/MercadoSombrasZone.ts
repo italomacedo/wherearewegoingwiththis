@@ -13,6 +13,7 @@ import { framePlanes, crosswalkStripes, manholeSpots, interiorBuildingSlots } fr
 import { mulberry32 } from '@systems/world/SeededRng';
 import { DayPeriod, paletteForPeriod } from '@systems/GameClock';
 import { BEGGAR_SPOTS, TRASH_SPOTS } from '@entities/AmbientLife';
+import type { ScenePropDoc } from '@systems/sceneeditor/SceneDoc';
 
 /** Prop keys that should block the player (solid). Floor-like props (roads,
  *  sidewalks, food, manhole, drain, decals) are intentionally walkable. */
@@ -40,7 +41,17 @@ export class MercadoSombrasZone extends WorldZone {
    * cap the other sides (west/south are world borders). Set false for a standalone
    * closed street (legacy).
    */
-  constructor(private readonly openEast = true) {
+  /**
+   * @param openEast mosaic mode (see above).
+   * @param docProps the EFFECTIVE prop list from `public/scenes/downtown.json`
+   *   (Scene Editor migration, F5). When present, props load verbatim from the
+   *   doc — already flattened (slotted buildings + doors + manholes) — and the
+   *   doc's `solid` flags drive the colliders. Null → legacy catalog path.
+   */
+  constructor(
+    private readonly openEast = true,
+    private readonly docProps: ScenePropDoc[] | null = null,
+  ) {
     super();
   }
 
@@ -294,6 +305,21 @@ export class MercadoSombrasZone extends WorldZone {
         return false;
       }
     };
+    // Scene-Editor doc path (F5): the doc carries the EFFECTIVE placements
+    // (slotted buildings, doors, manholes) — load verbatim, nothing derived.
+    if (this.docProps && this.openEast) {
+      for (const p of this.docProps) {
+        if (await loadOne(p)) ok += 1;
+      }
+      if (ok > 0) {
+        this.meshes.forEach((m) => {
+          if (/^(building|stall)-\d+$/.test(m.name)) m.setEnabled(false);
+        });
+      }
+      console.warn(`[Mercado] real assets loaded from downtown doc: ${ok}/${this.docProps.length}`);
+      if (scene.isPhysicsEnabled()) this.buildColliders(scene);
+      return;
+    }
     // Mosaic (Fase 17G): buildings go into the interior block slots (no overlap); the
     // gap-filler brick walls + central sidewalks are replaced by the sidewalk-ring frame.
     // Each building keeps its hand-tuned door GLB, placed slot-relative at the building's
@@ -409,9 +435,14 @@ export class MercadoSombrasZone extends WorldZone {
       this.addBoxCollider(scene, 'col-exit', new Vector3(EXIT_WALL.position[0], EXIT_WALL.position[1], EXIT_WALL.position[2]), new Vector3(EXIT_WALL.size[0], EXIT_WALL.size[1], EXIT_WALL.size[2]));
     }
     // Solid loaded props (buildings, walls, shelf, bollards, AC, planter) → box
-    // collider from each one's world bounding box.
+    // collider from each one's world bounding box. With a downtown doc, the
+    // doc's per-prop `solid` flag decides; else the legacy key-pattern rule.
+    const solidByKey = this.docProps
+      ? new Map(this.docProps.map((p) => [p.key, p.solid === true]))
+      : null;
     for (const h of this.holders) {
-      if (!SOLID_PROP.test(h.name)) continue;
+      const solid = solidByKey ? solidByKey.get(h.name) === true : SOLID_PROP.test(h.name);
+      if (!solid) continue;
       const { min, max } = h.getHierarchyBoundingVectors(true);
       const size = max.subtract(min);
       if (size.x < 0.05 || size.y < 0.05 || size.z < 0.05) continue;

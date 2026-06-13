@@ -29,6 +29,9 @@ export type NPCMemory = Record<string, ConversationState & {
 export interface VehicleSaveState {
   health: HealthState;
   destroyed: boolean;
+  /** Does this save own the nave? NEW saves start WITHOUT one (owned: false —
+   *  it becomes purchasable later); undefined = legacy save = owns it. */
+  owned?: boolean;
   /** Where the nave was parked (Fase 22 fix). Undefined on legacy saves → the
    *  scene falls back to the default spawn offset near the zone spawn point. */
   position?: [number, number, number];
@@ -59,6 +62,8 @@ export interface SaveGame {
     worldSeed: number;
     /** The mosaic tile [tx,tz] the player was last in (Fase 17). */
     currentTile: [number, number];
+    /** Inside an authored interior (Scene Editor F6): doc id + entry door. */
+    interior?: { sceneId: string; entry: import('@systems/world/SceneDocToTile').WorldDoorTrigger };
   };
   playerHealth: HealthState;
   playerHunger: HungerState;
@@ -77,6 +82,8 @@ export interface SaveGame {
   spiceContracts: SpiceContract[];
   /** Items the player dropped into the world, by tile (Fase 18). */
   groundItems: GroundItem[];
+  /** Scene-Editor seeded pickups already collected, by seededItemKey. */
+  collectedSceneItems: string[];
   /** Intel dossiers gathered by scanning/hacking NPCs (Fase 20 PDA). */
   pda: PdaEntry[];
   flags: Record<string, boolean | number | string>;
@@ -175,13 +182,14 @@ export class SaveService {
       playerHealth: { current: maxHp, max: maxHp },
       playerHunger: { ...DEFAULT_PLAYER_HUNGER },
       playerStamina: { ...DEFAULT_PLAYER_STAMINA },
-      vehicle: { health: { ...DEFAULT_VEHICLE_STATE.health }, destroyed: false },
+      vehicle: { health: { ...DEFAULT_VEHICLE_STATE.health }, destroyed: false, owned: false },
       inventory,
       heldAttach: {},
       missions: [],
       pendings: [],
       spiceContracts: [],
       groundItems: [],
+      collectedSceneItems: [],
       pda: [],
       flags: {},
       npcMemory: {},
@@ -365,6 +373,8 @@ export class SaveService {
     // Fase 22: spice-trafficking contracts. Legacy saves get an empty list.
     if (!save.spiceContracts) save.spiceContracts = [];
     if (!save.groundItems) save.groundItems = [];
+    // Scene Editor: collected seeded-pickup keys. Legacy saves get an empty list.
+    if (!save.collectedSceneItems) save.collectedSceneItems = [];
     if (!save.pda) save.pda = [];
     // Fase 17: backfill the procedural-world seed (derived stably from the saveId
     // so a legacy save always regenerates the same world) + the current tile.

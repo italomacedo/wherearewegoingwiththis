@@ -79,7 +79,7 @@ import { applyMutations, ApplierContext } from '@systems/actions/Applier';
 import type { Mutation } from '@systems/actions/Mutations';
 import {
   CharacterStats, AttributeId, createDefaultStats, checkValue, applySkillUse,
-  detectPerkPointGrants, grantPerkPoints, skillDef, ATTRIBUTES,
+  detectPerkPointGrants, grantPerkPoints, skillDef,
 } from '@entities/CharacterStats';
 import { CharacterSheetOverlay } from '@systems/CharacterSheetOverlay';
 import { PdaOverlay } from '@systems/PdaOverlay';
@@ -89,7 +89,7 @@ import { t, getLocale, languageName } from '@systems/I18n';
 import { SettingsService } from '@systems/SettingsService';
 import { CombatOverlay } from '@systems/combat/CombatOverlay';
 import { CombatController, CombatLogEntry } from '@systems/combat/CombatController';
-import { combatClipFor, attackClipFor, CombatClipState, genderOfOutfit } from '@assets/AvatarMeshCatalog';
+import { combatClipFor, attackClipFor, combatStanceClip, CombatClipState, genderOfOutfit } from '@assets/AvatarMeshCatalog';
 import { CombatEncounter, CombatantInit, CombatOutcome } from '@systems/combat/CombatEncounter';
 import {
   combatTuningFromSettings, CombatTuning, Point2, Pathfinder,
@@ -102,7 +102,16 @@ import { WorldStreamer } from '@systems/world/WorldStreamer';
 import { TileScenery } from '@systems/world/TileScenery';
 import { tileOf, tileKey, worldFloorBox, worldBounds, neighbors, type TileCoord } from '@systems/world/WorldGrid';
 import { GroundItem, addGroundItem, removeGroundItemAt, nearestGroundItemIndex } from '@systems/world/GroundItems';
-import { generateTile, themeOf, ARCHETYPES } from '@assets/world/ThemeRegistry';
+import { themeOf, ARCHETYPES } from '@assets/world/ThemeRegistry';
+import {
+  generateTileAuthored, doorTriggersForTile, seedItemsForTile, sceneNpcToDefinition,
+  type WorldDoorTrigger,
+} from '@systems/world/SceneDocToTile';
+import {
+  interiorWorldPos, doorTriggerHit, returnTrigger, interiorItemKey, INTERIOR_HALF, INTERIOR_ORIGIN,
+} from '@systems/world/InteriorRuntime';
+import { loadAllSceneDocs } from '@systems/world/SceneDocSource';
+import type { SceneDoc } from '@systems/sceneeditor/SceneDoc';
 import { buildMinimapView, type MinimapEntity } from '@systems/MinimapModel';
 import { AssetCache, babylonContainerLoader } from '@systems/world/AssetCache';
 
@@ -233,6 +242,27 @@ export class GameWorldScene extends BaseScene {
   private groundItems: GroundItem[] = [];
   /** Live pickup markers, keyed by their GroundItem (browser-only). */
   private groundMarkers = new Map<GroundItem, AbstractMesh>();
+  /** Authored quadrant docs (editor JSON), id-sorted — the streaming roll's input. */
+  private quadrantDocs: SceneDoc[] = [];
+  /** Every authored doc by id (quadrants + interiors — door-trigger targets). */
+  protected sceneDocsById = new Map<string, SceneDoc>();
+  /** seededItemKey entries the player already collected (persisted). */
+  private collectedSceneItems: string[] = [];
+  /** World-space door triggers of the loaded authored quadrant tiles. */
+  private tileDoorTriggers = new Map<string, WorldDoorTrigger[]>();
+  /** Neon door-volume meshes per tile key (disposed with the tile). */
+  private doorVisuals = new Map<string, AbstractMesh[]>();
+  // ── Active interior (one at a time, built at INTERIOR_ORIGIN — F6) ──
+  private interiorId: string | null = null;
+  private interiorEntry: WorldDoorTrigger | null = null;
+  private interiorReturn: WorldDoorTrigger | null = null;
+  private interiorRoot: TransformNode | null = null;
+  private interiorAggregates: PhysicsAggregate[] = [];
+  /** Door triggers fire only when armed: disarmed on teleport, re-armed once
+   *  the player is clear of every trigger (prevents enter/exit ping-pong). */
+  private doorArmed = true;
+  /** A save made inside an interior: rebuild it after the world boots. */
+  private pendingInteriorRestore: { sceneId: string; entry: WorldDoorTrigger } | null = null;
   /** Cached AudioManager (resolved lazily) + footstep cadence accumulator. */
   private audio: AudioManager | null = null;
   private tts: TTSService | null = null;
@@ -301,6 +331,10 @@ export class GameWorldScene extends BaseScene {
   /** Combatants currently mid-walk — excluded from the per-frame facing pin so the
    *  walk's own per-segment rotation isn't fought. */
   private combatWalking = new Set<string>();
+  /** The looping fighting-stance clip each combatant holds while standing in combat
+   *  (by weapon). Drives the "return to idle" of every combat clip so fighters read
+   *  as engaged, not relaxed. Cleared on combat end. */
+  private combatStance = new Map<string, string>();
   private hud: WorldHud | null = null;
   private npcMeshes: AbstractMesh[] = [];
   private npcVisuals: AssembledCharacter[] = [];
@@ -332,6 +366,7 @@ export class GameWorldScene extends BaseScene {
   private static readonly GOSSIP_LOG_MAX = 12;
   private static readonly AUTONOMY_TICK_MS = 1000; // throttle the driver itself
   private static readonly NPC_WALK_SPEED = 2.2;    // u/s for autonomous walking
+  private static readonly COMBAT_RUN_SPEED = 5.2;  // u/s — combatants RUN to their move target (urgency)
   private static readonly ENGAGE_DIST = 1.8;       // arrival threshold for gossip
   private entityColliders: AbstractMesh[] = [];
   private entityAggregates: PhysicsAggregate[] = [];
@@ -429,12 +464,14 @@ export class GameWorldScene extends BaseScene {
     this.missions = session.missions ?? [];
     this.spiceContracts = session.spiceContracts ?? [];
     this.groundItems = session.groundItems ?? [];
+    this.collectedSceneItems = session.collectedSceneItems ?? [];
     this.pda = session.pda ?? [];
     this.vehicleState = session.vehicle ?? {
       health: { ...DEFAULT_VEHICLE_STATE.health }, destroyed: false,
     };
     if (session.world?.zone) this.startZoneId = session.world.zone;
     if (typeof session.world?.worldSeed === 'number') this.worldSeed = session.world.worldSeed;
+    this.pendingInteriorRestore = session.world?.interior ?? null;
     const [x, y, z] = session.world?.position ?? [0, 0, 0];
     // Treat an all-zero saved position as "use the zone's spawn point".
     if (x !== 0 || y !== 0 || z !== 0) {
@@ -477,6 +514,9 @@ export class GameWorldScene extends BaseScene {
       rotation: 0,
       worldSeed: this.worldSeed,
       currentTile: (ct ? [ct.tx, ct.tz] : [0, 0]) as [number, number],
+      ...(this.interiorId && this.interiorEntry
+        ? { interior: { sceneId: this.interiorId, entry: this.interiorEntry } }
+        : {}),
     };
     const playerHealth = this.player?.getHealth().toState() ?? this.playerHealthState;
     const vehicle: VehicleSaveState = this.vehicle
@@ -495,10 +535,12 @@ export class GameWorldScene extends BaseScene {
     const inventory = this.playerInventory.toState();
     const playerHunger = this.playerHunger.toState();
     const playerStamina = this.player?.getStaminaState() ?? { ...DEFAULT_PLAYER_STAMINA };
+    // Scene-seeded pickups regenerate from their docs — persist only real drops.
+    const groundItems = this.groundItems.filter((g) => !g.seedKey);
     SaveService.save({
       ...save, character, world, gameTimeSeconds: this.gameTimeSeconds, npcMemory: memory, playerHealth, vehicle, inventory,
       heldAttach: this.heldAttach, playerHunger, playerStamina, missions: this.missions, spiceContracts: this.spiceContracts,
-      groundItems: this.groundItems, pda: this.pda,
+      groundItems, pda: this.pda, collectedSceneItems: this.collectedSceneItems,
     });
 
     const session = ServiceLocator.tryGet<GameSession>('gameSession');
@@ -515,7 +557,8 @@ export class GameWorldScene extends BaseScene {
       session.playerStamina = playerStamina;
       session.missions = this.missions;
       session.spiceContracts = this.spiceContracts;
-      session.groundItems = this.groundItems;
+      session.groundItems = groundItems;
+      session.collectedSceneItems = this.collectedSceneItems;
       session.pda = this.pda;
     }
   }
@@ -588,8 +631,19 @@ export class GameWorldScene extends BaseScene {
     }
 
     this.updateLoadingProgress(20, 'loading.label.zone');
+    // Authored scenes (Scene Editor JSON) load BEFORE the zone: tile (0,0) reads
+    // its props/NPCs from downtown.json when present (F5), quadrants join the
+    // procedural roll, interiors are door targets. Fail-open: no docs → legacy
+    // catalog downtown + pure procedural world.
+    const sceneDocs = await loadAllSceneDocs();
+    this.quadrantDocs = sceneDocs.filter((d) => d.kind === 'quadrant' && d.id !== 'downtown');
+    this.sceneDocsById = new Map(sceneDocs.map((d) => [d.id, d]));
+    const downtownDoc = this.sceneDocsById.get('downtown');
     this.zoneManager = new ZoneManager();
-    this.zoneManager.register('mercado_sombras', () => new MercadoSombrasZone());
+    this.zoneManager.register('mercado_sombras', () => new MercadoSombrasZone(
+      true,
+      downtownDoc && downtownDoc.props.length > 0 ? downtownDoc.props : null,
+    ));
     ServiceLocator.register('zoneManager', this.zoneManager);
 
     const zone = await this.zoneManager.loadZone(this.startZoneId, this.babylonScene);
@@ -624,25 +678,27 @@ export class GameWorldScene extends BaseScene {
     // If the save has armor equipped, swap the avatar's regions to match (Phase 15).
     if (this.playerInventory.equippedArmorIds().length > 0) void this.rebuildPlayerArmor();
 
-    // Park a flying motorcycle near the spawn point. Confine it to the closed
-    // street (flying out of bounds and back was crashing the game).
-    // Confine the nave to the whole mosaic world (Fase 17) — inside the border
-    // walls (small margin), since the world is offset, not centred at the origin.
-    this.vehicle = new VehicleController(this.babylonScene, { horizontalBounds: worldBounds(2) });
-    // Restore the nave where it was last parked. Reuse the hero's spawn sanitizer so
-    // a corrupt saved position (NaN → a Havok abort, Lesson 46; or a below-floor Y)
-    // can't carry over to the nave; no saved position → the default spawn offset.
-    const naveDefault = zone.getSpawnPoint().add(new Vector3(4, 0, 0));
-    const savedNave = this.vehicleState.position;
-    const naveSpawn = GameWorldScene.sanitizeSpawn(
-      savedNave ? new Vector3(savedNave[0], savedNave[1], savedNave[2]) : null,
-      naveDefault,
-    );
-    this.vehicle.spawn(naveSpawn, this.vehicleState.facing ?? 0);
-    this.cockpit = new VehicleCockpit(this.babylonScene); // built lazily on first mount
-    this.vehicle.setHealthState(this.vehicleState.health);
-    this.vehicle.setDestroyed(this.vehicleState.destroyed);
-    ServiceLocator.register('vehicle', this.vehicle);
+    // Park the nave near the spawn point — only when this save OWNS one. New
+    // saves start without it (owned: false — the nave becomes purchasable);
+    // legacy saves (owned undefined) keep theirs. Confined to the mosaic world
+    // inside the border walls (small margin; the world isn't origin-centred).
+    if (this.vehicleState.owned !== false) {
+      this.vehicle = new VehicleController(this.babylonScene, { horizontalBounds: worldBounds(2) });
+      // Restore the nave where it was last parked. Reuse the hero's spawn sanitizer so
+      // a corrupt saved position (NaN → a Havok abort, Lesson 46; or a below-floor Y)
+      // can't carry over to the nave; no saved position → the default spawn offset.
+      const naveDefault = zone.getSpawnPoint().add(new Vector3(4, 0, 0));
+      const savedNave = this.vehicleState.position;
+      const naveSpawn = GameWorldScene.sanitizeSpawn(
+        savedNave ? new Vector3(savedNave[0], savedNave[1], savedNave[2]) : null,
+        naveDefault,
+      );
+      this.vehicle.spawn(naveSpawn, this.vehicleState.facing ?? 0);
+      this.cockpit = new VehicleCockpit(this.babylonScene); // built lazily on first mount
+      this.vehicle.setHealthState(this.vehicleState.health);
+      this.vehicle.setDestroyed(this.vehicleState.destroyed);
+      ServiceLocator.register('vehicle', this.vehicle);
+    }
 
     this.updateLoadingProgress(60, 'loading.label.npcs');
     await this.setupNPCs();
@@ -740,6 +796,20 @@ export class GameWorldScene extends BaseScene {
     this.worldStreamer.setCurrent(tileOf(spawn.x, spawn.z));
     this.updateNpcRing(); // seed the inner NPC ring
     this.renderGroundMarkers(); // dropped-item piles persisted in this save (Fase 18)
+    // Downtown doc content beyond props/NPCs: door triggers + seeded pickups for
+    // the static tile (0,0), which the streamer never load/unloads.
+    /* istanbul ignore next — browser-only seeding; the helpers are unit-tested */
+    if (typeof document !== 'undefined') {
+      const dt = this.sceneDocsById.get('downtown');
+      if (dt) this.seedAuthoredTileContent(dt, 0, 0, tileKey(0, 0));
+      // Saved inside an interior → rebuild it around the saved player position.
+      if (this.pendingInteriorRestore) {
+        const { sceneId, entry } = this.pendingInteriorRestore;
+        this.pendingInteriorRestore = null;
+        const doc = this.sceneDocsById.get(sceneId);
+        if (doc) await this.enterInterior(doc, entry, false);
+      }
+    }
 
     // A left-click commits an out-of-combat surprise attack (the ribbon entered
     // aiming). Listen on the CANVAS DOM directly — the most reliable signal (the
@@ -968,10 +1038,35 @@ export class GameWorldScene extends BaseScene {
     if (typeof document === 'undefined') return; // headless: bookkeeping only
     const key = tileKey(c.tx, c.tz);
     if (this.tileScenery.has(key)) return;
-    const gen = generateTile(c.tx, c.tz, this.worldSeed);
+    const { tile: gen, doc } = generateTileAuthored(c.tx, c.tz, this.worldSeed, this.quadrantDocs);
     const scenery = new TileScenery(this.babylonScene, gen.coord, gen.props, this.worldSeed, gen.ground, gen.urban);
     scenery.build(); // cheap synchronous frame; props instantiate via pumpTileLoads
     this.tileScenery.set(key, scenery);
+    if (doc) this.seedAuthoredTileContent(doc, c.tx, c.tz, key);
+  }
+
+  /** Register an authored quadrant tile's door triggers + uncollected item pickups. */
+  /* istanbul ignore next — browser-only; the per-tile data helpers are unit-tested */
+  private seedAuthoredTileContent(doc: SceneDoc, tx: number, tz: number, key: string): void {
+    const triggers = doorTriggersForTile(doc, tx, tz);
+    this.tileDoorTriggers.set(key, triggers);
+    // Visible neon volume per door so the player can find the entrance.
+    const visuals: AbstractMesh[] = [];
+    for (const t of triggers) {
+      const vol = MeshBuilder.CreateBox(`door-vol-${t.key}`, { width: t.size[0], height: t.size[1], depth: t.size[2] }, this.babylonScene);
+      vol.position.set(t.position[0], t.position[1] + t.size[1] / 2, t.position[2]);
+      const mat = new StandardMaterial(`door-vol-mat-${t.key}`, this.babylonScene);
+      mat.emissiveColor = new Color3(0, 0.5, 0.4);
+      mat.alpha = 0.3;
+      vol.material = mat;
+      vol.isPickable = false;
+      visuals.push(vol);
+    }
+    if (visuals.length > 0) this.doorVisuals.set(key, visuals);
+    for (const g of seedItemsForTile(doc, tx, tz, this.collectedSceneItems)) {
+      this.groundItems = addGroundItem(this.groundItems, g);
+      this.spawnGroundMarker(g);
+    }
   }
 
   /** Tear down a procedural neighbor tile's scenery + any NPCs still on it. */
@@ -982,6 +1077,20 @@ export class GameWorldScene extends BaseScene {
     this.tileScenery.get(key)?.dispose();
     this.tileScenery.delete(key);
     this.despawnTileNpcs(key); // belt-and-braces (NPCs normally leave via the r1 ring first)
+    // Authored-tile content streams out with the tile (it re-seeds on reload).
+    this.tileDoorTriggers.delete(key);
+    this.doorVisuals.get(key)?.forEach((m) => m.dispose());
+    this.doorVisuals.delete(key);
+    const keep: GroundItem[] = [];
+    for (const g of this.groundItems) {
+      if (g.seedKey && g.tile[0] === c.tx && g.tile[1] === c.tz) {
+        this.groundMarkers.get(g)?.dispose();
+        this.groundMarkers.delete(g);
+      } else {
+        keep.push(g);
+      }
+    }
+    this.groundItems = keep;
   }
 
   /** Instantiate a few queued props per frame across loading tiles (no burst hitch). */
@@ -1035,9 +1144,14 @@ export class GameWorldScene extends BaseScene {
   /* istanbul ignore next — browser-only; gated by updateNpcRing which headless skips */
   private updateAwakeNpcs(): void {
     if (!this.npcManager || !this.worldStreamer) return;
-    const cur = this.worldStreamer.getCurrentTile();
-    const curKey = tileKey(cur.tx, cur.tz);
-    const awake = new Set<string>(curKey === '0,0' ? this.zoneNpcIds : (this.tileNpcIds.get(curKey) ?? []));
+    // Inside an interior, only its own NPCs deliberate (same cost bound).
+    const awake = this.interiorId
+      ? new Set<string>(this.tileNpcIds.get(`interior:${this.interiorId}`) ?? [])
+      : (() => {
+          const cur = this.worldStreamer!.getCurrentTile();
+          const curKey = tileKey(cur.tx, cur.tz);
+          return new Set<string>(curKey === '0,0' ? this.zoneNpcIds : (this.tileNpcIds.get(curKey) ?? []));
+        })();
     for (const a of this.npcManager.getAgents()) a.setAwake(awake.has(a.definition.id));
   }
 
@@ -1046,7 +1160,7 @@ export class GameWorldScene extends BaseScene {
   private enqueueTileNpcs(key: string): void {
     if (this.npcTiles.has(key) || !this.npcManager) return;
     const [tx, tz] = key.split(',').map(Number);
-    const gen = generateTile(tx, tz, this.worldSeed);
+    const { tile: gen } = generateTileAuthored(tx, tz, this.worldSeed, this.quadrantDocs);
     if (gen.npcDefs.length === 0) { this.npcTiles.add(key); return; }
     this.npcManager.spawnTile(key, gen.npcDefs, this.npcMemory); // logical agents (cheap)
     this.tileNpcIds.set(key, gen.npcDefs.map((d) => d.id));
@@ -1110,6 +1224,12 @@ export class GameWorldScene extends BaseScene {
   /** Feed the player's world position to the streamer each frame (browser only). */
   /* istanbul ignore next — thin browser glue over the unit-tested WorldStreamer */
   private streamWorld(): void {
+    // Inside an interior the mosaic is paused (the player is at INTERIOR_ORIGIN,
+    // far off-grid) — keep pumping queued NPC avatar builds (the interior's own).
+    if (this.interiorId) {
+      void this.pumpNpcSpawns();
+      return;
+    }
     // Follow whatever the player is actually moving with: the nave while piloting
     // (the hero stays at the mount point), else the hero on foot. Otherwise flying
     // to an adjacent scene never streams its neighbours in.
@@ -1122,6 +1242,170 @@ export class GameWorldScene extends BaseScene {
     // Time-slice the heavy GLB/avatar work so streaming never bursts (Fase 17H).
     void this.pumpTileLoads();
     void this.pumpNpcSpawns();
+  }
+
+  /**
+   * Door triggers (F6): on foot, walking into an authored door volume enters its
+   * target interior; the interior's return volume teleports back to the entry.
+   * Triggers only fire when "armed" — disarmed on every teleport and re-armed
+   * once the player is clear of all volumes, so doors never ping-pong.
+   */
+  /* istanbul ignore next — per-frame browser glue; InteriorRuntime math is unit-tested */
+  private tickDoors(): void {
+    if (typeof document === 'undefined' || !this.player) return;
+    if (this.vehicle?.isOccupied() || this.combatEnc) return;
+    const p = this.player.getPosition();
+    const triggers: WorldDoorTrigger[] = this.interiorId
+      ? (this.interiorReturn ? [this.interiorReturn] : [])
+      : (() => {
+          const cur = this.worldStreamer?.getCurrentTile();
+          return cur ? (this.tileDoorTriggers.get(tileKey(cur.tx, cur.tz)) ?? []) : [];
+        })();
+    const hit = doorTriggerHit(p, triggers);
+    if (!this.doorArmed) {
+      if (!hit) this.doorArmed = true; // clear of every volume → re-arm
+      return;
+    }
+    if (!hit) return;
+    if (this.interiorId) {
+      this.exitInterior();
+    } else {
+      const target = this.sceneDocsById.get(hit.targetSceneId);
+      if (target) void this.enterInterior(target, hit, true);
+    }
+  }
+
+  /** Build the target interior at INTERIOR_ORIGIN and move the player inside. */
+  /* istanbul ignore next — browser-only meshes/physics/teleport */
+  private async enterInterior(doc: SceneDoc, entry: WorldDoorTrigger, teleport: boolean): Promise<void> {
+    if (this.interiorId) return;
+    const scene = this.babylonScene;
+    this.interiorId = doc.id;
+    this.interiorEntry = entry;
+    this.interiorReturn = returnTrigger(entry);
+    this.doorArmed = false;
+    const root = new TransformNode('interior-root', scene);
+    this.interiorRoot = root;
+    const [ox, , oz] = INTERIOR_ORIGIN;
+
+    // Room: tinted ground + perimeter/floor colliders.
+    const ground = MeshBuilder.CreateGround('interior-ground', { width: INTERIOR_HALF * 2, height: INTERIOR_HALF * 2 }, scene);
+    ground.position.set(ox, 0, oz);
+    const gmat = new StandardMaterial('interior-ground-mat', scene);
+    const tint = doc.ground ?? [0.2, 0.2, 0.23];
+    gmat.diffuseColor = new Color3(tint[0], tint[1], tint[2]);
+    gmat.specularColor = Color3.Black();
+    ground.material = gmat;
+    ground.parent = root;
+    if (scene.isPhysicsEnabled()) {
+      const h = 6;
+      const walls: Array<[string, number, number, number, number]> = [
+        ['n', ox, oz + INTERIOR_HALF, INTERIOR_HALF * 2, 1],
+        ['s', ox, oz - INTERIOR_HALF, INTERIOR_HALF * 2, 1],
+        ['e', ox + INTERIOR_HALF, oz, 1, INTERIOR_HALF * 2],
+        ['w', ox - INTERIOR_HALF, oz, 1, INTERIOR_HALF * 2],
+      ];
+      const mkCol = (name: string, cx: number, cy: number, cz: number, w: number, hh: number, d: number): void => {
+        const box = MeshBuilder.CreateBox(name, { width: w, height: hh, depth: d }, scene);
+        box.position.set(cx, cy, cz);
+        box.isVisible = false;
+        box.parent = root;
+        this.interiorAggregates.push(new PhysicsAggregate(box, PhysicsShapeType.BOX, { mass: 0 }, scene));
+      };
+      mkCol('int-col-floor', ox, -0.5, oz, INTERIOR_HALF * 2, 1, INTERIOR_HALF * 2);
+      for (const [tag, cx, cz, w, d] of walls) mkCol(`int-col-${tag}`, cx, h / 2, cz, w, h, d);
+    }
+
+    // Props (verbatim from the doc, offset to the interior origin).
+    for (const prop of doc.props) {
+      const holder = new TransformNode(`int-${prop.key}`, scene);
+      holder.parent = root;
+      const [px, py, pz] = interiorWorldPos(prop.position);
+      holder.position.set(px, py, pz);
+      holder.rotation.y = prop.rotationY ?? 0;
+      const s = prop.scale ?? 1;
+      if (typeof s === 'number') holder.scaling.setAll(s);
+      else holder.scaling.set(s[0], s[1], s[2]);
+      const inst = this.assetCache ? await this.assetCache.instantiate(prop.model, scene) : null;
+      if (!inst) continue;
+      inst.animationGroups.forEach((g) => g.stop());
+      inst.rootNodes.forEach((n) => { (n as TransformNode).parent = holder; });
+      if (prop.solid && scene.isPhysicsEnabled()) {
+        const { min, max } = holder.getHierarchyBoundingVectors(true);
+        const size = max.subtract(min);
+        if (Number.isFinite(size.x) && size.x > 0.05 && size.y > 0.05 && size.z > 0.05) {
+          const box = MeshBuilder.CreateBox(`int-col-${prop.key}`, { width: size.x, height: size.y, depth: size.z }, scene);
+          box.position.copyFrom(min.add(max).scale(0.5));
+          box.isVisible = false;
+          box.parent = root;
+          this.interiorAggregates.push(new PhysicsAggregate(box, PhysicsShapeType.BOX, { mass: 0 }, scene));
+        }
+      }
+    }
+
+    // Return-door volume (visible neon, at the interior spawn point).
+    const ret = this.interiorReturn;
+    const vol = MeshBuilder.CreateBox('interior-return-vol', { width: ret.size[0], height: ret.size[1], depth: ret.size[2] }, scene);
+    vol.position.set(ret.position[0], ret.position[1] + ret.size[1] / 2, ret.position[2]);
+    const vmat = new StandardMaterial('interior-return-mat', scene);
+    vmat.emissiveColor = new Color3(0, 0.5, 0.4);
+    vmat.alpha = 0.3;
+    vol.material = vmat;
+    vol.isPickable = false;
+    vol.parent = root;
+
+    // NPCs: logical agents now (memory-restored by unique id), avatars via the pump.
+    const intKey = `interior:${doc.id}`;
+    if (this.npcManager && doc.npcs.length > 0) {
+      const defs = doc.npcs.map((n) => sceneNpcToDefinition(
+        n, `int_${doc.id}_${n.id}`, interiorWorldPos(n.position), doc.name,
+      ));
+      this.npcManager.spawnTile(intKey, defs, this.npcMemory);
+      this.tileNpcIds.set(intKey, defs.map((d) => d.id));
+      for (const def of defs) this.npcSpawnQueue.push({ key: intKey, def });
+      this.npcTiles.add(intKey);
+    }
+
+    // Seeded pickups (uncollected).
+    doc.items.forEach((item, i) => {
+      const seedKey = interiorItemKey(doc.id, i);
+      if (this.collectedSceneItems.includes(seedKey)) return;
+      const [ix, iy, iz] = interiorWorldPos(item.position);
+      const g: GroundItem = { tile: [-1, -1], pos: [ix, iy + 0.3, iz], id: item.itemId, qty: item.qty, seedKey };
+      this.groundItems = addGroundItem(this.groundItems, g);
+      this.spawnGroundMarker(g);
+    });
+
+    this.updateAwakeNpcs();
+    if (teleport) this.player?.teleport(new Vector3(...interiorWorldPos(entry.spawnPoint)));
+  }
+
+  /** Tear the interior down, merge its NPC memory back, return to the entry door. */
+  /* istanbul ignore next — browser-only teardown/teleport */
+  private exitInterior(): void {
+    const id = this.interiorId;
+    if (!id) return;
+    const back = this.interiorReturn?.spawnPoint ?? this.interiorEntry?.position ?? [0, 0, 0];
+    this.despawnTileNpcs(`interior:${id}`);
+    this.interiorAggregates.forEach((a) => a.dispose());
+    this.interiorAggregates = [];
+    this.interiorRoot?.dispose();
+    this.interiorRoot = null;
+    // Interior seeded pickups stream out with the room.
+    const keep: GroundItem[] = [];
+    for (const g of this.groundItems) {
+      if (g.seedKey?.startsWith('int:')) {
+        this.groundMarkers.get(g)?.dispose();
+        this.groundMarkers.delete(g);
+      } else keep.push(g);
+    }
+    this.groundItems = keep;
+    this.interiorId = null;
+    this.interiorEntry = null;
+    this.interiorReturn = null;
+    this.doorArmed = false;
+    this.player?.teleport(new Vector3(back[0], back[1], back[2]));
+    this.updateAwakeNpcs();
   }
 
   /* istanbul ignore next — physics colliders are browser/Electron only */
@@ -1210,17 +1494,30 @@ export class GameWorldScene extends BaseScene {
     this.faceNpc(id, Math.atan2(dx, dz));
   }
 
-  /** The walk/idle clips for a combatant (player avatar or NPC). */
+  /** Every animation group of a combatant (player avatar or NPC). */
   /* istanbul ignore next — browser-only animation lookup */
-  private walkIdleClipsOf(id: string): { walk: AnimationGroup | null; idle: AnimationGroup | null } {
-    const groups = id === 'player'
+  private groupsOf(id: string): AnimationGroup[] {
+    return id === 'player'
       ? (this.player?.getAnimationGroups() ?? [])
       : (this.npcGroupsById.get(id) ?? []);
-    return {
-      // EXACT match: extra clips ('sit_idle'/'crouch_idle') would substring-match 'idle'.
-      walk: groups.find((g) => g.name.toLowerCase() === 'walk') ?? null,
-      idle: groups.find((g) => g.name.toLowerCase() === 'idle') ?? null,
-    };
+  }
+
+  /** A combatant's named clip (exact match — 'idle' must not substring-hit 'sit_idle'). */
+  /* istanbul ignore next — browser-only animation lookup */
+  private clipOf(id: string, name: string): AnimationGroup | null {
+    return this.groupsOf(id).find((g) => g.name.toLowerCase() === name) ?? null;
+  }
+
+  /**
+   * Return a combatant to its resting loop: the fighting STANCE while it's a standing
+   * combatant (engaged look), else the relaxed `idle`. Shared by every place a one-shot
+   * combat/locomotion clip ends, so fighters never relax mid-fight.
+   */
+  /* istanbul ignore next — browser-only animation playback */
+  private playIdleOrStance(id: string): void {
+    const stance = this.combatStance.get(id);
+    const clip = (stance && this.clipOf(id, stance)) || this.clipOf(id, 'idle');
+    clip?.start(true);
   }
 
   /**
@@ -1234,9 +1531,17 @@ export class GameWorldScene extends BaseScene {
     if (points.length < 2) { opts.onArrive?.(); return; }
     this.npcWalks.set(id, { points, i: 1, speed, combat: !!opts.combat, onArrive: opts.onArrive });
     if (opts.combat) this.combatWalking.add(id);
-    const { walk, idle } = this.walkIdleClipsOf(id);
-    idle?.stop();
-    walk?.start(true);
+    // Combat moves RUN to convey urgency; gossip approaches walk calmly.
+    this.groupsOf(id).forEach((g) => g.stop());
+    const moveClip = opts.combat
+      ? (this.clipOf(id, 'run') ?? this.clipOf(id, 'walk'))
+      : this.clipOf(id, 'walk');
+    if (moveClip) {
+      // Match the clip cadence to the actual travel speed so the feet don't slide.
+      const ref = opts.combat ? 4.2 : 1.4;
+      moveClip.speedRatio = Math.min(3, Math.max(0.5, speed / ref));
+      moveClip.start(true);
+    }
   }
 
   /** Advance every active walk one frame. Called from the live loop AND the combat branch. */
@@ -1267,9 +1572,9 @@ export class GameWorldScene extends BaseScene {
   private finishNpcWalk(id: string): void {
     const w = this.npcWalks.get(id);
     this.npcWalks.delete(id);
-    const { walk, idle } = this.walkIdleClipsOf(id);
-    walk?.stop();
-    idle?.start(true);
+    this.clipOf(id, 'walk')?.stop();
+    this.clipOf(id, 'run')?.stop();
+    this.playIdleOrStance(id); // resting loop = stance in combat, else idle
     if (w?.combat) {
       this.combatWalking.delete(id);
       const node = this.combatNode(id);
@@ -1497,6 +1802,8 @@ export class GameWorldScene extends BaseScene {
     this.tickVehicle(dt);
     // Seamless world streaming: load/unload the 3×3 tile ring as the player crosses edges.
     this.streamWorld();
+    // Authored door triggers: walk into a door volume → enter/leave an interior.
+    this.tickDoors();
     this.cameraSystem?.update();
     this.updateNPCs(dt);
     this.updateTimeOfDay();
@@ -1661,7 +1968,12 @@ export class GameWorldScene extends BaseScene {
     // only from the driver's seat. Her conversation is ephemeral per session.
     this.roxaneAgent = new NPCAgent(createRoxane());
 
-    const definitions = [createZara(), createMback()];
+    // Tile (0,0) cast: from downtown.json when present (F5 — keeps the LEGACY ids
+    // so existing saves' npcMemory still matches), else the authored catalog.
+    const downtownDoc = this.sceneDocsById.get('downtown');
+    const definitions = downtownDoc && downtownDoc.npcs.length > 0
+      ? downtownDoc.npcs.map((n) => sceneNpcToDefinition(n, n.id, n.position, 'Mercado das Sombras'))
+      : [createZara(), createMback()];
     this.zoneNpcIds = definitions.map((d) => d.id);
     for (const def of definitions) {
       // Centralized restore (Fase 20 fix): spawnWithMemory restores conversation,
@@ -2018,10 +2330,15 @@ export class GameWorldScene extends BaseScene {
     }
     (this.audio ??= ServiceLocator.tryGet<AudioManager>('audio'))?.playMusic('combat');
     // Seed each combatant facing its nearest foe so the fight opens looking engaged,
-    // and the per-frame pin keeps it (Bug A).
+    // and the per-frame pin keeps it (Bug A). Also drop each one into its weapon's
+    // fighting stance so the whole scene reads as combat the instant it starts.
     this.combatFacing.clear();
     this.combatWalking.clear();
+    this.combatStance.clear();
     for (const c of enc.getState().combatants) {
+      this.combatStance.set(c.id, this.combatStanceFor(c.id));
+      this.playIdleOrStance(c.id);
+      if (c.id === 'player') this.player?.setIdleOverride(this.combatStance.get('player') ?? null);
       const foeId = enc.nearestFoeId(c.id);
       const foe = foeId ? enc.getState().combatants.find((x) => x.id === foeId) : null;
       if (foe) {
@@ -2127,7 +2444,7 @@ export class GameWorldScene extends BaseScene {
       const node = this.combatNode(entry.actorId);
       const y = node?.position.y ?? 0;
       const points = entry.path.map((p) => new Vector3(p.x, y, p.z));
-      this.startNpcWalk(entry.actorId, points, GameWorldScene.NPC_WALK_SPEED, { combat: true });
+      this.startNpcWalk(entry.actorId, points, GameWorldScene.COMBAT_RUN_SPEED, { combat: true });
       return;
     }
     // NOTE: cover/hunker have NO pose and a miss has NO dodge for now — the Quaternius
@@ -2210,6 +2527,13 @@ export class GameWorldScene extends BaseScene {
     return attackClipFor('melee', isMeleeWeapon(wid ?? ''), override);
   }
 
+  /** The fighting-stance idle clip a combatant holds, from its equipped weapon. */
+  /* istanbul ignore next — browser-only; combatStanceClip is pure/tested */
+  private combatStanceFor(actorId: string): string {
+    const wid = this.combatWeaponId.get(actorId) ?? null;
+    return combatStanceClip(isFirearm(wid ?? '') ? 'ranged' : 'melee', isMeleeWeapon(wid ?? ''));
+  }
+
   private meleeLunge(attackerId: string, targetId: string): void {
     const swing = this.meleeClip(attackerId);
     const attacker = this.combatNode(attackerId);
@@ -2238,11 +2562,11 @@ export class GameWorldScene extends BaseScene {
       : (this.npcGroupsById.get(actorId) ?? []);
     const clip = groups.find((g) => g.name.toLowerCase() === key);
     if (!clip) { onEnd?.(); return; }
-    const idle = groups.find((g) => g.name.toLowerCase() === 'idle') ?? null;
     groups.forEach((g) => g.stop());
     clip.start(false);
     if (!hold) {
-      clip.onAnimationEndObservable.addOnce(() => { idle?.start(true); onEnd?.(); });
+      // Return to the fighting stance during combat (else the relaxed idle).
+      clip.onAnimationEndObservable.addOnce(() => { this.playIdleOrStance(actorId); onEnd?.(); });
     }
   }
 
@@ -2501,6 +2825,8 @@ export class GameWorldScene extends BaseScene {
           // Applier.claimMissionCompletion). Decision #14 plan.
         } else {
           agent.setHealthState({ current: c.hp.current, max: c.hp.max }); // persist wounds (Fase 20)
+          this.combatStance.delete(c.id);
+          this.clipOf(c.id, 'idle')?.start(true); // drop the fighting stance back to a relaxed idle
           if (outcome !== 'player_lost' && this.combatPlayerSide && c.side !== this.combatPlayerSide) {
             agent.setDisposition('wary');
           }
@@ -2536,6 +2862,9 @@ export class GameWorldScene extends BaseScene {
     this.combatTurnAccum = 0;
     this.combatFacing.clear();
     this.combatWalking.clear();
+    this.combatStance.clear();
+    // Drop the player out of the fighting stance back to the held-item idle (gun/none).
+    this.updateHeldEffects();
     // Restore the on-foot camera framing (whichever combat mode was active).
     this.cameraSystem?.exitFreeMode();
     this.cameraSystem?.exitConversationMode();
@@ -2705,6 +3034,10 @@ export class GameWorldScene extends BaseScene {
       this.groundMarkers.get(item)?.dispose();
       this.groundMarkers.delete(item);
       this.groundItems = removeGroundItemAt(this.groundItems, idx);
+      // A fully-taken scene-seeded pickup never respawns (persisted by key).
+      if (item.seedKey && !this.collectedSceneItems.includes(item.seedKey)) {
+        this.collectedSceneItems.push(item.seedKey);
+      }
     } else {
       item.qty -= moved; // partial pickup — the rest stays in the pile
     }
@@ -2912,9 +3245,10 @@ export class GameWorldScene extends BaseScene {
    * own condition (she IS the car). Pure read of the vehicle state.
    */
   private buildRoxaneVehicleContext(): string {
-    // Only called from sendToRoxane (post-onEnter), where the vehicle co-exists
-    // with the Roxane agent — both are created together in setupNPCs/spawn.
-    const v = this.vehicle!;
+    // Only reachable from the driver's seat, but stay null-safe: a save without
+    // a nave (owned: false) never creates the controller.
+    const v = this.vehicle;
+    if (!v) return '';
     const hp = Math.round(v.getHealth().fraction() * 100);
     const spd = Math.round(Math.abs(v.getSpeed()));
     const alt = Math.round(v.getPosition().y);
@@ -3788,9 +4122,8 @@ export class GameWorldScene extends BaseScene {
     skillId: string | null | undefined, attribute: AttributeId,
     roll: number, probability: number, success: boolean, critical: boolean
   ): void {
-    const label = skillId
-      ? (skillDef(skillId)?.label ?? skillId)
-      : (ATTRIBUTES.find((a) => a.id === attribute)?.label ?? attribute);
+    // Localized names (the static SkillDef/AttributeDef labels are pt-only).
+    const label = skillId ? t(`skill.${skillId}`) : t(`attr.${attribute}`);
     this.dialog?.addSystemLine(checkLine(label, roll, probability, success, critical));
   }
 
@@ -4478,7 +4811,8 @@ export class GameWorldScene extends BaseScene {
     const def = skillDef(skillId);
     const gained = (this.playerStats.skills[skillId] ?? 0) - (before.skills[skillId] ?? 0);
     if (def && gained > 0) {
-      this.hud?.pushToast(t('toast.skillGain', { skill: def.label, amount: gained.toFixed(1) }));
+      // i18n name, not the static SkillDef label (which is pt-only).
+      this.hud?.pushToast(t('toast.skillGain', { skill: t(`skill.${skillId}`), amount: gained.toFixed(1) }));
     }
     this.applyPerkPointGrants(before, this.playerStats);
   }
@@ -4489,8 +4823,7 @@ export class GameWorldScene extends BaseScene {
     if (Object.keys(grants).length > 0) {
       this.playerStats = grantPerkPoints(after, grants);
       for (const attrId of Object.keys(grants) as AttributeId[]) {
-        const label = ATTRIBUTES.find((a) => a.id === attrId)?.label ?? attrId;
-        this.hud?.pushToast(t('toast.perkPoint', { attr: label }));
+        this.hud?.pushToast(t('toast.perkPoint', { attr: t(`attr.${attrId}`) }));
       }
     }
   }

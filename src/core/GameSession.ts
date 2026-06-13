@@ -21,6 +21,9 @@ export interface WorldState {
   worldSeed: number;
   /** The mosaic tile [tx,tz] the player was last in (Fase 17). */
   currentTile: [number, number];
+  /** Set while the player is inside an authored interior (Scene Editor F6):
+   *  the interior's doc id + the entry door, so a reload rebuilds the room. */
+  interior?: { sceneId: string; entry: import('@systems/world/SceneDocToTile').WorldDoorTrigger };
 }
 
 /**
@@ -52,6 +55,8 @@ export class GameSession {
     public pda: PdaEntry[] = [],
     public spiceContracts: SpiceContract[] = [],
     public playerStamina: StaminaState = { ...DEFAULT_PLAYER_STAMINA },
+    /** Collected Scene-Editor seeded pickups, by seededItemKey (Scene Editor). */
+    public collectedSceneItems: string[] = [],
   ) {}
 
   /** Builds a session from a persisted save. */
@@ -72,6 +77,7 @@ export class GameSession {
       save.pda ?? [],
       save.spiceContracts ?? [],
       save.playerStamina ?? { ...DEFAULT_PLAYER_STAMINA },
+      save.collectedSceneItems ?? [],
     );
   }
 }

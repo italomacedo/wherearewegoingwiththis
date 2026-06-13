@@ -12,6 +12,7 @@ import { CharacterCreatorScene } from '@scenes/CharacterCreatorScene';
 import { LoadGameScene } from '@scenes/LoadGameScene';
 import { OptionsScene } from '@scenes/OptionsScene';
 import { GameWorldScene } from '@scenes/GameWorldScene';
+import { SceneEditorScene } from '@scenes/SceneEditorScene';
 
 export class GameManager {
   private static instance: GameManager | null = null;
@@ -67,6 +68,7 @@ export class GameManager {
     /* istanbul ignore next */ sm.register('load-game', (eng) => new LoadGameScene(eng));
     /* istanbul ignore next */ sm.register('options', (eng) => new OptionsScene(eng));
     /* istanbul ignore next */ sm.register('game-world', (eng) => new GameWorldScene(eng));
+    /* istanbul ignore next */ sm.register('scene-editor', (eng) => new SceneEditorScene(eng));
   }
 
   start(): void {

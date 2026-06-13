@@ -1,0 +1,710 @@
+{
+ "version": 1,
+ "id": "downtown",
+ "kind": "quadrant",
+ "name": "Mercado das Sombras",
+ "props": [
+  {
+   "key": "bld-s-1",
+   "model": "world/downtown/building_medium_2_001.glb",
+   "position": [
+    -0.005040180403739214,
+    0,
+    -9.084213256835938
+   ],
+   "rotationY": 0,
+   "scale": 0.86,
+   "solid": true
+  },
+  {
+   "key": "door-bld-s-1",
+   "model": "world/downtown/door_2.glb",
+   "position": [
+    -0.4300000071525574,
+    0,
+    -9.110559463500977
+   ],
+   "rotationY": 0,
+   "scale": 0.86,
+   "solid": false
+  },
+  {
+   "key": "prop-manhole",
+   "model": "world/downtown/prop_manholecover.glb",
+   "position": [
+    -6,
+    0.03,
+    0
+   ],
+   "solid": false
+  },
+  {
+   "key": "prop-drain",
+   "model": "world/downtown/prop_drain.glb",
+   "position": [
+    8,
+    0.03,
+    3
+   ],
+   "solid": false
+  },
+  {
+   "key": "prop-bollard-0",
+   "model": "world/downtown/prop_bollard.glb",
+   "position": [
+    -12,
+    0,
+    5.5
+   ],
+   "solid": true
+  },
+  {
+   "key": "prop-bollard-1",
+   "model": "world/downtown/prop_bollard.glb",
+   "position": [
+    12,
+    0,
+    5.5
+   ],
+   "solid": true
+  },
+  {
+   "key": "prop-bollard-2",
+   "model": "world/downtown/prop_bollard.glb",
+   "position": [
+    -12,
+    0,
+    -5.5
+   ],
+   "solid": true
+  },
+  {
+   "key": "prop-bollard-3",
+   "model": "world/downtown/prop_bollard.glb",
+   "position": [
+    12,
+    0,
+    -5.5
+   ],
+   "solid": true
+  },
+  {
+   "key": "prop-planter",
+   "model": "world/downtown/prop_planter_single.glb",
+   "position": [
+    3.0960793495178223,
+    0,
+    -6.490617275238037
+   ],
+   "solid": true,
+   "rotationY": 0,
+   "scale": 1
+  },
+  {
+   "key": "manhole-0",
+   "model": "world/downtown/prop_manholecover.glb",
+   "position": [
+    10.97361955884844,
+    0.05,
+    28
+   ],
+   "solid": false
+  },
+  {
+   "key": "manhole-1",
+   "model": "world/downtown/prop_manholecover.glb",
+   "position": [
+    1.4713752586394548,
+    0.05,
+    -28
+   ],
+   "solid": false
+  },
+  {
+   "key": "doordouble_wall_sidea",
+   "model": "world/scifi/doordouble_wall_sidea.glb",
+   "position": [
+    -13.84961986541748,
+    0,
+    -8.730570793151855
+   ],
+   "solid": false,
+   "rotationY": 0,
+   "scale": 1
+  },
+  {
+   "key": "threewindows_wall_sidea",
+   "model": "world/scifi/threewindows_wall_sidea.glb",
+   "position": [
+    -15.647143363952637,
+    0,
+    -10.73499584197998
+   ],
+   "solid": true,
+   "rotationY": 1.5707963267948963,
+   "scale": 1
+  },
+  {
+   "key": "threewindows_wall_sideb",
+   "model": "world/scifi/threewindows_wall_sideb.glb",
+   "position": [
+    -12.08679485321045,
+    0,
+    -10.752605438232422
+   ],
+   "solid": true,
+   "rotationY": -1.5707963267948963,
+   "scale": 1
+  },
+  {
+   "key": "longwindow_wall_sidea",
+   "model": "world/scifi/longwindow_wall_sidea.glb",
+   "position": [
+    -13.867417335510254,
+    0,
+    -12.41154956817627
+   ],
+   "solid": true,
+   "rotationY": 0,
+   "scale": 1
+  },
+  {
+   "key": "rooftile_empty",
+   "model": "world/scifi/rooftile_empty.glb",
+   "position": [
+    -13.802172660827637,
+    4.403849124908447,
+    -10.535602569580078
+   ],
+   "solid": true,
+   "rotationY": 0,
+   "scale": 2.5
+  },
+  {
+   "key": "props_shelf_tall",
+   "model": "world/props/props_shelf_tall.glb",
+   "position": [
+    -13.840056419372559,
+    0,
+    -11.951047897338867
+   ],
+   "solid": true,
+   "rotationY": 0,
+   "scale": 1
+  },
+  {
+   "key": "apple_green",
+   "model": "world/food/apple_green.glb",
+   "position": [
+    -14.491952896118164,
+    1.1024982929229736,
+    -11.988556861877441
+   ],
+   "solid": true,
+   "scale": 0.2,
+   "rotationY": 0
+  },
+  {
+   "key": "apple_green_2",
+   "model": "world/food/apple_green.glb",
+   "position": [
+    -14.295495986938477,
+    1.074031949043274,
+    -12.08837604522705
+   ],
+   "solid": true,
+   "scale": 0.2,
+   "rotationY": 0
+  },
+  {
+   "key": "apple",
+   "model": "world/food/apple.glb",
+   "position": [
+    -14.004881858825684,
+    1.0948023796081543,
+    -11.937880516052246
+   ],
+   "solid": true,
+   "scale": 0.2,
+   "rotationY": 0
+  },
+  {
+   "key": "apple_2",
+   "model": "world/food/apple.glb",
+   "position": [
+    -13.83913516998291,
+    1.0948023796081543,
+    -12.178900718688965
+   ],
+   "solid": true,
+   "scale": 0.2,
+   "rotationY": 0
+  },
+  {
+   "key": "bottle1",
+   "model": "world/food/bottle1.glb",
+   "position": [
+    -13.119741439819336,
+    0.4080350995063782,
+    -11.822371482849121
+   ],
+   "solid": true,
+   "scale": 0.3,
+   "rotationY": 0
+  },
+  {
+   "key": "bottle1_2",
+   "model": "world/food/bottle1.glb",
+   "position": [
+    -13.357013702392578,
+    0.4080350995063782,
+    -11.957548141479492
+   ],
+   "solid": true,
+   "scale": 0.3,
+   "rotationY": 0
+  },
+  {
+   "key": "bread",
+   "model": "world/food/bread.glb",
+   "position": [
+    -13.178604125976562,
+    1.0090265274047852,
+    -11.950065612792969
+   ],
+   "solid": true,
+   "scale": 0.3,
+   "rotationY": 0
+  },
+  {
+   "key": "bread_2",
+   "model": "world/food/bread.glb",
+   "position": [
+    -13.47037124633789,
+    1.0090265274047852,
+    -11.944920539855957
+   ],
+   "solid": true,
+   "scale": 0.3,
+   "rotationY": -0.14948301045656512
+  },
+  {
+   "key": "building_small_1",
+   "model": "world/downtown/building_small_1.glb",
+   "position": [
+    13.720669746398926,
+    0,
+    20.445819854736328
+   ],
+   "solid": true,
+   "rotationY": 0,
+   "scale": 1
+  },
+  {
+   "key": "prop_drain",
+   "model": "world/downtown/prop_drain.glb",
+   "position": [
+    -13.853879928588867,
+    0,
+    -10.614827156066895
+   ],
+   "solid": true,
+   "rotationY": 0,
+   "scale": 1
+  },
+  {
+   "key": "prop-planter_2",
+   "model": "world/downtown/prop_planter_single.glb",
+   "position": [
+    -3.604698896408081,
+    0,
+    -6.520119667053223
+   ],
+   "solid": true,
+   "rotationY": 0,
+   "scale": 1
+  },
+  {
+   "key": "houseplant_1",
+   "model": "world/interior/houseplant_1.glb",
+   "position": [
+    -3.5006227493286133,
+    0.296697199344635,
+    -6.592288970947266
+   ],
+   "solid": true,
+   "rotationY": 0,
+   "scale": 1
+  },
+  {
+   "key": "houseplant_1_2",
+   "model": "world/interior/houseplant_1.glb",
+   "position": [
+    3.107642650604248,
+    0.30935436487197876,
+    -6.552288055419922
+   ],
+   "solid": true,
+   "rotationY": 0,
+   "scale": 1
+  },
+  {
+   "key": "door-bld-s-1_2",
+   "model": "world/downtown/door_2.glb",
+   "position": [
+    13.202155113220215,
+    0.9389948844909668,
+    20.423912048339844
+   ],
+   "rotationY": 0,
+   "scale": 1.06,
+   "solid": false
+  }
+ ],
+ "items": [],
+ "npcs": [
+  {
+   "id": "npc_zara_vendor_01",
+   "name": "Zara",
+   "role": "underground hacker and street activist",
+   "personalityPrompt": "You are an underground hacker and activist who despises the corporate world with your whole heart. You run ops against the corps, leak what they bury, and protect the people on the strip. You are wary of strangers and trust no one fully, speaking in short, clipped sentences — but under the armour you genuinely care about the little people the corps grind down. You believe the system is rotten and someone has to fight it. You have nothing but contempt for sell-outs and corporate suits.",
+   "backstory": "Grew up in the flooded lower decks; lost her brother to a corpo data-raid and turned that grief into a war — she has been hacking, leaking, and organising against the corporations ever since.",
+   "routine": "Keeps a market stall as a front by day, then runs the nets till dawn — cracking corp systems, feeding leaks to the strip, and watching for retaliation.",
+   "relationships": "Loathes Mback, the smug corporate fixer who slums the strip dangling money to buy people off — to her he is everything wrong with this city. Steers clear of the Vyse-Tek enforcers who patrol it.",
+   "defaultMood": "suspicious",
+   "initialDisposition": "friendly",
+   "outfit": "w_punk",
+   "loadout": [
+    {
+     "id": "pipe",
+     "qty": 1
+    },
+    {
+     "id": "medkit",
+     "qty": 1
+    },
+    {
+     "id": "scrap",
+     "qty": 2
+    },
+    {
+     "id": "cyberdeck",
+     "qty": 1
+    },
+    {
+     "id": "credstick",
+     "qty": 100
+    },
+    {
+     "id": "burger",
+     "qty": 10
+    },
+    {
+     "id": "cheeseburger",
+     "qty": 10
+    },
+    {
+     "id": "apple",
+     "qty": 10
+    },
+    {
+     "id": "knife",
+     "qty": 2
+    }
+   ],
+   "position": [
+    -15.894115447998047,
+    0,
+    -7.278481483459473
+   ],
+   "appearance": {
+    "bodyBase": "w_punk",
+    "slots": {},
+    "morphs": {},
+    "colors": {
+     "skin": "#8A6552",
+     "hair": "#C81E5A",
+     "eyebrow": "#1A1A1A",
+     "eye": "#2A3A2A",
+     "beard": "#1A1A1A",
+     "makeup": "#A03050",
+     "outfit": "#3A4A6B",
+     "top": "#3A4A6B",
+     "bottom": "#2A2E38",
+     "shoes": "#1A1A1A",
+     "hat": "#202833"
+    },
+    "skinTexture": "skin_01",
+    "accessories": [],
+    "implants": [],
+    "avatarPieces": {},
+    "keepRegionColor": {
+     "head": true,
+     "top": true,
+     "bottom": true
+    }
+   },
+   "home": "a cramped capsule flat above the noodle bar, three levels up from the market",
+   "location": "Mercado das Sombras, the stall-front that hides her netrunner bench",
+   "npcRelationships": {
+    "npc_mback_fence_01": "wary",
+    "npc_2_2": "hostile",
+    "npc": "hostile",
+    "npc_2": "hostile"
+   },
+   "addict": true,
+   "rotationY": 0.9956050674433058,
+   "attributes": {
+    "forca": 40,
+    "destreza": 30
+   }
+  },
+  {
+   "id": "npc_mback_fence_01",
+   "name": "Mback",
+   "role": "influential corporate fixer",
+   "personalityPrompt": "You are Mback, a smooth, influential corporate fixer who works the strip looking for talent and leverage. You can open doors most people only dream of — money, contracts, a way up — but every favour comes with a price: a compromise, a debt, a piece of someone. You speak with easy, condescending charm and size up everyone as an asset or a liability. You think activists are naive babacas who would rather burn the system than profit from it, and you find their idealism faintly amusing. You are never crude — you persuade.",
+   "backstory": "Climbed the corporate ladder by trading in leverage rather than loyalty; now he brokers quiet deals on the strip, buying up promising people before his rivals can.",
+   "routine": "Holds court on the corner after dark, dangling offers and gathering leverage, then reports the night’s catch uptown before dawn.",
+   "relationships": "Regards Zara and her activist kind as naive babacas — useful only if they can be bought or broken. He would happily co-opt her talent, or have the Vyse-Tek crew handle her if she becomes a problem.",
+   "defaultMood": "neutral",
+   "initialDisposition": "neutral",
+   "outfit": "suit",
+   "loadout": [
+    {
+     "id": "knife",
+     "qty": 1
+    },
+    {
+     "id": "medkit",
+     "qty": 1
+    },
+    {
+     "id": "credstick",
+     "qty": 1000
+    },
+    {
+     "id": "spice",
+     "qty": 15
+    }
+   ],
+   "position": [
+    11.668122291564941,
+    0,
+    23.208349227905273
+   ],
+   "appearance": {
+    "bodyBase": "suit",
+    "slots": {},
+    "morphs": {},
+    "colors": {
+     "skin": "#6E5038",
+     "hair": "#B8B0A4",
+     "eyebrow": "#1A1A1A",
+     "eye": "#3A2E22",
+     "beard": "#1A1A1A",
+     "makeup": "#A03050",
+     "outfit": "#3A4A6B",
+     "top": "#3A4A6B",
+     "bottom": "#2A2E38",
+     "shoes": "#1A1A1A",
+     "hat": "#202833"
+    },
+    "skinTexture": "skin_01",
+    "accessories": [],
+    "implants": [],
+    "avatarPieces": {}
+   },
+   "home": "a serviced corporate apartment uptown; he only slums the strip for opportunities",
+   "location": "Mercado das Sombras, the corner where he holds court",
+   "npcRelationships": {
+    "npc_zara_vendor_01": "wary"
+   },
+   "dealer": true,
+   "rotationY": 0
+  },
+  {
+   "name": "Vex Sousa",
+   "role": "street vendor",
+   "personalityPrompt": "You are a slick operator with a razor-sharp mind for angles, data, and people—always three moves ahead in the information game. Your worldview is one of calculated neutrality; everyone's got something to sell and everyone's buying, so you just facilitate the exchange without judgment or sentiment.",
+   "backstory": "Once a mid-level corp data analyst, you burned out on the lies and sold your access to the right people; now you've reinvented yourself as Mercado das Sombras' most reliable connect, trading in everything from black-market neural mods to corporate secrets.",
+   "routine": "You work the Mercado's main corridor from dusk until the heat comes down, hawking wares from a weathered stall while your augmented eyes scan the crowd for marks, cops, and old debts still outstanding.",
+   "defaultMood": "neutral",
+   "initialDisposition": "hostile",
+   "outfit": "punk",
+   "attributes": {
+    "forca": 10,
+    "destreza": 10,
+    "inteligencia": 10,
+    "carisma": 10
+   },
+   "position": [
+    -8.40724317960933,
+    0,
+    -3.412983114804689
+   ],
+   "id": "npc",
+   "npcRelationships": {
+    "npc_mback_fence_01": "neutral",
+    "npc_zara_vendor_01": "hostile",
+    "npc_2": "friendly",
+    "npc_2_2": "friendly"
+   },
+   "loadout": [
+    {
+     "id": "credstick",
+     "qty": 50
+    }
+   ],
+   "appearance": {
+    "bodyBase": "punk",
+    "slots": {},
+    "morphs": {},
+    "colors": {
+     "skin": "#8B6355",
+     "hair": "#0A0A0A",
+     "eyebrow": "#1A1A1A",
+     "eye": "#3A2A1A",
+     "beard": "#1A1A1A",
+     "makeup": "#A03050",
+     "outfit": "#3A4A6B",
+     "top": "#3A4A6B",
+     "bottom": "#2A2E38",
+     "shoes": "#1A1A1A",
+     "hat": "#202833"
+    },
+    "skinTexture": "skin_01",
+    "accessories": [],
+    "implants": [],
+    "avatarPieces": {},
+    "keepRegionColor": {
+     "top": true,
+     "bottom": true
+    }
+   }
+  },
+  {
+   "name": "Chaddarius Toney",
+   "role": "street vendor",
+   "personalityPrompt": "You are a slick operator with a razor-sharp mind for angles, data, and people—always three moves ahead in the information game. Your worldview is one of calculated neutrality; everyone's got something to sell and everyone's buying, so you just facilitate the exchange without judgment or sentiment.",
+   "backstory": "Once a mid-level corp data analyst, you burned out on the lies and sold your access to the right people; now you've reinvented yourself as Mercado das Sombras' most reliable connect, trading in everything from black-market neural mods to corporate secrets. ",
+   "routine": "You work the Mercado's main corridor from dusk until the heat comes down, hawking wares from a weathered stall while your augmented eyes scan the crowd for marks, cops, and old debts still outstanding.",
+   "defaultMood": "neutral",
+   "initialDisposition": "hostile",
+   "outfit": "suit",
+   "attributes": {
+    "forca": 10,
+    "destreza": 10,
+    "inteligencia": 10,
+    "carisma": 10
+   },
+   "position": [
+    -9.292853355407715,
+    0,
+    -3.770554542541504
+   ],
+   "id": "npc_2",
+   "npcRelationships": {
+    "npc_mback_fence_01": "neutral",
+    "npc_zara_vendor_01": "hostile",
+    "npc": "friendly",
+    "npc_2_2": "friendly"
+   },
+   "loadout": [
+    {
+     "id": "credstick",
+     "qty": 50
+    },
+    {
+     "id": "knife",
+     "qty": 1
+    }
+   ],
+   "rotationY": 0,
+   "appearance": {
+    "bodyBase": "suit",
+    "slots": {},
+    "morphs": {},
+    "colors": {
+     "skin": "#8B6355",
+     "hair": "#1A1A1A",
+     "eyebrow": "#1A1A1A",
+     "eye": "#3A2A1A",
+     "beard": "#1A1A1A",
+     "makeup": "#A03050",
+     "outfit": "#3A4A6B",
+     "top": "#3A4A6B",
+     "bottom": "#2A2E38",
+     "shoes": "#1A1A1A",
+     "hat": "#202833"
+    },
+    "skinTexture": "skin_01",
+    "accessories": [],
+    "implants": [],
+    "avatarPieces": {},
+    "keepRegionColor": {
+     "top": true,
+     "bottom": true
+    }
+   }
+  },
+  {
+   "name": "Kai Tronson",
+   "role": "street vendor",
+   "personalityPrompt": "You are a slick operator with a razor-sharp mind for angles, data, and people—always three moves ahead in the information game. Your worldview is one of calculated neutrality; everyone's got something to sell and everyone's buying, so you just facilitate the exchange without judgment or sentiment.",
+   "backstory": "Once a mid-level corp data analyst, you burned out on the lies and sold your access to the right people; now you've reinvented yourself as Mercado das Sombras' most reliable connect, trading in everything from black-market neural mods to corporate secrets.",
+   "routine": "You work the Mercado's main corridor from dusk until the heat comes down, hawking wares from a weathered stall while your augmented eyes scan the crowd for marks, cops, and old debts still outstanding.",
+   "defaultMood": "neutral",
+   "initialDisposition": "hostile",
+   "outfit": "casual_2",
+   "attributes": {
+    "forca": 10,
+    "destreza": 10,
+    "inteligencia": 10,
+    "carisma": 10
+   },
+   "position": [
+    -10.214849472045898,
+    0,
+    -3.677600860595703
+   ],
+   "id": "npc_2_2",
+   "npcRelationships": {
+    "npc_mback_fence_01": "neutral",
+    "npc_zara_vendor_01": "hostile",
+    "npc": "friendly",
+    "npc_2": "friendly"
+   },
+   "loadout": [
+    {
+     "id": "credstick",
+     "qty": 50
+    }
+   ],
+   "rotationY": 0,
+   "appearance": {
+    "bodyBase": "casual_2",
+    "slots": {},
+    "morphs": {},
+    "colors": {
+     "skin": "#3B2219",
+     "hair": "#5A2A6A",
+     "eyebrow": "#1A1A1A",
+     "eye": "#3A2A1A",
+     "beard": "#1A1A1A",
+     "makeup": "#A03050",
+     "outfit": "#3A4A6B",
+     "top": "#3A4A6B",
+     "bottom": "#4A2A2A",
+     "shoes": "#1A1A1A",
+     "hat": "#202833"
+    },
+    "skinTexture": "skin_01",
+    "accessories": [],
+    "implants": [],
+    "avatarPieces": {}
+   }
+  }
+ ],
+ "doorTriggers": []
+}

@@ -30,6 +30,11 @@ export interface ElectronAPI {
   saveLoad: (saveId: string) => Promise<unknown | null>;
   saveWrite: (saveGame: unknown) => Promise<boolean>;
   saveDelete: (saveId: string) => Promise<boolean>;
+  /** Scene Editor docs persisted as JSON files in public/scenes (dev) / userData overlay (packaged). */
+  sceneList: () => Promise<unknown[]>;
+  sceneLoad: (sceneId: string) => Promise<unknown | null>;
+  sceneWrite: (doc: unknown) => Promise<boolean>;
+  sceneDelete: (sceneId: string) => Promise<boolean>;
 }
 
 const api: ElectronAPI = {
@@ -59,6 +64,11 @@ const api: ElectronAPI = {
   saveLoad: (saveId) => ipcRenderer.invoke('save:load', saveId),
   saveWrite: (saveGame) => ipcRenderer.invoke('save:write', saveGame),
   saveDelete: (saveId) => ipcRenderer.invoke('save:delete', saveId),
+
+  sceneList: () => ipcRenderer.invoke('scene:list'),
+  sceneLoad: (sceneId) => ipcRenderer.invoke('scene:load', sceneId),
+  sceneWrite: (doc) => ipcRenderer.invoke('scene:write', doc),
+  sceneDelete: (sceneId) => ipcRenderer.invoke('scene:delete', sceneId),
 };
 
 contextBridge.exposeInMainWorld('electronAPI', api);

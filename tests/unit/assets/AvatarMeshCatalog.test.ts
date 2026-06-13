@@ -1,5 +1,5 @@
 import {
-  OUTFITS, DEFAULT_OUTFIT, LOCO_CLIPS, COMBAT_CLIPS, combatClipFor, attackClipFor,
+  OUTFITS, DEFAULT_OUTFIT, LOCO_CLIPS, COMBAT_CLIPS, combatClipFor, attackClipFor, combatStanceClip,
   LOCO_CLIP_GROUND_SPEED, LOCO_SPEED_RATIO_MIN, LOCO_SPEED_RATIO_MAX, computeLocoSpeedRatio,
   outfitsForGender, outfitByKey, genderOfOutfit, tintRoleForMaterial,
   partRegionOf, isStrippableMesh, tintRoleForMaterialInRegion, HAIR_MATERIAL_OVERRIDES,
@@ -63,8 +63,19 @@ describe('AvatarMeshCatalog — Quaternius Ultimate Modular outfits (pure)', () 
     expect(combatClipFor('ranged')).toBe('shoot');
   });
 
-  it('POSE_CLIPS keeps embedded clips as pose/alternate-idle sources (Roll → roll, Idle_Gun → idle_gun)', () => {
-    expect(POSE_CLIPS).toEqual({ roll: 'Roll', idle_gun: 'Idle_Gun' });
+  it('POSE_CLIPS keeps pose/alternate-idle sources incl. the fighting stances', () => {
+    expect(POSE_CLIPS).toEqual({
+      roll: 'Roll', idle_gun: 'Idle_Gun',
+      stance_unarmed: 'Idle_Neutral', stance_blade: 'Idle_Sword',
+    });
+  });
+
+  it('combatStanceClip picks the fighting stance by weapon', () => {
+    expect(combatStanceClip('ranged')).toBe('aim');               // gun pointing
+    expect(combatStanceClip('ranged', true)).toBe('aim');         // armed flag irrelevant for ranged
+    expect(combatStanceClip('melee', true)).toBe('stance_blade'); // blade-ready
+    expect(combatStanceClip('melee', false)).toBe('stance_unarmed'); // boxing/ready
+    expect(combatStanceClip('melee')).toBe('stance_unarmed');     // defaults to bare-fisted
   });
 
   it('attackClipFor: slash when armed melee, punch bare-fisted, shoot when ranged', () => {
