@@ -96,6 +96,10 @@ export type CombatClipState = keyof typeof COMBAT_CLIPS;
 export const POSE_CLIPS = {
   roll: 'Roll',
   idle_gun: 'Idle_Gun', // relaxed gun-in-hand idle (looped while a firearm is equipped)
+  // Combat-ready "fighting stance" idles, held while a combatant is standing in a
+  // fight (replaces the relaxed `idle` so the avatar reads as engaged/urgent).
+  stance_unarmed: 'Idle_Neutral', // alert boxing/ready stance (bare-fisted)
+  stance_blade: 'Idle_Sword',     // blade-ready stance (melee weapon in hand)
 } as const;
 
 export type PoseClipState = keyof typeof POSE_CLIPS;
@@ -103,6 +107,20 @@ export type PoseClipState = keyof typeof POSE_CLIPS;
 /** The clip an attacker plays for a given attack kind (melee → punch, ranged → shoot). */
 export function combatClipFor(attackKind: 'melee' | 'ranged'): CombatClipState {
   return attackKind === 'melee' ? 'punch' : 'shoot';
+}
+
+/**
+ * The looping "fighting stance" idle a combatant holds while standing in combat,
+ * by the weapon it fights with:
+ *  - ranged (firearm)      → `aim`           (gun pointing)
+ *  - armed melee (a blade) → `stance_blade`  (sword-ready)
+ *  - bare-fisted           → `stance_unarmed`(alert boxing/ready)
+ * Pure; the caller supplies item-layer knowledge (armed/firearm). All four clip
+ * names are kept on the rig (COMBAT_CLIPS `aim` + POSE_CLIPS stances).
+ */
+export function combatStanceClip(attackKind: 'melee' | 'ranged', armedMelee = false): string {
+  if (attackKind === 'ranged') return 'aim';
+  return armedMelee ? 'stance_blade' : 'stance_unarmed';
 }
 
 /**

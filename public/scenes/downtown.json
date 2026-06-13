@@ -437,7 +437,12 @@
     "skinTexture": "skin_01",
     "accessories": [],
     "implants": [],
-    "avatarPieces": {}
+    "avatarPieces": {},
+    "keepRegionColor": {
+     "head": true,
+     "top": true,
+     "bottom": true
+    }
    },
    "home": "a cramped capsule flat above the noodle bar, three levels up from the market",
    "location": "Mercado das Sombras, the stall-front that hides her netrunner bench",
@@ -550,7 +555,33 @@
      "id": "credstick",
      "qty": 50
     }
-   ]
+   ],
+   "appearance": {
+    "bodyBase": "punk",
+    "slots": {},
+    "morphs": {},
+    "colors": {
+     "skin": "#8B6355",
+     "hair": "#0A0A0A",
+     "eyebrow": "#1A1A1A",
+     "eye": "#3A2A1A",
+     "beard": "#1A1A1A",
+     "makeup": "#A03050",
+     "outfit": "#3A4A6B",
+     "top": "#3A4A6B",
+     "bottom": "#2A2E38",
+     "shoes": "#1A1A1A",
+     "hat": "#202833"
+    },
+    "skinTexture": "skin_01",
+    "accessories": [],
+    "implants": [],
+    "avatarPieces": {},
+    "keepRegionColor": {
+     "top": true,
+     "bottom": true
+    }
+   }
   },
   {
    "name": "Chaddarius Toney",
@@ -589,7 +620,33 @@
      "qty": 1
     }
    ],
-   "rotationY": 0
+   "rotationY": 0,
+   "appearance": {
+    "bodyBase": "suit",
+    "slots": {},
+    "morphs": {},
+    "colors": {
+     "skin": "#8B6355",
+     "hair": "#1A1A1A",
+     "eyebrow": "#1A1A1A",
+     "eye": "#3A2A1A",
+     "beard": "#1A1A1A",
+     "makeup": "#A03050",
+     "outfit": "#3A4A6B",
+     "top": "#3A4A6B",
+     "bottom": "#2A2E38",
+     "shoes": "#1A1A1A",
+     "hat": "#202833"
+    },
+    "skinTexture": "skin_01",
+    "accessories": [],
+    "implants": [],
+    "avatarPieces": {},
+    "keepRegionColor": {
+     "top": true,
+     "bottom": true
+    }
+   }
   },
   {
    "name": "Kai Tronson",
@@ -624,7 +681,29 @@
      "qty": 50
     }
    ],
-   "rotationY": 0
+   "rotationY": 0,
+   "appearance": {
+    "bodyBase": "casual_2",
+    "slots": {},
+    "morphs": {},
+    "colors": {
+     "skin": "#3B2219",
+     "hair": "#5A2A6A",
+     "eyebrow": "#1A1A1A",
+     "eye": "#3A2A1A",
+     "beard": "#1A1A1A",
+     "makeup": "#A03050",
+     "outfit": "#3A4A6B",
+     "top": "#3A4A6B",
+     "bottom": "#4A2A2A",
+     "shoes": "#1A1A1A",
+     "hat": "#202833"
+    },
+    "skinTexture": "skin_01",
+    "accessories": [],
+    "implants": [],
+    "avatarPieces": {}
+   }
   }
  ],
  "doorTriggers": []

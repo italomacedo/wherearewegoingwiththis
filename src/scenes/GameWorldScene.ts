@@ -89,7 +89,7 @@ import { t, getLocale, languageName } from '@systems/I18n';
 import { SettingsService } from '@systems/SettingsService';
 import { CombatOverlay } from '@systems/combat/CombatOverlay';
 import { CombatController, CombatLogEntry } from '@systems/combat/CombatController';
-import { combatClipFor, attackClipFor, CombatClipState, genderOfOutfit } from '@assets/AvatarMeshCatalog';
+import { combatClipFor, attackClipFor, combatStanceClip, CombatClipState, genderOfOutfit } from '@assets/AvatarMeshCatalog';
 import { CombatEncounter, CombatantInit, CombatOutcome } from '@systems/combat/CombatEncounter';
 import {
   combatTuningFromSettings, CombatTuning, Point2, Pathfinder,
@@ -331,6 +331,10 @@ export class GameWorldScene extends BaseScene {
   /** Combatants currently mid-walk — excluded from the per-frame facing pin so the
    *  walk's own per-segment rotation isn't fought. */
   private combatWalking = new Set<string>();
+  /** The looping fighting-stance clip each combatant holds while standing in combat
+   *  (by weapon). Drives the "return to idle" of every combat clip so fighters read
+   *  as engaged, not relaxed. Cleared on combat end. */
+  private combatStance = new Map<string, string>();
   private hud: WorldHud | null = null;
   private npcMeshes: AbstractMesh[] = [];
   private npcVisuals: AssembledCharacter[] = [];
@@ -362,6 +366,7 @@ export class GameWorldScene extends BaseScene {
   private static readonly GOSSIP_LOG_MAX = 12;
   private static readonly AUTONOMY_TICK_MS = 1000; // throttle the driver itself
   private static readonly NPC_WALK_SPEED = 2.2;    // u/s for autonomous walking
+  private static readonly COMBAT_RUN_SPEED = 5.2;  // u/s — combatants RUN to their move target (urgency)
   private static readonly ENGAGE_DIST = 1.8;       // arrival threshold for gossip
   private entityColliders: AbstractMesh[] = [];
   private entityAggregates: PhysicsAggregate[] = [];
@@ -1489,17 +1494,30 @@ export class GameWorldScene extends BaseScene {
     this.faceNpc(id, Math.atan2(dx, dz));
   }
 
-  /** The walk/idle clips for a combatant (player avatar or NPC). */
+  /** Every animation group of a combatant (player avatar or NPC). */
   /* istanbul ignore next — browser-only animation lookup */
-  private walkIdleClipsOf(id: string): { walk: AnimationGroup | null; idle: AnimationGroup | null } {
-    const groups = id === 'player'
+  private groupsOf(id: string): AnimationGroup[] {
+    return id === 'player'
       ? (this.player?.getAnimationGroups() ?? [])
       : (this.npcGroupsById.get(id) ?? []);
-    return {
-      // EXACT match: extra clips ('sit_idle'/'crouch_idle') would substring-match 'idle'.
-      walk: groups.find((g) => g.name.toLowerCase() === 'walk') ?? null,
-      idle: groups.find((g) => g.name.toLowerCase() === 'idle') ?? null,
-    };
+  }
+
+  /** A combatant's named clip (exact match — 'idle' must not substring-hit 'sit_idle'). */
+  /* istanbul ignore next — browser-only animation lookup */
+  private clipOf(id: string, name: string): AnimationGroup | null {
+    return this.groupsOf(id).find((g) => g.name.toLowerCase() === name) ?? null;
+  }
+
+  /**
+   * Return a combatant to its resting loop: the fighting STANCE while it's a standing
+   * combatant (engaged look), else the relaxed `idle`. Shared by every place a one-shot
+   * combat/locomotion clip ends, so fighters never relax mid-fight.
+   */
+  /* istanbul ignore next — browser-only animation playback */
+  private playIdleOrStance(id: string): void {
+    const stance = this.combatStance.get(id);
+    const clip = (stance && this.clipOf(id, stance)) || this.clipOf(id, 'idle');
+    clip?.start(true);
   }
 
   /**
@@ -1513,9 +1531,17 @@ export class GameWorldScene extends BaseScene {
     if (points.length < 2) { opts.onArrive?.(); return; }
     this.npcWalks.set(id, { points, i: 1, speed, combat: !!opts.combat, onArrive: opts.onArrive });
     if (opts.combat) this.combatWalking.add(id);
-    const { walk, idle } = this.walkIdleClipsOf(id);
-    idle?.stop();
-    walk?.start(true);
+    // Combat moves RUN to convey urgency; gossip approaches walk calmly.
+    this.groupsOf(id).forEach((g) => g.stop());
+    const moveClip = opts.combat
+      ? (this.clipOf(id, 'run') ?? this.clipOf(id, 'walk'))
+      : this.clipOf(id, 'walk');
+    if (moveClip) {
+      // Match the clip cadence to the actual travel speed so the feet don't slide.
+      const ref = opts.combat ? 4.2 : 1.4;
+      moveClip.speedRatio = Math.min(3, Math.max(0.5, speed / ref));
+      moveClip.start(true);
+    }
   }
 
   /** Advance every active walk one frame. Called from the live loop AND the combat branch. */
@@ -1546,9 +1572,9 @@ export class GameWorldScene extends BaseScene {
   private finishNpcWalk(id: string): void {
     const w = this.npcWalks.get(id);
     this.npcWalks.delete(id);
-    const { walk, idle } = this.walkIdleClipsOf(id);
-    walk?.stop();
-    idle?.start(true);
+    this.clipOf(id, 'walk')?.stop();
+    this.clipOf(id, 'run')?.stop();
+    this.playIdleOrStance(id); // resting loop = stance in combat, else idle
     if (w?.combat) {
       this.combatWalking.delete(id);
       const node = this.combatNode(id);
@@ -2304,10 +2330,15 @@ export class GameWorldScene extends BaseScene {
     }
     (this.audio ??= ServiceLocator.tryGet<AudioManager>('audio'))?.playMusic('combat');
     // Seed each combatant facing its nearest foe so the fight opens looking engaged,
-    // and the per-frame pin keeps it (Bug A).
+    // and the per-frame pin keeps it (Bug A). Also drop each one into its weapon's
+    // fighting stance so the whole scene reads as combat the instant it starts.
     this.combatFacing.clear();
     this.combatWalking.clear();
+    this.combatStance.clear();
     for (const c of enc.getState().combatants) {
+      this.combatStance.set(c.id, this.combatStanceFor(c.id));
+      this.playIdleOrStance(c.id);
+      if (c.id === 'player') this.player?.setIdleOverride(this.combatStance.get('player') ?? null);
       const foeId = enc.nearestFoeId(c.id);
       const foe = foeId ? enc.getState().combatants.find((x) => x.id === foeId) : null;
       if (foe) {
@@ -2413,7 +2444,7 @@ export class GameWorldScene extends BaseScene {
       const node = this.combatNode(entry.actorId);
       const y = node?.position.y ?? 0;
       const points = entry.path.map((p) => new Vector3(p.x, y, p.z));
-      this.startNpcWalk(entry.actorId, points, GameWorldScene.NPC_WALK_SPEED, { combat: true });
+      this.startNpcWalk(entry.actorId, points, GameWorldScene.COMBAT_RUN_SPEED, { combat: true });
       return;
     }
     // NOTE: cover/hunker have NO pose and a miss has NO dodge for now — the Quaternius
@@ -2496,6 +2527,13 @@ export class GameWorldScene extends BaseScene {
     return attackClipFor('melee', isMeleeWeapon(wid ?? ''), override);
   }
 
+  /** The fighting-stance idle clip a combatant holds, from its equipped weapon. */
+  /* istanbul ignore next — browser-only; combatStanceClip is pure/tested */
+  private combatStanceFor(actorId: string): string {
+    const wid = this.combatWeaponId.get(actorId) ?? null;
+    return combatStanceClip(isFirearm(wid ?? '') ? 'ranged' : 'melee', isMeleeWeapon(wid ?? ''));
+  }
+
   private meleeLunge(attackerId: string, targetId: string): void {
     const swing = this.meleeClip(attackerId);
     const attacker = this.combatNode(attackerId);
@@ -2524,11 +2562,11 @@ export class GameWorldScene extends BaseScene {
       : (this.npcGroupsById.get(actorId) ?? []);
     const clip = groups.find((g) => g.name.toLowerCase() === key);
     if (!clip) { onEnd?.(); return; }
-    const idle = groups.find((g) => g.name.toLowerCase() === 'idle') ?? null;
     groups.forEach((g) => g.stop());
     clip.start(false);
     if (!hold) {
-      clip.onAnimationEndObservable.addOnce(() => { idle?.start(true); onEnd?.(); });
+      // Return to the fighting stance during combat (else the relaxed idle).
+      clip.onAnimationEndObservable.addOnce(() => { this.playIdleOrStance(actorId); onEnd?.(); });
     }
   }
 
@@ -2787,6 +2825,8 @@ export class GameWorldScene extends BaseScene {
           // Applier.claimMissionCompletion). Decision #14 plan.
         } else {
           agent.setHealthState({ current: c.hp.current, max: c.hp.max }); // persist wounds (Fase 20)
+          this.combatStance.delete(c.id);
+          this.clipOf(c.id, 'idle')?.start(true); // drop the fighting stance back to a relaxed idle
           if (outcome !== 'player_lost' && this.combatPlayerSide && c.side !== this.combatPlayerSide) {
             agent.setDisposition('wary');
           }
@@ -2822,6 +2862,9 @@ export class GameWorldScene extends BaseScene {
     this.combatTurnAccum = 0;
     this.combatFacing.clear();
     this.combatWalking.clear();
+    this.combatStance.clear();
+    // Drop the player out of the fighting stance back to the held-item idle (gun/none).
+    this.updateHeldEffects();
     // Restore the on-foot camera framing (whichever combat mode was active).
     this.cameraSystem?.exitFreeMode();
     this.cameraSystem?.exitConversationMode();
