@@ -406,12 +406,16 @@
     {
      "id": "apple",
      "qty": 10
+    },
+    {
+     "id": "knife",
+     "qty": 2
     }
    ],
    "position": [
-    -15.092230796813965,
+    -15.894115447998047,
     0,
-    -11.015715599060059
+    -7.278481483459473
    ],
    "appearance": {
     "bodyBase": "w_punk",
@@ -439,9 +443,9 @@
    "location": "Mercado das Sombras, the stall-front that hides her netrunner bench",
    "npcRelationships": {
     "npc_mback_fence_01": "wary",
+    "npc_2_2": "hostile",
     "npc": "hostile",
-    "npc_2": "hostile",
-    "npc_2_2": "hostile"
+    "npc_2": "hostile"
    },
    "addict": true,
    "rotationY": 0.9956050674433058,
@@ -480,9 +484,9 @@
     }
    ],
    "position": [
-    11.603788375854492,
+    11.668122291564941,
     0,
-    21.069122314453125
+    23.208349227905273
    ],
    "appearance": {
     "bodyBase": "suit",
@@ -537,7 +541,7 @@
    "id": "npc",
    "npcRelationships": {
     "npc_mback_fence_01": "neutral",
-    "npc_zara_vendor_01": "wary",
+    "npc_zara_vendor_01": "hostile",
     "npc_2": "friendly",
     "npc_2_2": "friendly"
    },
@@ -571,7 +575,7 @@
    "id": "npc_2",
    "npcRelationships": {
     "npc_mback_fence_01": "neutral",
-    "npc_zara_vendor_01": "wary",
+    "npc_zara_vendor_01": "hostile",
     "npc": "friendly",
     "npc_2_2": "friendly"
    },
@@ -610,7 +614,7 @@
    "id": "npc_2_2",
    "npcRelationships": {
     "npc_mback_fence_01": "neutral",
-    "npc_zara_vendor_01": "wary",
+    "npc_zara_vendor_01": "hostile",
     "npc": "friendly",
     "npc_2": "friendly"
    },

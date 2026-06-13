@@ -31,6 +31,8 @@ import { buildPersonaPrompt, parsePersonaResponse, type GeneratedPersona } from 
 import { ClaudeNPCService, type ClaudeBridge } from '@systems/ClaudeNPCService';
 import { SettingsService } from '@systems/SettingsService';
 import { OUTFITS } from '@assets/AvatarMeshCatalog';
+import { CharacterAssembler } from '@systems/CharacterAssembler';
+import { appearanceFor } from '@assets/world/ThemeRegistry';
 import { itemModelPath } from '@entities/items/ItemCatalog';
 import type { AttributeId } from '@entities/CharacterStats';
 import type { NPCDisposition, NPCMood } from '@entities/NPCAgent';
@@ -59,6 +61,8 @@ export class SceneEditorScene extends BaseScene {
   private cache: AssetCache | null = null;
   private gizmos: GizmoManager | null = null;
   private holders = new Map<string, TransformNode>();
+  /** Assembled NPC avatars by holder key (disposed with their holder). */
+  private npcAssembled = new Map<string, import('@systems/CharacterAssembler').AssembledCharacter>();
   private groundNodes: TransformNode | null = null;
   private docs: SceneDoc[] = [];
   private escArmedAt = 0;
@@ -141,6 +145,8 @@ export class SceneEditorScene extends BaseScene {
     this.panels = null;
     this.gizmos?.dispose();
     this.gizmos = null;
+    this.npcAssembled.forEach((a) => a.dispose());
+    this.npcAssembled.clear();
     this.holders.clear();
     this.cache?.clear();
   }
@@ -253,6 +259,8 @@ export class SceneEditorScene extends BaseScene {
     // Remove orphans (also when a delete/load swapped the doc).
     for (const [key, node] of [...this.holders]) {
       if (!wanted.has(key)) {
+        this.npcAssembled.get(key)?.dispose();
+        this.npcAssembled.delete(key);
         node.dispose();
         this.holders.delete(key);
       }
@@ -308,9 +316,14 @@ export class SceneEditorScene extends BaseScene {
     for (const npc of doc.npcs) {
       const key = this.holderKey('npc', npc.id);
       let holder = this.holders.get(key);
-      const outfitPath = OUTFITS.find((o) => o.key === npc.outfit)?.path;
-      const wantedModel = `npc-model:${npc.outfit}`;
+      // Render through the game's CharacterAssembler so tints (skin/hair/eye +
+      // top/bottom + keepRegionColor) preview EXACTLY like runtime — the raw
+      // GLB clone showed the molds' untinted grey materials.
+      const appearance = npc.appearance ?? appearanceFor(npc.outfit);
+      const wantedModel = `npc-model:${npc.outfit}:${JSON.stringify(appearance.colors)}:${JSON.stringify(appearance.keepRegionColor ?? {})}`;
       if (holder && holder.metadata !== wantedModel) {
+        this.npcAssembled.get(key)?.dispose();
+        this.npcAssembled.delete(key);
         holder.dispose();
         this.holders.delete(key);
         holder = undefined;
@@ -319,15 +332,16 @@ export class SceneEditorScene extends BaseScene {
         holder = new TransformNode(key, scene);
         holder.metadata = wantedModel;
         this.holders.set(key, holder);
-        const inst = outfitPath ? await this.cache!.instantiate(outfitPath, scene) : null;
-        if (seq !== this.syncSeq) { return; }
-        if (inst) {
-          inst.animationGroups.forEach((g) => g.stop());
-          const idle = inst.animationGroups.find((g) => /idle/i.test(g.name));
-          idle?.start(true);
-          inst.rootNodes.forEach((n) => { (n as TransformNode).parent = holder!; });
+        try {
+          const assembled = await new CharacterAssembler(scene).assemble(appearance);
+          if (seq !== this.syncSeq) { assembled.dispose(); return; }
+          this.npcAssembled.set(key, assembled);
+          assembled.rootMesh.parent = holder;
+          const groups = assembled.getAnimationGroups?.() ?? [];
+          groups.forEach((g) => g.stop());
+          groups.find((g) => /idle/i.test(g.name))?.start(true);
           this.markPickable(holder, key);
-        } else {
+        } catch {
           this.fallbackBox(holder, key, [0.9, 0.5, 0]);
         }
       }
@@ -731,6 +745,7 @@ export class SceneEditorScene extends BaseScene {
         if (this.state.duplicateSelected()) void this.syncVisuals();
       },
       onGeneratePersona: () => this.generatePersona(),
+      onNpcAppearanceChanged: () => { void this.syncVisuals(); },
       onBack: () => this.onEsc(),
     };
   }

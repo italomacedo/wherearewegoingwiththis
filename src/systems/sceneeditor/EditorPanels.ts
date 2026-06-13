@@ -22,6 +22,9 @@ import type { EditorState, EditorTab } from './EditorState';
 import type { SceneKind, SceneNpcDoc } from './SceneDoc';
 import type { NPCDisposition } from '@entities/NPCAgent';
 import type { GeneratedPersona } from './PersonaGen';
+import { COLOR_PRESETS } from '@scenes/CharacterCreatorScene';
+import { appearanceFor } from '@assets/world/ThemeRegistry';
+import type { CharacterAppearance, ColorKey, AvatarPartRegion } from '@entities/CharacterData';
 
 export interface EditorPanelHandlers {
   onNew(kind: SceneKind): void;
@@ -49,13 +52,19 @@ export interface EditorPanelHandlers {
   /** Draft Personality/Backstory/Routine for the SELECTED NPC via the Claude CLI
    *  (null = no Electron bridge / call failed / unparseable). */
   onGeneratePersona(): Promise<GeneratedPersona | null>;
+  /** The selected NPC's appearance changed (colors/keep flags) — rebuild its avatar. */
+  onNpcAppearanceChanged(): void;
 }
 
 const PANEL_W = 250;
 const TOOLBAR_H = 44;
 // "Edit NPC" modal (fixed size so the DOM textareas can centre with CSS calc).
 const MODAL_W = 680;
-const MODAL_H = 560;
+const MODAL_H = 700;
+/** Top of the colour-swatch band inside the modal. */
+const MODAL_COLORS_TOP = 306;
+/** Top of the inventory/relationships columns. */
+const MODAL_COLUMNS_TOP = 468;
 
 export class EditorPanels {
   private gui: AdvancedDynamicTexture | null = null;
@@ -729,14 +738,18 @@ export class EditorPanels {
     genBtn.onPointerUpObservable.add(() => { void this.generatePersona(genBtn); });
     frame.addControl(genBtn);
 
+    // Colour swatches: skin/hair/eye + top/bottom clothing, with per-region
+    // "Original" toggles (keepRegionColor — preserve the GLB's authored colours).
+    this.buildColorRows(frame);
+
     // Two columns: inventory (left) + relationship ledger (right).
-    this.modalLabel(frame, t('editor.loadout'), 306, 16, UI.textPrimary);
-    this.modalLabel(frame, t('editor.relationships'), 306, MODAL_W / 2 + 8, UI.textPrimary);
+    this.modalLabel(frame, t('editor.loadout'), MODAL_COLUMNS_TOP, 16, UI.textPrimary);
+    this.modalLabel(frame, t('editor.relationships'), MODAL_COLUMNS_TOP, MODAL_W / 2 + 8, UI.textPrimary);
     const mkColumn = (name: string, left: number): StackPanel => {
       const scroll = new ScrollViewer(`npc-modal-${name}`);
       scroll.width = `${MODAL_W / 2 - 24}px`;
-      scroll.height = `${MODAL_H - 306 - 24 - 14}px`;
-      scroll.top = '328px';
+      scroll.height = `${MODAL_H - MODAL_COLUMNS_TOP - 24 - 14}px`;
+      scroll.top = `${MODAL_COLUMNS_TOP + 22}px`;
       scroll.left = `${left}px`;
       scroll.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
       scroll.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
@@ -776,6 +789,97 @@ export class EditorPanels {
       this.generatingPersona = false;
       if (btn.textBlock) btn.textBlock.text = original;
     }
+  }
+
+  /** Colour swatch rows (skin/hair/eye/top/bottom) + per-region Original toggles. */
+  private buildColorRows(frame: Rectangle): void {
+    const pane = new Rectangle('npc-modal-colors');
+    pane.width = '100%';
+    pane.height = `${MODAL_COLUMNS_TOP - MODAL_COLORS_TOP}px`;
+    pane.top = `${MODAL_COLORS_TOP}px`;
+    pane.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+    pane.thickness = 0;
+    frame.addControl(pane);
+    this.renderColorRows(pane);
+  }
+
+  private renderColorRows(pane: Rectangle): void {
+    const npc = this.state.selectedNpc();
+    if (!npc) return;
+    pane.clearControls();
+    const base = npc.appearance ?? appearanceFor(npc.outfit);
+    const patchAppearance = (appearance: CharacterAppearance): void => {
+      this.state.setNpcField({ appearance });
+      this.handlers.onNpcAppearanceChanged();
+      this.renderColorRows(pane);
+    };
+
+    const rows: Array<{ key: ColorKey; label: string }> = [
+      { key: 'skin', label: t('creator.skinTone') },
+      { key: 'hair', label: t('creator.hairColor') },
+      { key: 'eye', label: t('creator.eyeColor') },
+      { key: 'top', label: t('creator.topColor') },
+      { key: 'bottom', label: t('creator.bottomColor') },
+    ];
+    rows.forEach((row, ri) => {
+      const y = ri * 26;
+      const lab = new TextBlock(`cr-l-${row.key}`, row.label);
+      lab.color = UI.textBody;
+      lab.fontSize = UI.fontMeta;
+      lab.fontFamily = UI.font;
+      lab.width = '110px';
+      lab.height = '22px';
+      lab.top = `${y}px`;
+      lab.left = '16px';
+      lab.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+      lab.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+      lab.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+      pane.addControl(lab);
+      COLOR_PRESETS[row.key].forEach((hex, i) => {
+        const sw = new Rectangle(`cr-${row.key}-${i}`);
+        sw.width = '20px';
+        sw.height = '20px';
+        sw.top = `${y}px`;
+        sw.left = `${132 + i * 26}px`;
+        sw.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        sw.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        sw.background = hex;
+        sw.thickness = base.colors[row.key] === hex ? 2 : 1;
+        sw.color = base.colors[row.key] === hex ? UI.accent : UI.cardBorder;
+        sw.cornerRadius = 4;
+        sw.isPointerBlocker = true;
+        sw.onPointerUpObservable.add(() => {
+          patchAppearance({ ...base, colors: { ...base.colors, [row.key]: hex } });
+        });
+        pane.addControl(sw);
+      });
+    });
+
+    // Per-region "Original" toggles: keep the GLB's authored colours (no tint).
+    const regions: AvatarPartRegion[] = ['head', 'top', 'bottom'];
+    regions.forEach((region, i) => {
+      const on = base.keepRegionColor?.[region] === true;
+      const btn = Button.CreateSimpleButton(`cr-keep-${region}`, `${on ? '☑' : '☐'} ${t('creator.original')} ${t(`editor.region.${region}`)}`);
+      btn.width = '200px';
+      btn.height = '24px';
+      btn.top = `${5 * 26 + 4}px`;
+      btn.left = `${16 + i * 212}px`;
+      btn.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+      btn.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+      btn.color = on ? UI.accent : UI.textBody;
+      btn.background = UI.cardBg;
+      btn.fontSize = UI.fontMeta;
+      btn.fontFamily = UI.font;
+      btn.thickness = 1;
+      btn.cornerRadius = UI.cornerSm;
+      btn.onPointerUpObservable.add(() => {
+        patchAppearance({
+          ...base,
+          keepRegionColor: { ...(base.keepRegionColor ?? {}), [region]: !on },
+        });
+      });
+      pane.addControl(btn);
+    });
   }
 
   /** Re-render the loadout + relationship columns from the selected NPC. */
