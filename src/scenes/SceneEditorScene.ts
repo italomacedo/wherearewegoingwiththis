@@ -320,7 +320,7 @@ export class SceneEditorScene extends BaseScene {
       // top/bottom + keepRegionColor) preview EXACTLY like runtime — the raw
       // GLB clone showed the molds' untinted grey materials.
       const appearance = npc.appearance ?? appearanceFor(npc.outfit);
-      const wantedModel = `npc-model:${npc.outfit}:${JSON.stringify(appearance.colors)}:${JSON.stringify(appearance.keepRegionColor ?? {})}`;
+      const wantedModel = `npc-model:${npc.outfit}:${JSON.stringify(appearance.colors)}:${JSON.stringify(appearance.keepRegionColor ?? {})}:${JSON.stringify(appearance.materialColors ?? {})}`;
       if (holder && holder.metadata !== wantedModel) {
         this.npcAssembled.get(key)?.dispose();
         this.npcAssembled.delete(key);
@@ -746,6 +746,8 @@ export class SceneEditorScene extends BaseScene {
       },
       onGeneratePersona: () => this.generatePersona(),
       onNpcAppearanceChanged: () => { void this.syncVisuals(); },
+      getNpcPaintChannels: (npcId) =>
+        this.npcAssembled.get(this.holderKey('npc', npcId))?.paintChannels ?? [],
       onBack: () => this.onEsc(),
     };
   }

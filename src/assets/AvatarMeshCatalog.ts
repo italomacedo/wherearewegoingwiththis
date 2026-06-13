@@ -188,6 +188,16 @@ export function outfitProvidesPart(key: string, region: 'head' | 'top' | 'bottom
   return !(OUTFIT_MISSING_PARTS[key] ?? []).includes(region);
 }
 
+/**
+ * A jumpsuit / whole-body top (e.g. `farmer`): its Body mesh covers the legs and it
+ * ships no separate Legs mesh, so a *different* bottom donor's legs would overlap it.
+ * The bottom is therefore implicit — forced to the top (see `planModularLoad`), and
+ * the creator hides the Bottom picker.
+ */
+export function isJumpsuit(outfitKey: string): boolean {
+  return outfitProvidesPart(outfitKey, 'top') && !outfitProvidesPart(outfitKey, 'bottom');
+}
+
 export function outfitByKey(key: string): Outfit | undefined {
   return OUTFITS.find((o) => o.key === key);
 }
@@ -300,10 +310,13 @@ export interface ModularLoadItem {
 export function planModularLoad(
   parts: { head: string; top: string; bottom: string },
 ): ModularLoadItem[] {
+  // A jumpsuit top covers the legs and has no separate Legs mesh — force the lower
+  // region to the jumpsuit so a foreign bottom's legs can't superimpose on it.
+  const bottom = isJumpsuit(parts.top) ? parts.top : parts.bottom;
   const order: Array<[string, MeshRegion]> = [
     [parts.top, 'top'],     // donor first
     [parts.head, 'head'],
-    [parts.bottom, 'lower'],
+    [bottom, 'lower'],
   ];
   const byKey = new Map<string, ModularLoadItem>();
   const items: ModularLoadItem[] = [];

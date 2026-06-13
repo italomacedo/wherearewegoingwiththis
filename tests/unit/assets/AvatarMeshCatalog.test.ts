@@ -3,7 +3,7 @@ import {
   LOCO_CLIP_GROUND_SPEED, LOCO_SPEED_RATIO_MIN, LOCO_SPEED_RATIO_MAX, computeLocoSpeedRatio,
   outfitsForGender, outfitByKey, genderOfOutfit, tintRoleForMaterial,
   partRegionOf, isStrippableMesh, tintRoleForMaterialInRegion, HAIR_MATERIAL_OVERRIDES,
-  planModularLoad, outfitProvidesPart, OUTFIT_MISSING_PARTS, POSE_CLIPS,
+  planModularLoad, outfitProvidesPart, OUTFIT_MISSING_PARTS, POSE_CLIPS, isJumpsuit,
 } from '../../../src/assets/AvatarMeshCatalog';
 
 describe('AvatarMeshCatalog — Quaternius Ultimate Modular outfits (pure)', () => {
@@ -213,6 +213,28 @@ describe('AvatarMeshCatalog — Quaternius Ultimate Modular outfits (pure)', () 
       const plan = planModularLoad({ head: 'nope', top: 'nope', bottom: 'nope' });
       expect(plan).toHaveLength(1);
       expect(plan[0].path).toBe(outfitByKey(DEFAULT_OUTFIT)!.path);
+    });
+
+    it('a jumpsuit top (farmer) forces the lower region to the jumpsuit (no overlap)', () => {
+      // farmer covers the legs via its Body + has no Legs mesh; a foreign bottom
+      // would superimpose, so the lower region is forced to the jumpsuit.
+      const plan = planModularLoad({ head: 'farmer', top: 'farmer', bottom: 'punk' });
+      expect(plan.some((p) => p.outfitKey === 'punk')).toBe(false);
+      const farmer = plan.find((p) => p.outfitKey === 'farmer')!;
+      expect(new Set(farmer.regions)).toEqual(new Set(['top', 'head', 'lower']));
+    });
+
+    it('a non-jumpsuit top keeps the chosen bottom', () => {
+      const plan = planModularLoad({ head: 'punk', top: 'punk', bottom: 'adventurer' });
+      expect(plan.find((p) => p.outfitKey === 'adventurer')!.regions).toEqual(['lower']);
+    });
+  });
+
+  describe('isJumpsuit', () => {
+    it('is true only for outfits that provide a top but no bottom', () => {
+      expect(isJumpsuit('farmer')).toBe(true); // Body covers legs, no Legs mesh
+      expect(isJumpsuit('suit')).toBe(false);
+      expect(isJumpsuit('punk')).toBe(false);
     });
   });
 });
