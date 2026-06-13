@@ -1,5 +1,6 @@
 import { NullEngine } from '@babylonjs/core';
-import { CharacterCreatorScene, buildCreatorSchema, COLOR_PRESETS } from '../../../src/scenes/CharacterCreatorScene';
+import { CharacterCreatorScene, buildCreatorSchema, COLOR_PRESETS, presetsForChannel } from '../../../src/scenes/CharacterCreatorScene';
+import type { PaintChannel } from '../../../src/assets/AvatarPaintChannels';
 import { ServiceLocator } from '../../../src/core/ServiceLocator';
 import { GameSession } from '../../../src/core/GameSession';
 import { SaveService } from '../../../src/systems/SaveService';
@@ -184,6 +185,12 @@ describe('CharacterCreatorScene (Quaternius outfits)', () => {
     expect(c.eye).toBe('#00FF00');
   });
 
+  it('setMaterialColorValue stores a per-material colour and rebuilds', async () => {
+    await scene.onEnter();
+    await scene.setMaterialColorValue('clothing:top:Tie', '#123456');
+    expect(scene.getCharacterData().appearance.materialColors!['clothing:top:Tie']).toBe('#123456');
+  });
+
   it('onBack navigates to main-menu; onBegin needs a non-empty name', async () => {
     await scene.onEnter();
     scene.onBack();
@@ -336,12 +343,12 @@ describe('buildCreatorSchema (pure)', () => {
     expect(schema[0]!.controls.map((c) => c.kind)).toEqual(['gender', 'color', 'color']);
   });
 
-  it('Outfit category has three modular part cyclers + top/bottom/hair colours', () => {
+  it('Outfit category has three modular part cyclers (per-material colours are dynamic)', () => {
     const controls = schema.find((c) => c.title === 'Outfit')!.controls;
     const parts = controls.filter((c) => c.kind === 'part');
     expect(parts.map((c) => (c.kind === 'part' ? c.region : null))).toEqual(['head', 'top', 'bottom']);
-    const colorKeys = controls.flatMap((c) => (c.kind === 'color' ? [c.colorKey] : []));
-    expect(colorKeys).toEqual(expect.arrayContaining(['top', 'bottom', 'hair']));
+    // top/bottom/hair colours moved to the dynamic paint section (renderPaintSection).
+    expect(controls.some((c) => c.kind === 'color')).toBe(false);
   });
 
   it('Outfit category has a keep-colour toggle for each region', () => {
@@ -355,5 +362,21 @@ describe('buildCreatorSchema (pure)', () => {
     for (const c of colors) {
       if (c.kind === 'color') expect(COLOR_PRESETS[c.colorKey].length).toBeGreaterThan(0);
     }
+  });
+});
+
+describe('presetsForChannel (pure)', () => {
+  const mk = (kind: PaintChannel['kind'], defaultHex = '#AABBCC'): PaintChannel => ({
+    key: 'k', label: 'l', region: 'top', kind, defaultHex, materialNames: ['m'],
+  });
+
+  it('leads with the channel default colour (reset to original)', () => {
+    expect(presetsForChannel(mk('clothing', '#112233'))[0]).toBe('#112233');
+  });
+
+  it('uses curated palettes for semantic kinds and a fallback for clothing', () => {
+    expect(presetsForChannel(mk('hair')).length).toBeGreaterThan(1);
+    expect(presetsForChannel(mk('jewelry')).length).toBeGreaterThan(1);
+    expect(presetsForChannel(mk('clothing')).length).toBeGreaterThan(1);
   });
 });

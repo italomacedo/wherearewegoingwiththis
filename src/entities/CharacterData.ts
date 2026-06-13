@@ -188,6 +188,15 @@ export interface CharacterAppearance {
    * its own colours). Absent/false = recolour as usual (back-compat).
    */
   keepRegionColor?: Partial<Record<AvatarPartRegion, boolean>>;
+  /**
+   * Dynamic per-material paint (dynamic-paint feature): keyed by a stable paint
+   * channel key (`AvatarPaintChannels.classifyMaterial`) — semantic channels use
+   * the kind as key (`skin`/`hair`/…), clothing materials use
+   * `clothing:<region>:<materialName>`. Takes precedence over the legacy region
+   * `colors`/`keepRegionColor`, letting each distinct material be tinted on its
+   * own. Absent/empty = legacy region tinting (back-compat).
+   */
+  materialColors?: Record<string, string>;
 }
 
 // Ethnicity is encoded in the body-base key (one MakeHuman GLB per ethnicity),
@@ -253,6 +262,7 @@ export const DEFAULT_APPEARANCE: CharacterAppearance = {
   implants: [],
   avatarPieces: {},
   keepRegionColor: {},
+  materialColors: {},
 };
 
 export const BODY_BASES = [
@@ -395,7 +405,17 @@ export function cloneAppearance(a: CharacterAppearance): CharacterAppearance {
     implants: [...a.implants],
     avatarPieces: { ...a.avatarPieces },
     keepRegionColor: { ...(a.keepRegionColor ?? {}) },
+    materialColors: { ...(a.materialColors ?? {}) },
   };
+}
+
+/** Returns a new appearance with one paint channel's colour set (immutable). */
+export function setMaterialColor(
+  a: CharacterAppearance,
+  channelKey: string,
+  hex: string,
+): CharacterAppearance {
+  return { ...a, materialColors: { ...(a.materialColors ?? {}), [channelKey]: hex } };
 }
 
 // ─── Migration (legacy flat shape → new model) ──────────────────────────────────
@@ -436,6 +456,7 @@ export function migrateAppearance(raw: unknown): CharacterAppearance {
       implants: Array.isArray(r.implants) ? [...r.implants] : [],
       avatarPieces: { ...(r.avatarPieces ?? {}) },
       keepRegionColor: { ...(r.keepRegionColor ?? {}) },
+      materialColors: { ...(r.materialColors ?? {}) },
     };
   }
 
@@ -460,5 +481,6 @@ export function migrateAppearance(raw: unknown): CharacterAppearance {
     accessories: Array.isArray(r.accessories) ? [...r.accessories] : [],
     implants: Array.isArray(r.implants) ? [...r.implants] : [],
     avatarPieces: {},
+    materialColors: {},
   };
 }

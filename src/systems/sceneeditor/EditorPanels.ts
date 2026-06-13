@@ -22,9 +22,11 @@ import type { EditorState, EditorTab } from './EditorState';
 import type { SceneKind, SceneNpcDoc } from './SceneDoc';
 import type { NPCDisposition } from '@entities/NPCAgent';
 import type { GeneratedPersona } from './PersonaGen';
-import { COLOR_PRESETS } from '@scenes/CharacterCreatorScene';
+import { COLOR_PRESETS, presetsForChannel } from '@scenes/CharacterCreatorScene';
 import { appearanceFor } from '@assets/world/ThemeRegistry';
 import type { CharacterAppearance, ColorKey, AvatarPartRegion } from '@entities/CharacterData';
+import { setMaterialColor } from '@entities/CharacterData';
+import type { PaintChannel } from '@assets/AvatarPaintChannels';
 
 export interface EditorPanelHandlers {
   onNew(kind: SceneKind): void;
@@ -54,6 +56,8 @@ export interface EditorPanelHandlers {
   onGeneratePersona(): Promise<GeneratedPersona | null>;
   /** The selected NPC's appearance changed (colors/keep flags) — rebuild its avatar. */
   onNpcAppearanceChanged(): void;
+  /** Paint channels discovered on the NPC's currently-assembled model (empty before first render). */
+  getNpcPaintChannels(npcId: string): PaintChannel[];
 }
 
 const PANEL_W = 250;
@@ -814,46 +818,41 @@ export class EditorPanels {
       this.renderColorRows(pane);
     };
 
-    const rows: Array<{ key: ColorKey; label: string }> = [
-      { key: 'skin', label: t('creator.skinTone') },
-      { key: 'hair', label: t('creator.hairColor') },
-      { key: 'eye', label: t('creator.eyeColor') },
-      { key: 'top', label: t('creator.topColor') },
-      { key: 'bottom', label: t('creator.bottomColor') },
-    ];
-    rows.forEach((row, ri) => {
-      const y = ri * 26;
-      const lab = new TextBlock(`cr-l-${row.key}`, row.label);
-      lab.color = UI.textBody;
-      lab.fontSize = UI.fontMeta;
-      lab.fontFamily = UI.font;
-      lab.width = '110px';
-      lab.height = '22px';
-      lab.top = `${y}px`;
-      lab.left = '16px';
-      lab.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-      lab.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-      lab.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-      pane.addControl(lab);
-      COLOR_PRESETS[row.key].forEach((hex, i) => {
-        const sw = new Rectangle(`cr-${row.key}-${i}`);
-        sw.width = '20px';
-        sw.height = '20px';
-        sw.top = `${y}px`;
-        sw.left = `${132 + i * 26}px`;
-        sw.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-        sw.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-        sw.background = hex;
-        sw.thickness = base.colors[row.key] === hex ? 2 : 1;
-        sw.color = base.colors[row.key] === hex ? UI.accent : UI.cardBorder;
-        sw.cornerRadius = 4;
-        sw.isPointerBlocker = true;
-        sw.onPointerUpObservable.add(() => {
-          patchAppearance({ ...base, colors: { ...base.colors, [row.key]: hex } });
-        });
-        pane.addControl(sw);
-      });
-    });
+    // Scrollable list of swatch rows — dynamic paint channels discovered on the
+    // assembled model (one row per distinct material), or a legacy static
+    // fallback (skin/hair/eye/top/bottom) before the avatar is first assembled.
+    const scroll = new ScrollViewer('npc-color-scroll');
+    scroll.width = '100%';
+    scroll.height = `${MODAL_COLUMNS_TOP - MODAL_COLORS_TOP - 30}px`;
+    scroll.thickness = 0;
+    scroll.barColor = UI.accent;
+    scroll.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+    pane.addControl(scroll);
+    const list = new StackPanel('npc-color-list');
+    list.spacing = 2;
+    list.width = '100%';
+    scroll.addControl(list);
+
+    const channels = this.handlers.getNpcPaintChannels(npc.id);
+    const materialColors = base.materialColors ?? {};
+    if (channels.length > 0) {
+      for (const ch of channels) {
+        this.colorSwatchRow(list, ch.key, ch.label, presetsForChannel(ch), materialColors[ch.key], (hex) =>
+          patchAppearance(setMaterialColor(base, ch.key, hex)));
+      }
+    } else {
+      const rows: Array<{ key: ColorKey; label: string }> = [
+        { key: 'skin', label: t('creator.skinTone') },
+        { key: 'hair', label: t('creator.hairColor') },
+        { key: 'eye', label: t('creator.eyeColor') },
+        { key: 'top', label: t('creator.topColor') },
+        { key: 'bottom', label: t('creator.bottomColor') },
+      ];
+      for (const row of rows) {
+        this.colorSwatchRow(list, row.key, row.label, COLOR_PRESETS[row.key], base.colors[row.key], (hex) =>
+          patchAppearance({ ...base, colors: { ...base.colors, [row.key]: hex } }));
+      }
+    }
 
     // Per-region "Original" toggles: keep the GLB's authored colours (no tint).
     const regions: AvatarPartRegion[] = ['head', 'top', 'bottom'];
@@ -862,7 +861,7 @@ export class EditorPanels {
       const btn = Button.CreateSimpleButton(`cr-keep-${region}`, `${on ? '☑' : '☐'} ${t('creator.original')} ${t(`editor.region.${region}`)}`);
       btn.width = '200px';
       btn.height = '24px';
-      btn.top = `${5 * 26 + 4}px`;
+      btn.top = `${MODAL_COLUMNS_TOP - MODAL_COLORS_TOP - 26}px`;
       btn.left = `${16 + i * 212}px`;
       btn.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
       btn.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
@@ -880,6 +879,42 @@ export class EditorPanels {
       });
       pane.addControl(btn);
     });
+  }
+
+  /** One horizontal swatch row: label + preset swatches (current highlighted). */
+  private colorSwatchRow(
+    list: StackPanel,
+    key: string,
+    label: string,
+    presets: string[],
+    current: string | undefined,
+    onPick: (hex: string) => void,
+  ): void {
+    const row = new StackPanel(`npc-color-${key}`);
+    row.isVertical = false;
+    row.height = '24px';
+    row.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+    const lab = new TextBlock(`cr-l-${key}`, label);
+    lab.color = UI.textBody;
+    lab.fontSize = UI.fontMeta;
+    lab.fontFamily = UI.font;
+    lab.width = '120px';
+    lab.height = '22px';
+    lab.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+    row.addControl(lab);
+    presets.forEach((hex, i) => {
+      const sw = new Rectangle(`cr-${key}-${i}`);
+      sw.width = '22px';
+      sw.height = '20px';
+      sw.background = hex;
+      sw.thickness = current === hex ? 2 : 1;
+      sw.color = current === hex ? UI.accent : UI.cardBorder;
+      sw.cornerRadius = 4;
+      sw.isPointerBlocker = true;
+      sw.onPointerUpObservable.add(() => onPick(hex));
+      row.addControl(sw);
+    });
+    list.addControl(row);
   }
 
   /** Re-render the loadout + relationship columns from the selected NPC. */

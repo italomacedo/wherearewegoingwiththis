@@ -4,6 +4,7 @@ import {
   applySlot, resolveLayers, clampMorph, cloneAppearance, migrateAppearance,
   getSkinTone, getHair, getHairColor, getBaseTop, getOuterwear, getBottom, getFootwear,
   bodyBaseKey, parseGender, parseEthnicity, resolveAvatarParts, applyArmorOverlay, keepColorForRegion,
+  setMaterialColor,
 } from '../../../src/entities/CharacterData';
 
 describe('CharacterData', () => {
@@ -205,6 +206,38 @@ describe('CharacterData', () => {
       expect(DEFAULT_APPEARANCE.slots.hair).toBe('hair_short_01');
       expect(DEFAULT_APPEARANCE.colors.skin).toBe(DEFAULT_COLORS.skin);
       expect(DEFAULT_APPEARANCE.implants).toHaveLength(0);
+    });
+  });
+
+  describe('materialColors (dynamic paint)', () => {
+    it('defaults to an empty map and clones independently', () => {
+      expect(DEFAULT_APPEARANCE.materialColors).toEqual({});
+      const clone = cloneAppearance(DEFAULT_APPEARANCE);
+      clone.materialColors!['skin'] = '#FF0000';
+      expect(DEFAULT_APPEARANCE.materialColors).toEqual({});
+    });
+
+    it('setMaterialColor adds a channel colour immutably', () => {
+      const a = cloneAppearance(DEFAULT_APPEARANCE);
+      const b = setMaterialColor(a, 'clothing:top:Tie', '#123456');
+      expect(b.materialColors!['clothing:top:Tie']).toBe('#123456');
+      expect(a.materialColors!['clothing:top:Tie']).toBeUndefined(); // original untouched
+      const c = setMaterialColor(b, 'hair', '#ABCDEF');
+      expect(c.materialColors).toEqual({ 'clothing:top:Tie': '#123456', hair: '#ABCDEF' });
+    });
+
+    it('migrateAppearance backfills materialColors on both branches', () => {
+      // already-new shape
+      const fromNew = migrateAppearance({ bodyBase: 'punk', slots: {}, morphs: {}, colors: {} } as unknown);
+      expect(fromNew.materialColors).toEqual({});
+      // already-new shape that already carries materialColors → preserved
+      const withColors = migrateAppearance({
+        slots: {}, morphs: {}, colors: {}, materialColors: { hair: '#FF0000' },
+      } as unknown);
+      expect(withColors.materialColors).toEqual({ hair: '#FF0000' });
+      // legacy flat shape
+      const fromLegacy = migrateAppearance({ bodyBase: 'body_male_white', skinTone: '#010203' });
+      expect(fromLegacy.materialColors).toEqual({});
     });
   });
 

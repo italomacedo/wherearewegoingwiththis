@@ -2,15 +2,16 @@ import {
   Engine, Color4, ArcRotateCamera, Vector3,
   HemisphericLight, Color3, PointLight,
 } from '@babylonjs/core';
-import { AdvancedDynamicTexture, TextBlock, Button, StackPanel, ScrollViewer, Control } from '@babylonjs/gui';
+import { AdvancedDynamicTexture, TextBlock, Button, StackPanel, Rectangle, Control } from '@babylonjs/gui';
 import { BaseScene } from './BaseScene';
 import { SceneManager } from '@core/SceneManager';
 import { ServiceLocator } from '@core/ServiceLocator';
 import { GameSession } from '@core/GameSession';
 import {
   CharacterData, DEFAULT_APPEARANCE, ColorKey, AvatarPartRegion, cloneAppearance, resolveAvatarParts,
-  keepColorForRegion,
+  keepColorForRegion, setMaterialColor,
 } from '@entities/CharacterData';
+import { type PaintChannel, type ChannelKind } from '@assets/AvatarPaintChannels';
 import {
   CharacterStats, AttributeId, ATTRIBUTES, SKILLS, StartingSkillPick, StartTier,
   createDefaultStats,
@@ -19,31 +20,10 @@ import {
   choosePerkReplacing, perksForTier, pendingPerkSlots, unlockedTierCount, chosenPerkAt,
   toggleStartingSkill, startingSkillState,
 } from '@entities/CharacterStats';
-import { type Gender, outfitsForGender, genderOfOutfit, outfitProvidesPart } from '@assets/AvatarMeshCatalog';
+import { type Gender, outfitsForGender, genderOfOutfit, outfitProvidesPart, isJumpsuit } from '@assets/AvatarMeshCatalog';
 import { ARMOR_OUTFIT_KEYS } from '@entities/items/ItemCatalog';
 import { t, hasKey } from '@systems/I18n';
 import { UI } from '@systems/UiStyle';
-
-// Maps the pure schema's English labels to i18n keys (creator chrome).
-const CREATOR_CATEGORY_KEY: Record<string, string> = {
-  'Body & Skin': 'creator.bodySkin',
-  Outfit: 'creator.outfit',
-};
-const CREATOR_LABEL_KEY: Record<string, string> = {
-  Gender: 'creator.gender',
-  'Skin Tone': 'creator.skinTone',
-  'Eye Color': 'creator.eyeColor',
-  Outfit: 'creator.outfitLabel',
-  Head: 'creator.partHead',
-  Top: 'creator.partTop',
-  Bottom: 'creator.partBottom',
-  'Top Color': 'creator.topColor',
-  'Bottom Color': 'creator.bottomColor',
-  'Hair Color': 'creator.hairColor',
-  'Head Original': 'creator.headOriginal',
-  'Top Original': 'creator.topOriginal',
-  'Bottom Original': 'creator.bottomOriginal',
-};
 
 // ─── Character-creator UI schema (pure, data-driven) ────────────────────────────
 
@@ -103,15 +83,30 @@ export function buildCreatorSchema(): CategorySpec[] {
         { kind: 'part', label: 'Head', region: 'head' },
         { kind: 'part', label: 'Top', region: 'top' },
         { kind: 'part', label: 'Bottom', region: 'bottom' },
-        colorControl('top', 'Top Color'),
-        colorControl('bottom', 'Bottom Color'),
-        colorControl('hair', 'Hair Color'),
+        // Per-material colours (hair/eyebrow/lips + each distinct clothing material)
+        // are rendered dynamically from the loaded model — see renderPaintSection.
         { kind: 'keepColor', label: 'Head Original', region: 'head' },
         { kind: 'keepColor', label: 'Top Original', region: 'top' },
         { kind: 'keepColor', label: 'Bottom Original', region: 'bottom' },
       ],
     },
   ];
+}
+
+/** Swatch palette for a discovered paint channel (curated per semantic kind; clothing → generic). */
+export function presetsForChannel(channel: PaintChannel): string[] {
+  const byKind: Partial<Record<ChannelKind, string[]>> = {
+    hair: COLOR_PRESETS.hair,
+    eyebrow: COLOR_PRESETS.eyebrow,
+    skin: COLOR_PRESETS.skin,
+    eye: COLOR_PRESETS.eye,
+    lips: COLOR_PRESETS.makeup,
+    teeth: ['#E8E4D8', '#D8D0C0', '#C0C8C8', '#FFFFFF', '#A0A0A0'],
+    jewelry: ['#C9A24B', '#9A9A9A', '#E6E6E6', '#C97A1E', '#1E6F8A', '#101010'],
+  };
+  const palette = byKind[channel.kind] ?? COLOR_PRESETS.top;
+  // Lead with the authored colour so the player can reset a channel to original.
+  return [channel.defaultHex, ...palette];
 }
 import { CharacterAssembler, AssembledCharacter } from '@systems/CharacterAssembler';
 import { SaveService } from '@systems/SaveService';
@@ -124,6 +119,8 @@ export class CharacterCreatorScene extends BaseScene {
 
   private assembler: CharacterAssembler | null = null;
   private assembled: AssembledCharacter | null = null;
+  /** Left appearance panel body — re-rendered (gender/parts/keep/colours) on every rebuild. */
+  private appearanceBody: StackPanel | null = null;
   // Native DOM name field (Babylon GUI InputText mangles non-US keyboards — Lesson 15).
   private domName: HTMLInputElement | null = null;
   private domNameWrap: HTMLDivElement | null = null;
@@ -132,11 +129,15 @@ export class CharacterCreatorScene extends BaseScene {
   private startingSkillsComplete = false;
   /** The BEGIN button, disabled until the allocation is complete (browser only). */
   private beginButton: import('@babylonjs/gui').Button | null = null;
-  /** Perk picker container — re-rendered whenever attribute allocation changes
-   *  (the 40% primary unlocks tier-2 of that attribute, so the slot set is dynamic). */
-  private perksContainer: StackPanel | null = null;
   /** Callback to push a description into the bottom strip (re-bindable per build). */
   private perksShowDesc: ((title: string, body: string) => void) | null = null;
+  /** Right "BUILD" frame: active tab + content panel (single column per tab → no overflow). */
+  private rpgTab: 'attributes' | 'skills' | 'perks' = 'attributes';
+  private rpgContent: StackPanel | null = null;
+  /** Tab bar buttons, re-styled when the active tab changes. */
+  private rpgTabBtns: Array<{ id: 'attributes' | 'skills' | 'perks'; btn: import('@babylonjs/gui').Button }> = [];
+  /** Live starting-skill pick (hoisted so it survives tab switches). */
+  private skillPick: StartingSkillPick = { majors: [], minors: [] };
 
   // RPG sheet — defaults: 'forca' primary (40%), 'destreza' secondary (30%), others 20%, skills 10%.
   private primaryAttribute: AttributeId = 'forca';
@@ -223,10 +224,11 @@ export class CharacterCreatorScene extends BaseScene {
   }
 
   /** Re-render the perk picker — called whenever attribute allocation changes
-   *  (the 40% primary unlocks tier-2 of that attribute, changing the slot set). */
+   *  (the 40% primary unlocks tier-2 of that attribute, changing the slot set).
+   *  Only needed when the Perks tab is showing; switching to it re-renders fresh. */
   /* istanbul ignore next — browser GUI only */
   private refreshPerksUI(): void {
-    if (this.perksContainer) this.renderPerksInto(this.perksContainer);
+    if (this.rpgTab === 'perks') this.renderRpgTab();
   }
 
   /** Reflect `canBegin()` on the BEGIN button (enabled + dimmed). Browser-only. */
@@ -527,6 +529,189 @@ export class CharacterCreatorScene extends BaseScene {
     this.assembled?.dispose();
     this.assembled = next;
     this.playIdle(next);
+    this.renderAppearanceControls();
+  }
+
+  /** Set a dynamic paint channel's colour and rebuild the preview. */
+  async setMaterialColorValue(channelKey: string, hex: string): Promise<void> {
+    this.characterData = {
+      ...this.characterData,
+      appearance: setMaterialColor(this.characterData.appearance, channelKey, hex),
+    };
+    await this.rebuildCharacter();
+  }
+
+  /**
+   * Re-render the whole left appearance panel (gender, modular parts, keep-colour
+   * toggles, and the dynamic per-material colour rows). Called on first build and
+   * after every rebuild so active states / part names / discovered colour channels
+   * stay in sync with the model. Skin/eye are universal rows; the rest of the
+   * colour rows are discovered from the loaded model's paint channels.
+   */
+  /* istanbul ignore next — Babylon GUI, browser/Electron only */
+  private renderAppearanceControls(): void {
+    const body = this.appearanceBody;
+    if (!body || typeof document === 'undefined') return;
+    body.clearControls();
+    const colors = this.characterData.appearance.colors;
+    const mats = this.characterData.appearance.materialColors ?? {};
+
+    // ── BODY & SKIN ──
+    this.subHeader(body, t('creator.bodySkin').toUpperCase());
+    this.genderRow(body);
+    this.colorRow(body, 'skin', t('creator.skinTone'), COLOR_PRESETS.skin,
+      (hex) => colors.skin === hex, (hex) => void this.setColorValue('skin', hex));
+    this.colorRow(body, 'eye', t('creator.eyeColor'), COLOR_PRESETS.eye,
+      (hex) => colors.eye === hex, (hex) => void this.setColorValue('eye', hex));
+
+    // ── OUTFIT ──
+    this.subHeader(body, t('creator.outfit').toUpperCase());
+    // A jumpsuit top (e.g. farmer) covers the legs and has no separate Legs mesh,
+    // so the Bottom is implicit (locked) — picking one would overlap the jumpsuit.
+    const bottomLocked = isJumpsuit(this.getPart('top'));
+    (['head', 'top', 'bottom'] as AvatarPartRegion[]).forEach((r) =>
+      this.partRow(body, r, r === 'bottom' && bottomLocked));
+    this.keepRow(body, ['head', 'top', 'bottom']);
+
+    // ── COLOURS (discovered from the model) ──
+    this.subHeader(body, t('creator.colors').toUpperCase());
+    const channels = (this.assembled?.paintChannels ?? []).filter(
+      (c) => c.kind !== 'skin' && c.kind !== 'eye',
+    );
+    for (const ch of channels) {
+      this.colorRow(body, ch.key, ch.label, presetsForChannel(ch),
+        (hex) => mats[ch.key] === hex, (hex) => void this.setMaterialColorValue(ch.key, hex));
+    }
+  }
+
+  // ─── Styled control helpers (UiStyle identity; browser-only) ───────────────
+
+  /** A small section sub-header (accent meta text). */
+  /* istanbul ignore next — browser-only GUI */
+  private subHeader(parent: StackPanel, text: string): void {
+    const h = new TextBlock(`sub-${text}`, text);
+    h.color = UI.textMeta;
+    h.fontSize = UI.fontMeta;
+    h.fontFamily = UI.font;
+    h.fontStyle = 'bold';
+    h.height = '22px';
+    h.paddingTop = '4px';
+    h.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+    parent.addControl(h);
+  }
+
+  /** A neon pill button styled from UI tokens (active = highlighted). */
+  /* istanbul ignore next — browser-only GUI */
+  private pill(name: string, text: string, width: string, height: string, active: boolean): Button {
+    const b = Button.CreateSimpleButton(name, text);
+    b.width = width; b.height = height;
+    b.cornerRadius = UI.cornerSm;
+    b.thickness = active ? 2 : 1;
+    b.fontFamily = UI.font;
+    b.fontSize = UI.fontBody;
+    b.color = active ? UI.accent : UI.textBody;
+    b.background = active ? UI.btnBg : UI.cardBg;
+    b.onPointerEnterObservable.add(() => { if (!active) b.background = UI.cardBgHover; });
+    b.onPointerOutObservable.add(() => { b.background = active ? UI.btnBg : UI.cardBg; });
+    return b;
+  }
+
+  /** Inline colour row: label + compact preset swatches (active swatch ringed). */
+  /* istanbul ignore next — browser-only GUI */
+  private colorRow(
+    parent: StackPanel,
+    idKey: string,
+    label: string,
+    presets: string[],
+    isActive: (hex: string) => boolean,
+    onPick: (hex: string) => void,
+  ): void {
+    const row = new StackPanel(`crow-${idKey}`);
+    row.isVertical = false; row.height = '24px'; row.width = '100%'; row.spacing = 2;
+    row.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+    const lab = new TextBlock(`crl-${idKey}`, label);
+    lab.color = UI.textBody; lab.fontSize = UI.fontMeta; lab.fontFamily = UI.font;
+    lab.width = '92px'; lab.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+    row.addControl(lab);
+    for (const hex of presets) {
+      const sw = new Rectangle(`crs-${idKey}-${hex}`);
+      sw.width = '20px'; sw.height = '20px'; sw.background = hex;
+      sw.thickness = isActive(hex) ? 2 : 1;
+      sw.color = isActive(hex) ? UI.accent : UI.cardBorder;
+      sw.cornerRadius = 4; sw.isPointerBlocker = true;
+      sw.onPointerUpObservable.add(() => onPick(hex));
+      row.addControl(sw);
+    }
+    parent.addControl(row);
+  }
+
+  /** Gender pick row (two split pills). */
+  /* istanbul ignore next — browser-only GUI */
+  private genderRow(parent: StackPanel): void {
+    const cur = this.getGender();
+    const row = new StackPanel('gender-row');
+    row.isVertical = false; row.height = '32px'; row.width = '100%'; row.spacing = 6;
+    (['female', 'male'] as const).forEach((g) => {
+      const b = this.pill(`gender-${g}`, g === 'male' ? t('creator.male') : t('creator.female'), '150px', '30px', cur === g);
+      b.onPointerUpObservable.add(() => void this.setGender(g));
+      row.addControl(b);
+    });
+    parent.addControl(row);
+  }
+
+  /** Modular-part cycler row: label + ◄ + current outfit name + ►. When `locked`
+   *  (jumpsuit top), the Bottom is implicit — show a note instead of a cycler. */
+  /* istanbul ignore next — browser-only GUI */
+  private partRow(parent: StackPanel, region: AvatarPartRegion, locked = false): void {
+    const labelKey = { head: 'creator.partHead', top: 'creator.partTop', bottom: 'creator.partBottom' }[region];
+    const row = new StackPanel(`part-row-${region}`);
+    row.isVertical = false; row.height = '30px'; row.width = '100%'; row.spacing = 4;
+    row.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+    const lab = new TextBlock(`part-l-${region}`, t(labelKey));
+    lab.color = UI.textBody; lab.fontSize = UI.fontMeta; lab.fontFamily = UI.font;
+    lab.width = '64px'; lab.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+    row.addControl(lab);
+
+    if (locked) {
+      const note = new TextBlock(`part-lock-${region}`, t('creator.jumpsuitBottom'));
+      note.color = UI.textMeta; note.fontSize = UI.fontMeta; note.fontFamily = UI.font; note.fontStyle = 'italic';
+      note.width = '214px'; note.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+      row.addControl(note);
+      parent.addControl(row);
+      return;
+    }
+
+    const prev = this.pill(`prev-${region}`, '◄', '32px', '28px', false);
+    prev.onPointerUpObservable.add(() => void this.cyclePart(region, -1));
+    row.addControl(prev);
+    const name = new TextBlock(`part-n-${region}`, this.getPart(region));
+    name.color = UI.accent; name.fontSize = UI.fontMeta; name.fontFamily = UI.font;
+    name.width = '150px'; name.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_CENTER;
+    row.addControl(name);
+    const next = this.pill(`next-${region}`, '►', '32px', '28px', false);
+    next.onPointerUpObservable.add(() => void this.cyclePart(region, 1));
+    row.addControl(next);
+    parent.addControl(row);
+  }
+
+  /** "Keep original colours" toggle row — one compact pill per region. */
+  /* istanbul ignore next — browser-only GUI */
+  private keepRow(parent: StackPanel, regions: AvatarPartRegion[]): void {
+    const wrap = new StackPanel('keep-wrap');
+    wrap.isVertical = false; wrap.height = '28px'; wrap.width = '100%'; wrap.spacing = 4;
+    wrap.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+    const lab = new TextBlock('keep-l', t('creator.keepOriginal'));
+    lab.color = UI.textMeta; lab.fontSize = UI.fontMeta; lab.fontFamily = UI.font;
+    lab.width = '64px'; lab.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+    wrap.addControl(lab);
+    const short = { head: t('creator.partHead'), top: t('creator.partTop'), bottom: t('creator.partBottom') };
+    regions.forEach((r) => {
+      const on = this.getKeepColor(r);
+      const b = this.pill(`keep-${r}`, `${on ? '☑' : '☐'} ${short[r]}`, '88px', '26px', on);
+      b.onPointerUpObservable.add(() => void this.toggleKeepColor(r));
+      wrap.addControl(b);
+    });
+    parent.addControl(wrap);
   }
 
   /** Loop the idle clip so the preview isn't stuck in a T-pose (browser only). */
@@ -589,68 +774,85 @@ export class CharacterCreatorScene extends BaseScene {
   private buildUIBrowser(): void {
     const gui = AdvancedDynamicTexture.CreateFullscreenUI('creator-ui', true, this.babylonScene);
 
-    // Title
+    // Title (top, centred)
     const title = new TextBlock('title');
     title.text = t('creator.title');
-    title.color = '#00FFCC';
-    title.fontSize = 28;
-    title.fontFamily = '"Courier New", monospace';
+    title.color = UI.accent;
+    title.fontSize = UI.fontTitle + 4;
+    title.fontFamily = UI.font;
     title.fontStyle = 'bold';
-    title.verticalAlignment = 0;
-    title.top = '20px';
-    title.height = '40px';
+    title.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+    title.top = '22px';
+    title.height = '36px';
     gui.addControl(title);
 
-    // Left panel — scrollable, schema-driven customization categories
-    const scroll = new ScrollViewer('creator-scroll');
-    scroll.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-    scroll.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-    scroll.left = '20px';
-    scroll.top = '80px';
-    scroll.width = '300px';
-    scroll.height = '70%';
-    scroll.thickness = 1;
-    scroll.barColor = '#00FFCC';
-    gui.addControl(scroll);
+    const showDesc = this.buildDescStrip(gui);
+    this.buildAppearanceFrame(gui);
+    this.buildRpgFrame(gui, showDesc);
+    this.buildBottomBar(gui);
+  }
 
-    const panel = new StackPanel('creator-panel');
-    panel.spacing = 6;
-    panel.paddingTop = '6px';
-    panel.paddingBottom = '6px';
-    scroll.addControl(panel);
+  /**
+   * A framed neon card anchored to a screen edge, with a header strip + accent
+   * line (mirrors the Options/PauseMenu shell). Returns the frame Rectangle so
+   * the caller can place either a content body or a tab bar + content.
+   */
+  /* istanbul ignore next — browser-only GUI */
+  private neonFrame(
+    gui: AdvancedDynamicTexture, name: string, side: 'left' | 'right', width: string, titleText: string,
+  ): Rectangle {
+    const frame = new Rectangle(`${name}-frame`);
+    frame.width = width; frame.height = '74%';
+    frame.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+    frame.horizontalAlignment = side === 'left'
+      ? Control.HORIZONTAL_ALIGNMENT_LEFT : Control.HORIZONTAL_ALIGNMENT_RIGHT;
+    frame.top = '74px';
+    frame.left = side === 'left' ? '24px' : '-24px';
+    frame.background = UI.frameBg; frame.color = UI.frameBorder;
+    frame.thickness = 2; frame.cornerRadius = UI.cornerLg;
+    gui.addControl(frame);
 
-    for (const category of buildCreatorSchema()) {
-      const header = new TextBlock(`cat-${category.title}`);
-      const catKey = CREATOR_CATEGORY_KEY[category.title];
-      header.text = (catKey ? t(catKey) : category.title).toUpperCase();
-      header.color = '#00FFCC';
-      header.fontSize = 14;
-      header.fontFamily = 'monospace';
-      header.fontStyle = 'bold';
-      header.height = '26px';
-      panel.addControl(header);
-      if (category.title === 'Face' && !CharacterAssembler.useGltf) {
-        const note = new TextBlock('face-note');
-        note.text = '(facial sliders apply to the 3D model — load a real base to see them)';
-        note.color = '#778899';
-        note.fontSize = 10;
-        note.fontFamily = 'monospace';
-        note.textWrapping = true;
-        note.height = '28px';
-        panel.addControl(note);
-      }
-      for (const control of category.controls) this.buildControl(control, panel);
-    }
+    const header = new Rectangle(`${name}-header`);
+    header.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+    header.height = '40px'; header.background = UI.headerBg; header.thickness = 0;
+    frame.addControl(header);
+    const accent = new Rectangle(`${name}-accent`);
+    accent.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+    accent.height = '2px'; accent.background = UI.accent; accent.thickness = 0;
+    header.addControl(accent);
+    const ht = new TextBlock(`${name}-title`, titleText);
+    ht.color = UI.accent; ht.fontSize = UI.fontSub; ht.fontFamily = UI.font; ht.fontStyle = 'bold';
+    ht.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT; ht.left = '16px';
+    header.addControl(ht);
+    return frame;
+  }
 
-    // Right-side RPG panel — starting skills + tier-1 perks.
-    this.buildRpgPanel(gui);
+  /** A top-anchored content StackPanel inside a frame at the given pixel offset. */
+  /* istanbul ignore next — browser-only GUI */
+  private frameBody(frame: Rectangle, name: string, topPx: number): StackPanel {
+    const body = new StackPanel(`${name}-body`);
+    body.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+    body.top = `${topPx}px`; body.width = '90%'; body.spacing = 3;
+    frame.addControl(body);
+    return body;
+  }
 
-    // Right panel — name (native DOM input, see Lesson 15) + begin
+  /** Left frame — appearance (gender, modular parts, keep toggles, dynamic colours). */
+  /* istanbul ignore next — browser-only GUI */
+  private buildAppearanceFrame(gui: AdvancedDynamicTexture): void {
+    const frame = this.neonFrame(gui, 'appearance', 'left', '400px', t('creator.appearance').toUpperCase());
+    this.appearanceBody = this.frameBody(frame, 'appearance', 48);
+    this.renderAppearanceControls();
+  }
+
+  /** Bottom bar — name input (DOM), BEGIN (centred), BACK (left). */
+  /* istanbul ignore next — browser-only GUI */
+  private buildBottomBar(gui: AdvancedDynamicTexture): void {
     this.buildDomNameInput();
 
-    const beginBtn = Button.CreateSimpleButton('begin', t('common.begin'));
-    beginBtn.width = '220px';
-    beginBtn.height = '48px';
+    const beginBtn = Button.CreateSimpleButton('begin', `${t('common.begin')} ▶`);
+    beginBtn.width = '240px';
+    beginBtn.height = '46px';
     beginBtn.color = UI.btnFg;
     beginBtn.background = UI.btnBg;
     beginBtn.cornerRadius = UI.cornerMd;
@@ -668,190 +870,180 @@ export class CharacterCreatorScene extends BaseScene {
     this.beginButton = beginBtn;
     this.refreshBeginButton(); // starts disabled until skills + perks are chosen
 
-    const backBtn = Button.CreateSimpleButton('back', t('common.back'));
-    backBtn.width = '116px';
-    backBtn.height = '34px';
+    const backBtn = Button.CreateSimpleButton('back', `◀ ${t('common.back')}`);
+    backBtn.width = '120px';
+    backBtn.height = '38px';
     backBtn.color = UI.btnFg;
     backBtn.background = UI.btnBg;
     backBtn.cornerRadius = UI.cornerSm;
     backBtn.fontSize = 13;
-    backBtn.fontFamily = 'monospace';
+    backBtn.fontFamily = UI.font;
     backBtn.thickness = 1;
     backBtn.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-    backBtn.horizontalAlignment = 0;
-    backBtn.paddingBottom = '40px';
-    backBtn.paddingLeft = '20px';
+    backBtn.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+    backBtn.paddingBottom = '28px';
+    backBtn.paddingLeft = '24px';
+    backBtn.onPointerEnterObservable.add(() => { backBtn.background = UI.cardBgHover; });
+    backBtn.onPointerOutObservable.add(() => { backBtn.background = UI.btnBg; });
     backBtn.onPointerUpObservable.add(() => this.onBack());
     gui.addControl(backBtn);
   }
 
   /** Right-side scrollable panel: starting-skill picker + tier-1 perk picks + description strip. */
+  /** Bottom-right description card; returns a setter to update its title+body. */
   /* istanbul ignore next — browser-only GUI */
-  private buildRpgPanel(gui: AdvancedDynamicTexture): void {
-    // Description strip — fixed panel at the bottom-right, updated on hover/click.
-    const descPanel = new StackPanel('rpg-desc');
-    descPanel.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
-    descPanel.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
-    descPanel.left = '-20px';
-    descPanel.top = '-82px';
-    descPanel.width = '300px';
-    descPanel.height = '76px';
-    descPanel.background = 'rgba(0,15,25,0.92)';
-    descPanel.paddingLeft = '8px';
-    descPanel.paddingRight = '8px';
-    descPanel.paddingTop = '6px';
-    descPanel.paddingBottom = '6px';
-    gui.addControl(descPanel);
+  private buildDescStrip(gui: AdvancedDynamicTexture): (title: string, body: string) => void {
+    const card = new Rectangle('rpg-desc');
+    card.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
+    card.verticalAlignment = Control.VERTICAL_ALIGNMENT_BOTTOM;
+    card.left = '-24px'; card.top = '-24px';
+    card.width = '380px'; card.height = '94px';
+    card.background = UI.cardBg; card.color = UI.cardBorder;
+    card.thickness = 1; card.cornerRadius = UI.cornerMd;
+    gui.addControl(card);
 
-    const descTitle = new TextBlock('rpg-desc-title');
-    descTitle.text = '';
-    descTitle.color = '#00FFCC';
-    descTitle.fontSize = 12;
-    descTitle.fontFamily = 'monospace';
-    descTitle.fontStyle = 'bold';
-    descTitle.height = '20px';
+    const inner = new StackPanel('rpg-desc-inner');
+    inner.width = '92%'; inner.paddingTop = '8px';
+    card.addControl(inner);
+
+    const descTitle = new TextBlock('rpg-desc-title', '');
+    descTitle.color = UI.accent; descTitle.fontSize = UI.fontBody; descTitle.fontFamily = UI.font;
+    descTitle.fontStyle = 'bold'; descTitle.height = '18px';
     descTitle.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
-    descPanel.addControl(descTitle);
+    inner.addControl(descTitle);
 
-    const descBody = new TextBlock('rpg-desc-body');
-    descBody.text = t('creator.descHint');
-    descBody.color = '#AABBCC';
-    descBody.fontSize = 11;
-    descBody.fontFamily = 'monospace';
-    descBody.textWrapping = true;
-    descBody.height = '46px';
+    const descBody = new TextBlock('rpg-desc-body', t('creator.descHint'));
+    descBody.color = UI.textBody; descBody.fontSize = UI.fontMeta; descBody.fontFamily = UI.font;
+    descBody.textWrapping = true; descBody.height = '62px';
     descBody.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
     descBody.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-    descPanel.addControl(descBody);
+    inner.addControl(descBody);
 
-    const showDesc = (title: string, body: string): void => {
-      descTitle.text = title;
-      descBody.text = body;
-    };
-
-    const scroll = new ScrollViewer('rpg-scroll');
-    scroll.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_RIGHT;
-    scroll.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-    scroll.left = '-20px';
-    scroll.top = '80px';
-    scroll.width = '300px';
-    scroll.height = '56%';
-    scroll.thickness = 1;
-    scroll.barColor = '#00FFCC';
-    gui.addControl(scroll);
-
-    const panel = new StackPanel('rpg-panel');
-    panel.spacing = 4;
-    panel.paddingTop = '6px';
-    panel.paddingBottom = '6px';
-    scroll.addControl(panel);
-
-    const addHeader = (text: string): void => {
-      const h = new TextBlock(`rpg-h-${text}`);
-      h.text = text;
-      h.color = '#00FFCC';
-      h.fontSize = 13;
-      h.fontFamily = 'monospace';
-      h.fontStyle = 'bold';
-      h.height = '24px';
-      panel.addControl(h);
-    };
-
-    // ── Attributes — click each to cycle 20% → 40% (primary) → 30% (secondary) → 20%.
-    // The player MUST end with exactly one 40% and one 30% (canBegin enforces it).
-    addHeader(t('creator.attributes'));
-    const attrLabelOf = (id: AttributeId): string => t(`attr.${id}`);
-    const attrBtns: Array<{ id: AttributeId; btn: Button }> = [];
-    const refreshAttrs = (): void => {
-      attrBtns.forEach(({ id, btn }) => {
-        const isPrim = id === this.primaryAttribute;
-        const isSec = id === this.secondaryAttribute;
-        const tag = isPrim ? ' ★' : isSec ? ' ◆' : '';
-        if (btn.textBlock) btn.textBlock.text = `${attrLabelOf(id)} — ${this.stats.attributes[id]}%${tag}`;
-        btn.background = isPrim
-          ? 'rgba(0,120,80,0.95)'   // 40% — strong neon green
-          : isSec
-            ? 'rgba(0,80,60,0.85)'  // 30% — medium teal
-            : 'rgba(0,30,40,0.7)';  // 20% — neutral
-        btn.color = isPrim ? '#00FFCC' : isSec ? '#7FE6CA' : '#9FD8FF';
-      });
-    };
-    for (const a of ATTRIBUTES) {
-      const btn = Button.CreateSimpleButton(`attr-${a.id}`, `${attrLabelOf(a.id)} — ${this.stats.attributes[a.id]}%`);
-      btn.width = '270px';
-      btn.height = '28px';
-      btn.color = '#9FD8FF';
-      btn.fontSize = 12;
-      btn.fontFamily = 'monospace';
-      btn.thickness = 1;
-      btn.onPointerUpObservable.add(() => {
-        this.cycleAttribute(a.id); // 20 → 40 → 30 → 20
-        refreshAttrs();
-        showDesc(t(`attr.${a.id}`), hasKey(`attr.${a.id}.desc`) ? t(`attr.${a.id}.desc`) : '');
-      });
-      attrBtns.push({ id: a.id, btn });
-      panel.addControl(btn);
-    }
-    refreshAttrs();
-
-    // ── Starting skills (2 majors @40%, 3 minors @20%) ──
-    addHeader(t('creator.startingSkills'));
-    const counter = new TextBlock('rpg-skill-count');
-    counter.fontSize = 11;
-    counter.fontFamily = 'monospace';
-    counter.height = '20px';
-    panel.addControl(counter);
-
-    const pick: StartingSkillPick = { majors: [], minors: [] };
-    const tierLabel = (st: StartTier): string =>
-      st === 'major' ? '40%' : st === 'minor' ? '20%' : '10%';
-    const refresh = (): void => {
-      const ok = isValidStartingSkills(pick.majors, pick.minors);
-      counter.text = t('creator.skillCounter', { majors: pick.majors.length, minors: pick.minors.length });
-      counter.color = ok ? '#00FFAA' : '#FFCC66';
-      if (ok) this.setStartingSkills(pick.majors, pick.minors);
-      else { this.startingSkillsComplete = false; this.refreshBeginButton(); } // un-picking re-locks BEGIN
-    };
-    for (const s of SKILLS) {
-      const btn = Button.CreateSimpleButton(`sk-${s.id}`, `${t(`skill.${s.id}`)} — 10%`);
-      btn.width = '270px';
-      btn.height = '26px';
-      btn.color = '#CFE';
-      btn.background = 'rgba(0,30,40,0.7)';
-      btn.fontSize = 11;
-      btn.fontFamily = 'monospace';
-      btn.thickness = 1;
-      btn.onPointerUpObservable.add(() => {
-        const next = toggleStartingSkill(pick, s.id);
-        pick.majors = next.majors;
-        pick.minors = next.minors;
-        const st = startingSkillState(pick, s.id);
-        if (btn.textBlock) btn.textBlock.text = `${t(`skill.${s.id}`)} — ${tierLabel(st)}`;
-        refresh();
-        showDesc(t(`skill.${s.id}`), hasKey(`skill.${s.id}.desc`) ? t(`skill.${s.id}.desc`) : '');
-      });
-      panel.addControl(btn);
-    }
-    refresh();
-
-    // ── Perks (one choice per UNLOCKED tier — dynamic, depends on attribute %) ──
-    addHeader(t('creator.perks'));
-    const perksContainer = new StackPanel('rpg-perks');
-    perksContainer.spacing = 4;
-    panel.addControl(perksContainer);
-    this.perksContainer = perksContainer;
-    this.perksShowDesc = showDesc;
-    this.renderPerksInto(perksContainer);
+    return (title: string, body: string): void => { descTitle.text = title; descBody.text = body; };
   }
 
   /**
-   * (Re-)render the perk picker into `container`. One row per attribute, then one
-   * sub-section per UNLOCKED tier of that attribute (tier 1 always; tier 2 only
-   * when that attribute is at 40% — i.e. the primary). The chosen perk in each
-   * slot is highlighted; clicking another perk in the same slot swaps it.
-   *
-   * Called on first build AND on every attribute cycle (the 40% primary may have
-   * moved, changing which tier-2 slot is open). Pure read of `this.stats`.
+   * Right "BUILD" frame — tabbed (Attributes / Skills / Perks). Each tab renders a
+   * single column into one content panel, so nothing overflows (Babylon vertical
+   * StackPanels need fixed-height children — nested columns broke this). The active
+   * tab re-renders on every interaction so labels/highlights stay current.
+   */
+  /* istanbul ignore next — browser-only GUI */
+  private buildRpgFrame(gui: AdvancedDynamicTexture, showDesc: (title: string, body: string) => void): void {
+    this.perksShowDesc = showDesc;
+    const frame = this.neonFrame(gui, 'rpg', 'right', '470px', t('creator.build').toUpperCase());
+
+    const tabBar = new StackPanel('rpg-tabs');
+    tabBar.isVertical = false; tabBar.height = '34px'; tabBar.spacing = 6;
+    tabBar.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP; tabBar.top = '50px';
+    frame.addControl(tabBar);
+    this.rpgTabBtns = [];
+    const tabs: Array<{ id: 'attributes' | 'skills' | 'perks'; label: string }> = [
+      { id: 'attributes', label: t('creator.tabAttributes') },
+      { id: 'skills', label: t('creator.tabSkills') },
+      { id: 'perks', label: t('creator.tabPerks') },
+    ];
+    tabs.forEach(({ id, label }) => {
+      const b = Button.CreateSimpleButton(`rpg-tab-${id}`, label.toUpperCase());
+      b.width = '128px'; b.height = '30px'; b.cornerRadius = UI.cornerSm;
+      b.fontSize = UI.fontMeta; b.fontFamily = UI.font;
+      b.onPointerUpObservable.add(() => { this.rpgTab = id; this.styleRpgTabs(); this.renderRpgTab(); });
+      this.rpgTabBtns.push({ id, btn: b });
+      tabBar.addControl(b);
+    });
+    this.styleRpgTabs();
+
+    this.rpgContent = this.frameBody(frame, 'rpg', 94);
+    this.renderRpgTab();
+  }
+
+  /** Highlight the active BUILD tab. */
+  /* istanbul ignore next — browser-only GUI */
+  private styleRpgTabs(): void {
+    this.rpgTabBtns.forEach(({ id, btn }) => {
+      const active = id === this.rpgTab;
+      btn.background = active ? UI.btnBg : 'rgba(0,16,26,0.7)';
+      btn.color = active ? UI.accent : UI.textMuted;
+      btn.thickness = active ? 2 : 1;
+    });
+  }
+
+  /** Re-render the active BUILD tab into the content panel. */
+  /* istanbul ignore next — browser-only GUI */
+  private renderRpgTab(): void {
+    const c = this.rpgContent;
+    if (!c) return;
+    c.clearControls();
+    if (this.rpgTab === 'attributes') this.renderAttributesTab(c);
+    else if (this.rpgTab === 'skills') this.renderSkillsTab(c);
+    else this.renderPerksInto(c);
+  }
+
+  /** Attributes tab — click each to cycle 20% → 30% (secondary ◆) → 40% (primary ★) → 20%. */
+  /* istanbul ignore next — browser-only GUI */
+  private renderAttributesTab(c: StackPanel): void {
+    const hint = new TextBlock('attr-hint', t('creator.attributes'));
+    hint.color = UI.textMeta; hint.fontSize = UI.fontMeta; hint.fontFamily = UI.font;
+    hint.textWrapping = true; hint.height = '34px';
+    hint.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+    c.addControl(hint);
+    for (const a of ATTRIBUTES) {
+      const isPrim = a.id === this.primaryAttribute;
+      const isSec = a.id === this.secondaryAttribute;
+      const tag = isPrim ? ' ★' : isSec ? ' ◆' : '';
+      const btn = Button.CreateSimpleButton(`attr-${a.id}`, `${t(`attr.${a.id}`)} — ${this.stats.attributes[a.id]}%${tag}`);
+      btn.width = '100%'; btn.height = '34px';
+      btn.cornerRadius = UI.cornerSm; btn.fontSize = UI.fontBody; btn.fontFamily = UI.font;
+      btn.background = isPrim ? 'rgba(0,120,80,0.95)' : isSec ? UI.btnBg : UI.cardBg;
+      btn.color = isPrim ? UI.accent : isSec ? '#7FE6CA' : UI.textBody;
+      btn.thickness = isPrim || isSec ? 2 : 1;
+      btn.onPointerUpObservable.add(() => {
+        this.cycleAttribute(a.id); // updates BEGIN + perk slots internally
+        this.renderRpgTab();
+        this.perksShowDesc?.(t(`attr.${a.id}`), hasKey(`attr.${a.id}.desc`) ? t(`attr.${a.id}.desc`) : '');
+      });
+      c.addControl(btn);
+    }
+  }
+
+  /** Skills tab — pick 2 majors (40%) + 3 minors (20%); the rest stay 10%. */
+  /* istanbul ignore next — browser-only GUI */
+  private renderSkillsTab(c: StackPanel): void {
+    const pick = this.skillPick;
+    const ok = isValidStartingSkills(pick.majors, pick.minors);
+    const counter = new TextBlock('rpg-skill-count');
+    counter.text = t('creator.skillCounter', { majors: pick.majors.length, minors: pick.minors.length });
+    counter.color = ok ? '#00FFAA' : '#FFCC66';
+    counter.fontSize = UI.fontMeta; counter.fontFamily = UI.font; counter.height = '22px';
+    counter.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+    c.addControl(counter);
+
+    const tierLabel = (st: StartTier): string => (st === 'major' ? '40%' : st === 'minor' ? '20%' : '10%');
+    for (const s of SKILLS) {
+      const st = startingSkillState(pick, s.id);
+      const btn = Button.CreateSimpleButton(`sk-${s.id}`, `${t(`skill.${s.id}`)} · ${tierLabel(st)}`);
+      btn.width = '100%'; btn.height = '28px';
+      btn.cornerRadius = UI.cornerSm; btn.fontSize = UI.fontMeta; btn.fontFamily = UI.font;
+      btn.background = st === 'base' ? UI.cardBg : UI.btnBg;
+      btn.color = st === 'base' ? UI.textBody : UI.accent;
+      btn.thickness = st === 'base' ? 1 : 2;
+      btn.onPointerUpObservable.add(() => {
+        const next = toggleStartingSkill(pick, s.id);
+        this.skillPick = { majors: next.majors, minors: next.minors };
+        if (isValidStartingSkills(next.majors, next.minors)) this.setStartingSkills(next.majors, next.minors);
+        else { this.startingSkillsComplete = false; this.refreshBeginButton(); }
+        this.renderRpgTab();
+        this.perksShowDesc?.(t(`skill.${s.id}`), hasKey(`skill.${s.id}.desc`) ? t(`skill.${s.id}.desc`) : '');
+      });
+      c.addControl(btn);
+    }
+  }
+
+  /**
+   * (Re-)render the perk picker into `container` (single column). One sub-section
+   * per UNLOCKED tier of each attribute (tier 1 always; tier 2 only when that
+   * attribute is the 40% primary). The chosen perk in each slot is highlighted;
+   * clicking another perk in the same slot swaps it. Pure read of `this.stats`.
    */
   /* istanbul ignore next — browser-only GUI */
   private renderPerksInto(container: StackPanel): void {
@@ -861,11 +1053,13 @@ export class CharacterCreatorScene extends BaseScene {
       for (let tier = 1; tier <= tiers; tier++) {
         const hdr = new TextBlock(`rpg-pk-${a.id}-t${tier}`);
         hdr.text = t('creator.perkTierHeader', { attr: t(`attr.${a.id}`), tier });
-        hdr.color = tier === 2 ? '#FFD700' /* gold = unlocked by 40% primary */ : '#9FD8FF';
-        hdr.fontSize = 11;
-        hdr.fontFamily = 'monospace';
+        hdr.color = tier === 2 ? '#FFD700' /* gold = unlocked by 40% primary */ : UI.textMeta;
+        hdr.fontSize = UI.fontMeta;
+        hdr.fontFamily = UI.font;
         hdr.fontStyle = tier === 2 ? 'bold' : 'normal';
-        hdr.height = '18px';
+        hdr.height = '20px';
+        hdr.paddingTop = '4px';
+        hdr.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
         container.addControl(hdr);
 
         const chosen = chosenPerkAt(this.stats, a.id, tier);
@@ -873,17 +1067,21 @@ export class CharacterCreatorScene extends BaseScene {
         const btns: Button[] = [];
         options.forEach((p) => {
           const b = Button.CreateSimpleButton(`pk-${p.id}`, hasKey(`perk.${p.id}`) ? t(`perk.${p.id}`) : p.label);
-          b.width = '270px';
-          b.height = '26px';
-          b.color = '#CFE';
-          b.background = chosen === p.id ? 'rgba(0,80,60,0.9)' : 'rgba(0,30,40,0.7)';
-          b.fontSize = 11;
-          b.fontFamily = 'monospace';
-          b.thickness = 1;
+          b.width = '100%';
+          b.height = '28px';
+          b.color = chosen === p.id ? UI.accent : UI.textBody;
+          b.background = chosen === p.id ? UI.btnBg : UI.cardBg;
+          b.cornerRadius = UI.cornerSm;
+          b.fontSize = UI.fontMeta;
+          b.fontFamily = UI.font;
+          b.thickness = chosen === p.id ? 2 : 1;
           b.onPointerUpObservable.add(() => {
             this.setSlotPerk(p.id);
-            btns.forEach((other, i) => {
-              other.background = options[i]!.id === p.id ? 'rgba(0,80,60,0.9)' : 'rgba(0,30,40,0.7)';
+            btns.forEach((other, j) => {
+              const on = options[j]!.id === p.id;
+              other.background = on ? UI.btnBg : UI.cardBg;
+              other.color = on ? UI.accent : UI.textBody;
+              other.thickness = on ? 2 : 1;
             });
             this.perksShowDesc?.(
               hasKey(`perk.${p.id}`) ? t(`perk.${p.id}`) : p.label,
@@ -897,77 +1095,4 @@ export class CharacterCreatorScene extends BaseScene {
     }
   }
 
-  /** Builds one widget for a control spec and wires it to a pure setter. */
-  /* istanbul ignore next — browser-only GUI widget factory */
-  private buildControl(spec: ControlSpec, parent: StackPanel): void {
-    const label = new TextBlock(`lbl-${spec.label}`);
-    label.text = CREATOR_LABEL_KEY[spec.label] ? t(CREATOR_LABEL_KEY[spec.label]!) : spec.label;
-    label.color = '#AABBCC';
-    label.fontSize = 12;
-    label.fontFamily = 'monospace';
-    label.height = '18px';
-    parent.addControl(label);
-
-    if (spec.kind === 'color') {
-      // In-canvas swatch row (reliable; native DOM colour pickers don't play
-      // well over the Babylon canvas — CLAUDE.md Lesson 10).
-      const row = new StackPanel(`col-${spec.colorKey}`);
-      row.isVertical = false; row.height = '26px'; row.spacing = 3;
-      for (const hex of spec.presets) {
-        const sw = Button.CreateSimpleButton(`sw-${spec.colorKey}-${hex}`, '');
-        sw.width = '26px'; sw.height = '26px';
-        sw.background = hex; sw.color = '#00000000'; sw.thickness = 1;
-        sw.onPointerUpObservable.add(() => void this.setColorValue(spec.colorKey, hex));
-        row.addControl(sw);
-      }
-      parent.addControl(row);
-      return;
-    }
-
-    if (spec.kind === 'gender') {
-      const row = new StackPanel('gender-row');
-      row.isVertical = false; row.height = '32px'; row.spacing = 6;
-      (['female', 'male'] as const).forEach((g) => {
-        const b = Button.CreateSimpleButton(`gender-${g}`, g === 'male' ? t('creator.male') : t('creator.female'));
-        b.width = '120px'; b.height = '32px';
-        b.color = '#00FFCC'; b.background = 'rgba(0,40,60,0.9)';
-        b.fontFamily = 'monospace';
-        b.onPointerUpObservable.add(() => void this.setGender(g));
-        row.addControl(b);
-      });
-      parent.addControl(row);
-      return;
-    }
-
-    if (spec.kind === 'keepColor') {
-      // A single toggle button: Custom ↔ Original (keep authored colours).
-      const r = spec.region;
-      const btn = Button.CreateSimpleButton(`keep-${r}`, this.getKeepColor(r) ? t('creator.original') : t('creator.custom'));
-      btn.width = '160px'; btn.height = '30px';
-      btn.color = '#00FFCC'; btn.background = 'rgba(0,30,40,0.8)'; btn.fontFamily = 'monospace';
-      btn.onPointerUpObservable.add(() => {
-        void this.toggleKeepColor(r).then(() => {
-          if (btn.textBlock) btn.textBlock.text = this.getKeepColor(r) ? t('creator.original') : t('creator.custom');
-        });
-      });
-      parent.addControl(btn);
-      return;
-    }
-
-    // part — ◄ ► row cycling the current gender's outfits for one modular region
-    const region = spec.region;
-    const row = new StackPanel(`row-${spec.label}`);
-    row.isVertical = false; row.height = '30px'; row.spacing = 4;
-    const prev = Button.CreateSimpleButton(`prev-${spec.label}`, '◄');
-    const next = Button.CreateSimpleButton(`next-${spec.label}`, '►');
-    [prev, next].forEach((b) => {
-      b.width = '40px'; b.height = '30px';
-      b.color = '#00FFCC'; b.background = 'rgba(0,30,40,0.8)';
-    });
-    prev.onPointerUpObservable.add(() => void this.cyclePart(region, -1));
-    next.onPointerUpObservable.add(() => void this.cyclePart(region, 1));
-    row.addControl(prev);
-    row.addControl(next);
-    parent.addControl(row);
-  }
 }

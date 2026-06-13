@@ -12,6 +12,9 @@ import {
   LOCO_CLIPS, COMBAT_CLIPS, POSE_CLIPS, genderOfOutfit,
   planModularLoad, partRegionOf, isStrippableMesh, tintRoleForMaterialInRegion, MeshRegion,
 } from '@assets/AvatarMeshCatalog';
+import {
+  classifyChannels, channelKeyForMaterial, type MaterialSample, type PaintChannel,
+} from '@assets/AvatarPaintChannels';
 
 export interface AssembledCharacter {
   rootMesh: AbstractMesh;
@@ -23,6 +26,8 @@ export interface AssembledCharacter {
   getSkeleton?(): Skeleton | null;
   /** Locomotion animation groups from the rigged base (GLB mode only). */
   getAnimationGroups?(): AnimationGroup[];
+  /** Paint channels discovered on the loaded model (GLB mode only) — drives the dynamic colour UI. */
+  paintChannels?: PaintChannel[];
 }
 
 // ─── Character plan (pure — no scene, fully unit-testable) ──────────────────────
@@ -192,6 +197,9 @@ export class CharacterAssembler {
     let skeleton: Skeleton | null = null;
     let animationGroups: AnimationGroup[] = [];
     const colors = { ...DEFAULT_COLORS, ...appearance.colors };
+    // Dynamic per-material paint (takes precedence over the legacy region colours).
+    const materialColors = appearance.materialColors ?? {};
+    const samples: MaterialSample[] = [];
     // Regions flagged to keep their authored colours (armor + creator "Original").
     const keepRegionColor = appearance.keepRegionColor ?? {};
     const keepMeshRegion = (r: MeshRegion | null): boolean =>
@@ -259,7 +267,11 @@ export class CharacterAssembler {
               if (donorRoot) mesh.setParent(donorRoot);   // re-home (preserve world) before dispose
               mesh.alwaysSelectAsActiveMesh = true;        // re-skinned bounds may be stale → never false-cull
             }
-            if (!keepMeshRegion(region)) this.tintRegionMesh(mesh, region, item.outfitKey, colors);
+            if (!keepMeshRegion(region)) {
+              const sample = this.sampleMaterial(mesh, region);
+              if (sample) samples.push(sample);
+              this.tintRegionMesh(mesh, region, item.outfitKey, colors, materialColors);
+            }
             meshes.push(mesh);
           } else if (isDonor) {
             if (region === null) meshes.push(mesh);        // keep the donor's root/transform nodes
@@ -289,6 +301,7 @@ export class CharacterAssembler {
     /* eslint-enable no-console */
 
     const root = meshes[0] ?? MeshBuilder.CreateBox('char-root', { size: 0.01 }, this.scene);
+    const paintChannels = classifyChannels(samples, parts.top);
 
     return {
       rootMesh: root,
@@ -299,6 +312,7 @@ export class CharacterAssembler {
       },
       getSkeleton: () => skeleton,
       getAnimationGroups: () => animationGroups,
+      paintChannels,
     };
   }
 
@@ -320,17 +334,50 @@ export class CharacterAssembler {
     return null;
   }
 
-  /** Tint one mesh's material by its region-aware colour role (skin/eye/hair/top/bottom). */
+  /**
+   * Tint one mesh's material. Channel-first: a per-material override in
+   * `materialColors` (dynamic paint) wins; otherwise fall back to the legacy
+   * region-aware colour role (skin/eye/hair/top/bottom).
+   */
   /* istanbul ignore next — browser-only material tint */
   private tintRegionMesh(
-    mesh: AbstractMesh, region: MeshRegion | null, outfitKey: string, colors: Record<ColorKey, string>,
+    mesh: AbstractMesh,
+    region: MeshRegion | null,
+    outfitKey: string,
+    colors: Record<ColorKey, string>,
+    materialColors: Record<string, string>,
   ): void {
     const mat = mesh.material;
     if (!mat) return;
+    const override = materialColors[channelKeyForMaterial(mat.name, region, outfitKey)];
+    if (override) {
+      this.tintMaterial(mat, Color3.FromHexString(override.padEnd(7, '0')));
+      return;
+    }
     const role = tintRoleForMaterialInRegion(mat.name, region, outfitKey);
     if (!role) return;
     const hex = colors[role];
     if (hex) this.tintMaterial(mat, Color3.FromHexString(hex.padEnd(7, '0')));
+  }
+
+  /** Sample a mesh's material into a paint-channel record (authored colour as hex). */
+  /* istanbul ignore next — browser-only material introspection */
+  private sampleMaterial(mesh: AbstractMesh, region: MeshRegion | null): MaterialSample | null {
+    const mat = mesh.material;
+    if (!mat || !mat.name) return null;
+    return { materialName: mat.name, region, authoredHex: this.sampleHex(mat) };
+  }
+
+  /** Read a material's authored base colour as #RRGGBB (PBR albedo / Standard diffuse). */
+  /* istanbul ignore next — browser-only material introspection */
+  private sampleHex(mat: unknown): string {
+    let c: Color3 | undefined;
+    if (mat && typeof mat === 'object' && 'albedoColor' in mat) {
+      c = (mat as { albedoColor: Color3 }).albedoColor;
+    } else if (mat instanceof StandardMaterial) {
+      c = mat.diffuseColor;
+    }
+    return c ? c.toHexString() : '#FFFFFF';
   }
 
   /** Set a material's base colour, handling both PBR (albedoColor) and Standard. */
