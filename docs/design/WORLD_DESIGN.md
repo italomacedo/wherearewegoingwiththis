@@ -21,6 +21,20 @@ NeoBeiraRio, 2087. A megacity built over what was once Porto Alegre, Brazil. Thr
 > binaries" constraint is sidestepped: Blender runs locally on user-supplied files.)
 > **Next:** the +X exit wall → a second street (new scene); per-prop instancing to cut texture
 > duplication. The curated CC0/CC-BY catalog below remains a reference for future districts.
+>
+> **UPDATE — the world is now a PROCEDURAL STREAMING MOSAIC, not a single street.**
+> See [ADR-0029](../ADR/0029-procedural-world-mosaic.md): a **24×24 grid of 60×60 u
+> tiles** (1440×1440 u) streams **seamlessly in a 3×3 ring** in one continuous scene
+> (no fade/teleport). **Tile (0,0) is the static downtown** above (`MercadoSombrasZone`,
+> reserved for story, now opened east); every other tile is **procedural and
+> deterministic from `worldSeed`** (5 themes random-per-tile: urban edge-rows vs
+> nature/park/desert scatter). Pure cores `WorldGrid`/`SeededRng`/`WorldStreamer`/
+> `ThemeRegistry.generateTile`; streaming perf via `AssetCache` + time-sliced loading
+> (Fase 17H). Authored **quadrant + interior** scenes can be hand-built in the Scene
+> Editor (Fase 24) and dropped into the mosaic. The world also has a **dynamic
+> day/night sky** ([ADR-0034](../ADR/0034-horizon-sky-and-paired-doors.md)) driven by
+> the `GameClock`, and scene travel is via **F-activated paired doors** (same ADR).
+> The three-district city design below remains the long-term art/narrative target.
 
 ---
 

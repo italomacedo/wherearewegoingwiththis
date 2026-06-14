@@ -11,9 +11,12 @@ Every NPC in NeoBeiraRio is driven by a live `claude` CLI subprocess. This docum
 >   roleplay actions and mix them with dialogue; the prompt tells the NPC `*asterisks*`
 >   are actions). **Native DOM `<input>`** so non-US keyboards/accents/IME work — see
 >   [ADR-0012](../ADR/0012-dialog-native-input.md).
-> - **Anti-metagaming:** an NPC's name shows as `Unknown` until it introduces itself
->   (`NPCAgent.revealNameIfMentioned`); then label/header/`[E]` prompt reveal it.
->   (Runtime-only today; persisting the discovery flag is a follow-up.)
+> - **NPC names always visible (updated — was anti-metagaming).** The original
+>   `nameKnown` rule (a name showed as `Unknown` until the NPC introduced itself)
+>   was **owner-reverted** — see [ADR-0033](../ADR/0033-hud-status-bars-and-visible-names.md)
+>   and CLAUDE.md Lesson 14. `getDisplayName()` is now a trivial alias for the real
+>   name; `revealNameIfMentioned`/`markNameKnown`/the Addressing gate are gone;
+>   labels, headers and `[E]` prompts always show the name.
 > - **Pre-moderation gate:** player input is screened ALLOW/BLOCK **before** reaching the
 >   NPC; blocked input shows a `system` line "You can't say or do that" and is never sent.
 >   Fails open. See [ADR-0011](../ADR/0011-npc-pre-moderation.md). (The earlier in-prompt
@@ -22,6 +25,14 @@ Every NPC in NeoBeiraRio is driven by a live `claude` CLI subprocess. This docum
 > - Files: `systems/DialogSystem.ts`, `systems/ClaudeNPCService.ts` (+`moderate`),
 >   `systems/NPCManager.ts`, `systems/npc/PromptBuilder.ts` (+`buildModerationPrompt`),
 >   `entities/NPCAgent.ts`, `entities/npcs/zara.ts`.
+> - **Beyond this MVP cycle (see CLAUDE.md + ADRs for the live state):** NPCs gained
+>   conversation memory + session graduation ([ADR-0010](../ADR/0010-npc-conversation-context.md)),
+>   autonomy + A\* nav + throttled deliberation ([ADR-0018](../ADR/0018-living-npcs-autonomy-astar-throttle.md)),
+>   turn-based + tactical multi-combatant combat ([ADR-0019](../ADR/0019-turn-based-combat.md)/[ADR-0020](../ADR/0020-tactical-multicombatant-combat.md)),
+>   chat-driven economy/missions + spice jobs ([ADR-0028](../ADR/0028-economy-trade-missions.md)/[ADR-0032](../ADR/0032-spice-trafficking-job.md)),
+>   13-skill deterministic actions ([ADR-0030](../ADR/0030-skill-mechanics.md)) and the
+>   unified actor-agnostic action pipeline ([ADR-0031](../ADR/0031-unified-actions-pipeline.md)).
+>   The token-cost model (Haiku/low-effort, cached persona) is [ADR-0026](../ADR/0026-token-economy.md).
 
 ---
 
