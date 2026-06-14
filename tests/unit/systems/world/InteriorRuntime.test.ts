@@ -1,7 +1,7 @@
 import {
-  INTERIOR_ORIGIN, interiorWorldPos, doorTriggerHit, returnTrigger, interiorItemKey,
+  INTERIOR_ORIGIN, interiorWorldPos, doorTriggerHit, returnTrigger, interiorItemKey, sleepTriggerHit,
 } from '@systems/world/InteriorRuntime';
-import type { WorldDoorTrigger } from '@systems/world/SceneDocToTile';
+import type { WorldDoorTrigger, WorldSleepTrigger } from '@systems/world/SceneDocToTile';
 
 const door: WorldDoorTrigger = {
   key: 'q-plaza-2-2-bar_door',
@@ -42,5 +42,15 @@ describe('InteriorRuntime', () => {
 
   test('interiorItemKey is stable per doc + index', () => {
     expect(interiorItemKey('bar', 2)).toBe('int:bar:2');
+  });
+
+  test('sleepTriggerHit detects inside/outside the bed AABB (ground-anchored)', () => {
+    const bed: WorldSleepTrigger = { key: 'qbed-inn-0-0-b1', position: [10, 0, 20], size: [3, 2.5, 4] };
+    expect(sleepTriggerHit({ x: 10, y: 0, z: 20 }, [bed])).toBe(bed);
+    expect(sleepTriggerHit({ x: 11.4, y: 0.5, z: 21.9 }, [bed])).toBe(bed); // within half-extents
+    expect(sleepTriggerHit({ x: 11.6, y: 0, z: 20 }, [bed])).toBeNull();    // past half-width
+    expect(sleepTriggerHit({ x: 10, y: 0, z: 22.1 }, [bed])).toBeNull();    // past half-depth
+    expect(sleepTriggerHit({ x: 10, y: 6, z: 20 }, [bed])).toBeNull();      // way above
+    expect(sleepTriggerHit({ x: 0, y: 0, z: 0 }, [])).toBeNull();
   });
 });

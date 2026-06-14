@@ -92,6 +92,12 @@ export interface SaveGame {
   collectedSceneItems: string[];
   /** Intel dossiers gathered by scanning/hacking NPCs (Fase 20 PDA). */
   pda: PdaEntry[];
+  /** Game-time of the player's last sleep (gameTimeSeconds) — drives the once-per-24h
+   *  cooldown. Undefined = never slept (Sleep feature). */
+  lastSleepGameTime?: number;
+  /** Game-time at which the temporary "Well Rested" buff expires (gameTimeSeconds).
+   *  Undefined = no active buff (Sleep feature). */
+  wellRestedUntilGameTime?: number;
   flags: Record<string, boolean | number | string>;
   npcMemory: NPCMemory;
 }

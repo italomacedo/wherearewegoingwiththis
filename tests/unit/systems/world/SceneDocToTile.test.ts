@@ -1,6 +1,7 @@
 import {
   tileFromSceneDoc, doorTriggersForTile, propDoorTriggersForTile, seedItemsForTile, seededItemKey,
   pickQuadrantDoc, generateTileAuthored, quadrantNpcId, AUTHORED_TILE_CHANCE,
+  isBedModel, sleepTriggersForTile, sleepTriggersFor, BED_SLEEP_SIZE,
 } from '@systems/world/SceneDocToTile';
 import { generateTile } from '@assets/world/ThemeRegistry';
 import { emptySceneDoc, SceneDoc } from '@systems/sceneeditor/SceneDoc';
@@ -118,6 +119,42 @@ describe('seedItemsForTile', () => {
     const collected = [seededItemKey('plaza', 1, 2, 0)];
     expect(seedItemsForTile(quadrant(), 1, 2, collected).map((g) => g.id)).toEqual(['credstick']);
     expect(seedItemsForTile(quadrant(), 3, 2, collected)).toHaveLength(2);
+  });
+});
+
+describe('bed sleep triggers', () => {
+  function withBeds(): SceneDoc {
+    const doc = quadrant('inn');
+    doc.props.push(
+      { key: 'b1', model: 'world/interior/bed_single.glb', position: [2, 0, 3], solid: true },
+      { key: 'b2', model: 'world/interior/BED_king.glb', position: [-4, 0, -1], solid: true },
+    );
+    return doc;
+  }
+
+  test('isBedModel detects bed GLBs (case-insensitive), ignores others', () => {
+    expect(isBedModel('world/interior/bed_single.glb')).toBe(true);
+    expect(isBedModel('world/interior/BED_king.glb')).toBe(true);
+    expect(isBedModel('world/rpg/crate.glb')).toBe(false);
+  });
+
+  test('sleepTriggersForTile lifts only bed props to world space', () => {
+    const triggers = sleepTriggersForTile(withBeds(), 1, 2);
+    expect(triggers).toHaveLength(2); // crate/sign/door props are not beds
+    expect(triggers[0].key).toBe('qbed-inn-1-2-b1');
+    expect(triggers[0].position).toEqual([60 + 2, 0, 120 + 3]);
+    expect(triggers[0].size).toEqual(BED_SLEEP_SIZE);
+    expect(triggers[1].key).toBe('qbed-inn-1-2-b2');
+  });
+
+  test('sleepTriggersFor uses the injected world mapper + key prefix', () => {
+    const triggers = sleepTriggersFor(withBeds(), 'int-inn', (l) => [l[0] - 5000, l[1], l[2] - 5000]);
+    expect(triggers[0].key).toBe('int-inn-b1');
+    expect(triggers[0].position).toEqual([-4998, 0, -4997]);
+  });
+
+  test('no beds → empty list', () => {
+    expect(sleepTriggersForTile(quadrant(), 0, 0)).toEqual([]);
   });
 });
 

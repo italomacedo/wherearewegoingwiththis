@@ -106,11 +106,16 @@ import { GroundItem, addGroundItem, removeGroundItemAt, nearestGroundItemIndex }
 import { themeOf, ARCHETYPES } from '@assets/world/ThemeRegistry';
 import {
   generateTileAuthored, doorTriggersForTile, propDoorTriggersForTile, seedItemsForTile, sceneNpcToDefinition,
-  type WorldDoorTrigger,
+  sleepTriggersForTile, isBedModel,
+  type WorldDoorTrigger, type WorldSleepTrigger,
 } from '@systems/world/SceneDocToTile';
 import {
-  interiorWorldPos, doorTriggerHit, interiorItemKey, INTERIOR_HALF, INTERIOR_ORIGIN,
+  interiorWorldPos, doorTriggerHit, sleepTriggerHit, interiorItemKey, INTERIOR_HALF, INTERIOR_ORIGIN,
 } from '@systems/world/InteriorRuntime';
+import { SleepOverlay } from '@systems/SleepOverlay';
+import {
+  canSleep, computeSleepResult, wellRestedUntil, sleepGainMultiplier, SLEEP_DURATION_SECONDS,
+} from '@systems/SleepSystem';
 import { loadAllSceneDocs } from '@systems/world/SceneDocSource';
 import { partnerDoor, arrivalPoint, contentCentroid, type SceneDoc } from '@systems/sceneeditor/SceneDoc';
 import { buildMinimapView, type MinimapEntity } from '@systems/MinimapModel';
@@ -237,6 +242,8 @@ export class GameWorldScene extends BaseScene {
   private inventoryOverlay: InventoryOverlay | null = null;
   private characterSheetOverlay: CharacterSheetOverlay | null = null;
   private pdaOverlay: PdaOverlay | null = null;
+  /** The "sleeping" modal (fade + accelerated clock) shown when resting in a bed. */
+  private sleepOverlay: SleepOverlay | null = null;
   /** Intel dossiers gathered by scanning/hacking NPCs (Fase 20 PDA), persisted. */
   private pda: PdaEntry[] = [];
   /** The weapon a pending `craft` action will produce (resolved from the emote text). */
@@ -253,12 +260,16 @@ export class GameWorldScene extends BaseScene {
   private collectedSceneItems: string[] = [];
   /** World-space door triggers of the loaded authored quadrant tiles. */
   private tileDoorTriggers = new Map<string, WorldDoorTrigger[]>();
+  /** World-space bed sleep triggers of the loaded authored quadrant tiles. */
+  private tileSleepTriggers = new Map<string, WorldSleepTrigger[]>();
   /** Neon door-volume meshes per tile key (disposed with the tile). */
   private doorVisuals = new Map<string, AbstractMesh[]>();
   // ── Active interior (one at a time, built at INTERIOR_ORIGIN — F6) ──
   private interiorId: string | null = null;
   /** The interior's OWN door triggers (its exit doors), built on enter. */
   private interiorDoorTriggers: WorldDoorTrigger[] = [];
+  /** The interior's bed sleep triggers, built on enter. */
+  private interiorSleepTriggers: WorldSleepTrigger[] = [];
   /** The mosaic tile the player entered the interior from — the exit door lands
    *  them back on this tile (a quadrant doc placed there). */
   private interiorOriginTile: [number, number] | null = null;
@@ -413,6 +424,10 @@ export class GameWorldScene extends BaseScene {
    */
   private verbalActionContext: string | undefined;
   private gameTimeSeconds = 0;
+  /** Game-time of the last sleep (once-per-24h cooldown). undefined = never slept. */
+  private lastSleepGameTime: number | undefined = undefined;
+  /** Game-time the temporary "Well Rested" buff (2× gains) expires. */
+  private wellRestedUntilGameTime: number | undefined = undefined;
   private saveId = '';
   private spawnOverride: Vector3 | null = null;
   private playerHealthState: HealthState = { ...DEFAULT_PLAYER_HEALTH };
@@ -467,6 +482,8 @@ export class GameWorldScene extends BaseScene {
     this.heldAttach = session.heldAttach ?? {};
     this.npcMemory = session.npcMemory ?? {};
     this.gameTimeSeconds = session.gameTimeSeconds;
+    this.lastSleepGameTime = session.lastSleepGameTime;
+    this.wellRestedUntilGameTime = session.wellRestedUntilGameTime;
     this.playerHealthState = session.playerHealth ?? { ...DEFAULT_PLAYER_HEALTH };
     this.playerHunger = Hunger.fromState(session.playerHunger);
     this.playerStaminaState = session.playerStamina ?? { ...DEFAULT_PLAYER_STAMINA };
@@ -550,6 +567,7 @@ export class GameWorldScene extends BaseScene {
       ...save, character, world, gameTimeSeconds: this.gameTimeSeconds, npcMemory: memory, playerHealth, vehicle, inventory,
       heldAttach: this.heldAttach, playerHunger, playerStamina, missions: this.missions, spiceContracts: this.spiceContracts,
       groundItems, pda: this.pda, collectedSceneItems: this.collectedSceneItems,
+      lastSleepGameTime: this.lastSleepGameTime, wellRestedUntilGameTime: this.wellRestedUntilGameTime,
     });
 
     const session = ServiceLocator.tryGet<GameSession>('gameSession');
@@ -569,6 +587,8 @@ export class GameWorldScene extends BaseScene {
       session.groundItems = groundItems;
       session.collectedSceneItems = this.collectedSceneItems;
       session.pda = this.pda;
+      session.lastSleepGameTime = this.lastSleepGameTime;
+      session.wellRestedUntilGameTime = this.wellRestedUntilGameTime;
     }
   }
 
@@ -763,6 +783,9 @@ export class GameWorldScene extends BaseScene {
     // PDA overlay (Fase 20): intel dossiers gathered by scanning/hacking NPCs.
     this.pdaOverlay = new PdaOverlay(this.babylonScene);
     this.pdaOverlay.setHandlers({ onClose: () => { /* no camera change */ } });
+
+    // Sleep modal (beds): fade to black + accelerated clock during an 8h rest.
+    this.sleepOverlay = new SleepOverlay(this.babylonScene);
 
     // Adjust tool (Phase 10.4b): live-calibrate a held prop's attach transform.
     this.adjustOverlay = new AdjustOverlay(this.babylonScene);
@@ -1081,6 +1104,10 @@ export class GameWorldScene extends BaseScene {
     // by F (handleDoorInput).
     const invisible = doorTriggersForTile(doc, tx, tz);
     this.tileDoorTriggers.set(key, [...invisible, ...propDoorTriggersForTile(doc, tx, tz)]);
+    // Bed props become "sleep" triggers (auto-detected by model name). No marker —
+    // the bed GLB is its own visual; the [E] Sleep prompt cues the player.
+    const sleeps = sleepTriggersForTile(doc, tx, tz);
+    if (sleeps.length > 0) this.tileSleepTriggers.set(key, sleeps);
     this.tileDocId.set(key, doc.id); // for reciprocal door pairing
     // Visible neon volume per invisible door so the player can find the entrance.
     const visuals: AbstractMesh[] = [];
@@ -1111,6 +1138,7 @@ export class GameWorldScene extends BaseScene {
     this.despawnTileNpcs(key); // belt-and-braces (NPCs normally leave via the r1 ring first)
     // Authored-tile content streams out with the tile (it re-seeds on reload).
     this.tileDoorTriggers.delete(key);
+    this.tileSleepTriggers.delete(key);
     this.tileDocId.delete(key);
     this.doorVisuals.get(key)?.forEach((m) => m.dispose());
     this.doorVisuals.delete(key);
@@ -1302,6 +1330,14 @@ export class GameWorldScene extends BaseScene {
     return cur ? (this.tileDoorTriggers.get(tileKey(cur.tx, cur.tz)) ?? []) : [];
   }
 
+  /** Bed sleep triggers in reach: the interior's beds inside one, else the current tile's. */
+  /* istanbul ignore next — browser-only (worldStreamer/interior exist at runtime) */
+  private currentSleepTriggers(): WorldSleepTrigger[] {
+    if (this.interiorId) return this.interiorSleepTriggers;
+    const cur = this.worldStreamer?.getCurrentTile();
+    return cur ? (this.tileSleepTriggers.get(tileKey(cur.tx, cur.tz)) ?? []) : [];
+  }
+
   /** The authored quadrant doc id of the scene the player is currently in (the
    *  interior doc inside one, else the current tile's quadrant doc). '' = none. */
   /* istanbul ignore next — browser-only (worldStreamer exists at runtime) */
@@ -1408,6 +1444,10 @@ export class GameWorldScene extends BaseScene {
       for (const [tag, cx, cz, w, d] of walls) mkCol(`int-col-${tag}`, cx, h / 2, cz, w, h, d);
     }
 
+    // Bed props become sleep triggers built from their ACTUAL world bbox (pivot-
+    // proof; the bed GLB origin may not be centred — Lesson 21), padded so the
+    // player can rest from beside the bed.
+    const sleepTriggers: WorldSleepTrigger[] = [];
     // Props (verbatim from the doc, offset to the interior origin).
     for (const prop of doc.props) {
       const holder = new TransformNode(`int-${prop.key}`, scene);
@@ -1422,6 +1462,16 @@ export class GameWorldScene extends BaseScene {
       if (!inst) continue;
       inst.animationGroups.forEach((g) => g.stop());
       inst.rootNodes.forEach((n) => { (n as TransformNode).parent = holder; });
+      if (isBedModel(prop.model)) {
+        const { min, max } = holder.getHierarchyBoundingVectors(true);
+        if (Number.isFinite(min.x) && Number.isFinite(max.x)) {
+          sleepTriggers.push({
+            key: `int-${doc.id}-bed-${prop.key}`,
+            position: [(min.x + max.x) / 2, min.y, (min.z + max.z) / 2],
+            size: [(max.x - min.x) + 3, (max.y - min.y) + 1, (max.z - min.z) + 3],
+          });
+        }
+      }
       if (prop.solid && scene.isPhysicsEnabled()) {
         const { min, max } = holder.getHierarchyBoundingVectors(true);
         const size = max.subtract(min);
@@ -1434,6 +1484,7 @@ export class GameWorldScene extends BaseScene {
         }
       }
     }
+    this.interiorSleepTriggers = sleepTriggers;
 
     // The interior's OWN exit doors (paired-door model — no auto-return). Invisible
     // doorTriggers get a neon marker; door PROPS are their own GLB visual (built in
@@ -1516,6 +1567,7 @@ export class GameWorldScene extends BaseScene {
     this.groundItems = keep;
     this.interiorId = null;
     this.interiorDoorTriggers = [];
+    this.interiorSleepTriggers = [];
     this.interiorOriginTile = null;
     this.doorArmed = false;
     this.player?.teleport(back);
@@ -1749,6 +1801,8 @@ export class GameWorldScene extends BaseScene {
     this.characterSheetOverlay = null;
     this.pdaOverlay?.dispose();
     this.pdaOverlay = null;
+    this.sleepOverlay?.dispose();
+    this.sleepOverlay = null;
     this.adjustOverlay?.dispose();
     this.adjustOverlay = null;
     this.actionRibbon?.dispose();
@@ -1844,6 +1898,13 @@ export class GameWorldScene extends BaseScene {
     this.handlePauseInput();
     if (this.pauseMenu?.isOpen()) {
       this.cameraSystem?.update();
+      this.inputSystem?.endFrame();
+      return;
+    }
+
+    // Sleeping: the modal owns the screen (fade + accelerated clock). Freeze the
+    // world — no movement, no time accrual — until doSleep() closes the overlay.
+    if (this.sleepOverlay?.isOpen()) {
       this.inputSystem?.endFrame();
       return;
     }
@@ -3175,6 +3236,14 @@ export class GameWorldScene extends BaseScene {
       if (!this.dialog.isInputFocused()) this.closeDialog();
       return;
     }
+    // A bed in reach → sleep (once per 24h). Checked before NPCs/pickups since a
+    // bed is a distinct interactable that rarely overlaps them.
+    /* istanbul ignore next — browser-only sleep triggers; SleepSystem is unit-tested */
+    if (sleepTriggerHit(this.player.getPosition(), this.currentSleepTriggers())) {
+      if (canSleep(this.lastSleepGameTime, this.gameTimeSeconds)) void this.doSleep();
+      else { this.hud?.pushToast(t('sleep.cooldown')); this.sfx('ui_error'); }
+      return;
+    }
     const agent = this.npcManager.getConversableAgent(this.player.getPosition());
     if (!agent) {
       // No NPC in reach — E picks up a dropped pile if one is close (Fase 18).
@@ -3221,6 +3290,38 @@ export class GameWorldScene extends BaseScene {
     this.cameraSystem?.exitConversationMode();
     /* istanbul ignore next — thin browser glue */
     (this.tts ??= ServiceLocator.tryGet<TTSService>('tts') ?? null)?.cancel();
+  }
+
+  /**
+   * Sleep in a bed: fade to black + an accelerated 8h clock, then apply the
+   * physiological effects (hunger metabolised → HP healed from it), advance the
+   * clock 8h, grant the 2h "Well Rested" buff (2× gains), persist, and fade back.
+   * The world freezes while the overlay is open (update() returns early). The
+   * caller has already verified the once-per-24h cooldown.
+   */
+  /* istanbul ignore next — browser-only overlay/animation; SleepSystem is unit-tested */
+  private async doSleep(): Promise<void> {
+    if (!this.sleepOverlay || this.sleepOverlay.isOpen()) return;
+    this.sfx('ui_open');
+    await this.sleepOverlay.play(this.clock.hour(this.gameTimeSeconds));
+
+    // Advance the clock and apply the 8-hour physiological effects.
+    this.gameTimeSeconds += SLEEP_DURATION_SECONDS;
+    const health = this.player?.getHealth();
+    if (health) {
+      const r = computeSleepResult({ hunger: this.playerHunger.toState(), health: health.toState() });
+      this.playerHunger = Hunger.fromState(r.hunger);
+      if (r.hpHealed > 0) health.heal(r.hpHealed);
+    }
+    this.lastSleepGameTime = this.gameTimeSeconds;
+    this.wellRestedUntilGameTime = wellRestedUntil(this.gameTimeSeconds);
+
+    // Reflect the new time of day (light/fog/sky) and save the rested state.
+    this.updateTimeOfDay();
+    this.updateSky();
+    this.hud?.pushToast(t('sleep.wellRestedGained'));
+    this.persistSession();
+    this.sleepOverlay.close();
   }
 
   private wireDialog(): void {
@@ -4940,7 +5041,10 @@ export class GameWorldScene extends BaseScene {
    */
   private gainSkill(skillId: string): void {
     const before = this.playerStats;
-    this.playerStats = applySkillUse(before, skillId, SettingsService.get('skillGainMultiplier'));
+    // Well Rested (2h after sleeping) doubles all learn-by-doing gains.
+    const mult = SettingsService.get('skillGainMultiplier')
+      * sleepGainMultiplier(this.gameTimeSeconds, this.wellRestedUntilGameTime);
+    this.playerStats = applySkillUse(before, skillId, mult);
     const def = skillDef(skillId);
     const gained = (this.playerStats.skills[skillId] ?? 0) - (before.skills[skillId] ?? 0);
     if (def && gained > 0) {
@@ -5098,6 +5202,11 @@ export class GameWorldScene extends BaseScene {
       return t(this.interiorId ? 'hud.exitDoor' : 'hud.enterDoor');
     }
     if (this.player && this.vehicle?.canEnter(this.player.getPosition())) return t('hud.enterCar');
+    // A bed in reach offers [E] Sleep (or a "rested" note while on cooldown).
+    /* istanbul ignore next — browser-only sleep triggers; SleepSystem is unit-tested */
+    if (this.player && sleepTriggerHit(this.player.getPosition(), this.currentSleepTriggers())) {
+      return canSleep(this.lastSleepGameTime, this.gameTimeSeconds) ? t('hud.sleep') : t('hud.sleepRested');
+    }
     if (this.npcManager && this.player) {
       const agent = this.npcManager.getConversableAgent(this.player.getPosition());
       // Don't leak the name in the prompt before the NPC introduces itself.

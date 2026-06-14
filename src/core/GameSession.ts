@@ -63,6 +63,10 @@ export class GameSession {
     public playerStamina: StaminaState = { ...DEFAULT_PLAYER_STAMINA },
     /** Collected Scene-Editor seeded pickups, by seededItemKey (Scene Editor). */
     public collectedSceneItems: string[] = [],
+    /** Game-time of the last sleep (once-per-24h cooldown). undefined = never slept. */
+    public lastSleepGameTime: number | undefined = undefined,
+    /** Game-time the "Well Rested" buff expires. undefined = no buff. */
+    public wellRestedUntilGameTime: number | undefined = undefined,
   ) {}
 
   /** Builds a session from a persisted save. */
@@ -84,6 +88,8 @@ export class GameSession {
       save.spiceContracts ?? [],
       save.playerStamina ?? { ...DEFAULT_PLAYER_STAMINA },
       save.collectedSceneItems ?? [],
+      save.lastSleepGameTime,
+      save.wellRestedUntilGameTime,
     );
   }
 }

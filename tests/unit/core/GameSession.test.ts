@@ -92,6 +92,17 @@ describe('GameSession', () => {
     expect(GameSession.fromSave(save).playerStamina).toEqual({ current: 100, max: 100 });
   });
 
+  it('carries sleep cooldown + well-rested buff (undefined on a legacy save)', () => {
+    expect(new GameSession('s', character).lastSleepGameTime).toBeUndefined();
+    expect(new GameSession('s', character).wellRestedUntilGameTime).toBeUndefined();
+    const save = SaveService.createNewSave(character);
+    save.lastSleepGameTime = 1000;
+    save.wellRestedUntilGameTime = 8200;
+    const session = GameSession.fromSave(save);
+    expect(session.lastSleepGameTime).toBe(1000);
+    expect(session.wellRestedUntilGameTime).toBe(8200);
+  });
+
   it('fromSave carries the inventory, defaulting to empty on a legacy save', () => {
     const save = SaveService.createNewSave(character);
     save.inventory = { items: [{ id: 'knife', qty: 1 }], equippedWeaponId: 'knife', capacityWeight: 30 };

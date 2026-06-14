@@ -6,7 +6,7 @@
  * tiles; world streaming pauses while inside. The entry door trigger is kept so
  * the return door teleports the player back to it.
  */
-import type { WorldDoorTrigger } from '@systems/world/SceneDocToTile';
+import type { WorldDoorTrigger, WorldSleepTrigger } from '@systems/world/SceneDocToTile';
 
 /** Where interiors are instantiated (well outside the mosaic). */
 export const INTERIOR_ORIGIN: [number, number, number] = [-5000, 0, -5000];
@@ -36,6 +36,24 @@ export function doorTriggerHit(
     const hy = t.size[1] / 2;
     const hz = t.size[2] / 2;
     // Volumes sit ON the ground: their box spans [y, y+size] (door render rule).
+    const cy = t.position[1] + hy;
+    if (Math.abs(pos.x - t.position[0]) <= hx
+      && Math.abs(pos.y - cy) <= hy + 0.5
+      && Math.abs(pos.z - t.position[2]) <= hz) return t;
+  }
+  return null;
+}
+
+/** The first bed sleep-trigger whose AABB contains (x,y,z), or null. */
+export function sleepTriggerHit(
+  pos: { x: number; y: number; z: number },
+  triggers: readonly WorldSleepTrigger[],
+): WorldSleepTrigger | null {
+  for (const t of triggers) {
+    const hx = t.size[0] / 2;
+    const hy = t.size[1] / 2;
+    const hz = t.size[2] / 2;
+    // Volumes sit ON the ground: their box spans [y, y+size] (same rule as doors).
     const cy = t.position[1] + hy;
     if (Math.abs(pos.x - t.position[0]) <= hx
       && Math.abs(pos.y - cy) <= hy + 0.5

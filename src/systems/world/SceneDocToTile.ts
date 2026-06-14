@@ -168,6 +168,46 @@ export function propDoorTriggersForTile(doc: SceneDoc, tx: number, tz: number): 
     }));
 }
 
+/** A bed's sleep-trigger AABB carried beside the GeneratedTile (Sleep feature). */
+export interface WorldSleepTrigger {
+  key: string;
+  /** World-space AABB centre (on the ground). */
+  position: [number, number, number];
+  /** Full extents [w,h,d]. */
+  size: [number, number, number];
+}
+
+/** Default sleep volume around a bed prop — generous so it survives an
+ *  off-centre GLB pivot (Lesson 21) and lets you rest from beside the bed. */
+export const BED_SLEEP_SIZE: [number, number, number] = [5, 3, 5];
+
+/** True when a prop's model is a bed (auto-detected: any `*bed*` GLB is sleepable). */
+export function isBedModel(model: string): boolean {
+  return /bed/i.test(model);
+}
+
+/**
+ * Sleep triggers for every bed prop in a doc, lifted to world space by an
+ * injected `toWorld` mapper. Pure — `toWorld` is `tileLocalToWorld` for quadrant
+ * tiles and `interiorWorldPos` for interiors (see callers).
+ */
+export function sleepTriggersFor(
+  doc: SceneDoc, keyPrefix: string, toWorld: (local: [number, number, number]) => [number, number, number],
+): WorldSleepTrigger[] {
+  return doc.props
+    .filter((p) => isBedModel(p.model))
+    .map((p) => ({
+      key: `${keyPrefix}-${p.key}`,
+      position: toWorld(p.position),
+      size: [...BED_SLEEP_SIZE] as [number, number, number],
+    }));
+}
+
+/** The doc's bed sleep triggers lifted to world space for a tile placement. */
+export function sleepTriggersForTile(doc: SceneDoc, tx: number, tz: number): WorldSleepTrigger[] {
+  return sleepTriggersFor(doc, `qbed-${doc.id}-${tx}-${tz}`, (local) => tileLocalToWorld(tx, tz, local));
+}
+
 /** Stable identity of a scene-seeded item placement (for collected-set persistence). */
 export function seededItemKey(docId: string, tx: number, tz: number, index: number): string {
   return `${docId}:${tx},${tz}:${index}`;
