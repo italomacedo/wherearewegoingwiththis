@@ -130,6 +130,37 @@ describe('SaveService', () => {
     expect(() => SaveService.updateSpiceContracts('does-not-exist', [])).not.toThrow();
   });
 
+  it('createNewSave starts with an empty home; load migrates a legacy save (Housing)', () => {
+    const save = SaveService.createNewSave(testCharacter);
+    expect(save.homeFurniture).toEqual([]);
+    expect(save.homeStorage).toEqual({});
+    delete (save as Partial<SaveGame>).homeFurniture;
+    delete (save as Partial<SaveGame>).homeStorage;
+    SaveService.save(save);
+    const loaded = SaveService.load(save.saveId)!;
+    expect(loaded.homeFurniture).toEqual([]);
+    expect(loaded.homeStorage).toEqual({});
+  });
+
+  it('updateHome persists furniture + cabinet storage and round-trips (Housing)', () => {
+    const save = SaveService.createNewSave(testCharacter);
+    SaveService.save(save);
+    SaveService.updateHome(
+      save.saveId,
+      [{ key: 'bookshelf', defId: 'bookshelf', position: [1, 0, 2], rotationY: 0.5, scale: 1 }],
+      { bookshelf: { items: [{ id: 'scrap', qty: 3 }], equippedWeaponId: null, capacityWeight: 50 } },
+    );
+    const loaded = SaveService.load(save.saveId)!;
+    expect(loaded.homeFurniture).toEqual([
+      { key: 'bookshelf', defId: 'bookshelf', position: [1, 0, 2], rotationY: 0.5, scale: 1 },
+    ]);
+    expect(loaded.homeStorage.bookshelf.items).toEqual([{ id: 'scrap', qty: 3 }]);
+  });
+
+  it('updateHome is a no-op for an unknown save id', () => {
+    expect(() => SaveService.updateHome('does-not-exist', [], {})).not.toThrow();
+  });
+
   it('load migrates a legacy save missing the hunger field', () => {
     const save = SaveService.createNewSave(testCharacter);
     delete (save as Partial<SaveGame>).playerHunger;

@@ -50,6 +50,9 @@ import {
   clampSpicePrice, makeSpiceContract, completeSpiceReport,
 } from '@systems/economy/SpiceTrade';
 import { InventoryOverlay } from '@systems/InventoryOverlay';
+import { HousingState } from '@systems/housing/HousingState';
+import { HousingEditor } from '@systems/housing/HousingEditor';
+import { furnitureModel, furnitureDef, storageCapacityOf, furniturePrice, refundFor } from '@systems/housing/FurnitureCatalog';
 import { HeldItemRig, resolveAttachWith, boneFor, AttachOverrides, flashlightActive, idleOverrideClip } from '@systems/HeldItems';
 import { AdjustOverlay } from '@systems/AdjustOverlay';
 import { ActionRibbon } from '@systems/ActionRibbon';
@@ -275,6 +278,21 @@ export class GameWorldScene extends BaseScene {
   private interiorOriginTile: [number, number] | null = null;
   private interiorRoot: TransformNode | null = null;
   private interiorAggregates: PhysicsAggregate[] = [];
+  // ── Housing system (player's home: bought furniture + cabinet storage) ──
+  /** The id of the home interior; only there does the furniture system arm. */
+  private static readonly HOME_SCENE_ID = 'myhouse';
+  private housing = new HousingState();
+  private housingEditor: HousingEditor | null = null;
+  /** Per-cabinet storage state, keyed by placed-furniture key. */
+  private homeStorage: Record<string, import('@entities/Inventory').InventoryState> = {};
+  /** Live meshes for placed furniture (parented to the interior root). */
+  private homeFurnitureHolders = new Map<string, TransformNode>();
+  private homeFurnitureAggregates: PhysicsAggregate[] = [];
+  /** Sleep triggers contributed by placed beds (merged with the interior's). */
+  private homeSleepTriggers: WorldSleepTrigger[] = [];
+  /** The cabinet currently open in the storage overlay (for write-back). */
+  private storageCabinetKey: string | null = null;
+  private storageCabinetInv: Inventory | null = null;
   /** Door triggers fire only when armed: disarmed on teleport, re-armed once
    *  the player is clear of every trigger (prevents enter/exit ping-pong). */
   private doorArmed = true;
@@ -492,6 +510,8 @@ export class GameWorldScene extends BaseScene {
     this.groundItems = session.groundItems ?? [];
     this.collectedSceneItems = session.collectedSceneItems ?? [];
     this.pda = session.pda ?? [];
+    this.housing.load(session.homeFurniture ?? []);
+    this.homeStorage = session.homeStorage ?? {};
     this.vehicleState = session.vehicle ?? {
       health: { ...DEFAULT_VEHICLE_STATE.health }, destroyed: false,
     };
@@ -568,6 +588,7 @@ export class GameWorldScene extends BaseScene {
       heldAttach: this.heldAttach, playerHunger, playerStamina, missions: this.missions, spiceContracts: this.spiceContracts,
       groundItems, pda: this.pda, collectedSceneItems: this.collectedSceneItems,
       lastSleepGameTime: this.lastSleepGameTime, wellRestedUntilGameTime: this.wellRestedUntilGameTime,
+      homeFurniture: this.housing.toState(), homeStorage: this.homeStorage,
     });
 
     const session = ServiceLocator.tryGet<GameSession>('gameSession');
@@ -589,6 +610,8 @@ export class GameWorldScene extends BaseScene {
       session.pda = this.pda;
       session.lastSleepGameTime = this.lastSleepGameTime;
       session.wellRestedUntilGameTime = this.wellRestedUntilGameTime;
+      session.homeFurniture = this.housing.toState();
+      session.homeStorage = this.homeStorage;
     }
   }
 
@@ -756,18 +779,36 @@ export class GameWorldScene extends BaseScene {
     // Inventory overlay (I) — manage the pack; loot a corpse. Freezes the world.
     this.inventoryOverlay = new InventoryOverlay(this.babylonScene);
     this.inventoryOverlay.setHandlers({
-      onChange: () => { this.sfx('ui_click'); this.persistSession(); void this.syncPlayerHeldItems(); },
+      onChange: () => { this.sfx('ui_click'); this.flushOpenCabinet(); this.persistSession(); void this.syncPlayerHeldItems(); },
       onHeal: (amount) => { this.player?.getHealth().heal(amount); },
       onFeed: (itemId, amount) => this.eat(itemId, amount),
-      // Looting a corpse framed the camera on it (conversation mode); restore the
-      // normal follow camera when the overlay closes.
-      onClose: () => this.cameraSystem?.exitConversationMode(),
+      // Looting a corpse / opening a cabinet framed the camera on it (conversation
+      // mode); restore the normal follow camera + clear the open cabinet on close.
+      onClose: () => { this.cameraSystem?.exitConversationMode(); this.storageCabinetKey = null; this.storageCabinetInv = null; },
       // "Adjust" button on an equipped row → open the calibration tool for it.
       onAdjust: (itemId, slot) => this.openAdjustFor(itemId, slot),
       // Armor equipped/removed → swap the avatar's region mesh (Phase 15).
       onEquipArmor: () => { void this.rebuildPlayerArmor(); },
       // Dropped item → drop a pickup pile at the player's feet (Fase 18).
       onDrop: (itemId) => this.dropToGround(itemId),
+    });
+
+    // Housing "Home Edit Mode" (Furniture trigger by the home door): editor-style
+    // gizmos to buy/place/move/sell furniture. Pure HousingState + FurnitureCatalog
+    // drive it; this scene owns the meshes/credits/persistence via the host.
+    this.housingEditor = new HousingEditor(this.babylonScene, this.engine, {
+      creditBalance: () => creditBalance(this.playerInventory),
+      buy: (defId, at) => this.buyFurniture(defId, at),
+      sellSelected: () => this.sellSelectedFurniture(),
+      holderByKey: (key) => this.homeFurnitureHolders.get(key) ?? null,
+      select: (key) => this.housing.select(key),
+      selectedKey: () => this.housing.selection,
+      commitTransform: (key, tr) => {
+        this.housing.select(key);
+        this.housing.setTransform(tr);
+        this.persistSession();
+      },
+      onExitEditor: () => { void this.onExitHousingEditor(); },
     });
 
     // Character sheet overlay (K) — attributes, skills, perk tree.
@@ -1333,7 +1374,7 @@ export class GameWorldScene extends BaseScene {
   /** Bed sleep triggers in reach: the interior's beds inside one, else the current tile's. */
   /* istanbul ignore next — browser-only (worldStreamer/interior exist at runtime) */
   private currentSleepTriggers(): WorldSleepTrigger[] {
-    if (this.interiorId) return this.interiorSleepTriggers;
+    if (this.interiorId) return [...this.interiorSleepTriggers, ...this.homeSleepTriggers];
     const cur = this.worldStreamer?.getCurrentTile();
     return cur ? (this.tileSleepTriggers.get(tileKey(cur.tx, cur.tz)) ?? []) : [];
   }
@@ -1542,8 +1583,155 @@ export class GameWorldScene extends BaseScene {
       this.spawnGroundMarker(g);
     });
 
+    // Housing: the player's home loads its bought furniture on top of the authored
+    // doc. The home's door doubles as the furniture trigger ([E] = customize while
+    // [F] still leaves) — no separate volume/marker.
+    if (doc.id === GameWorldScene.HOME_SCENE_ID) {
+      await this.buildHomeFurniture();
+    }
+
     this.updateAwakeNpcs();
     if (teleport) this.player?.teleport(new Vector3(...interiorWorldPos(spawnPad)));
+  }
+
+  // ─── Housing: furniture meshes + shop + cabinet storage ──────────────────────
+
+  /** (Re)build every placed-furniture mesh + collider from the HousingState. */
+  /* istanbul ignore next — browser-only GLB instancing; HousingState is unit-tested */
+  private async buildHomeFurniture(): Promise<void> {
+    this.disposeHomeFurniture();
+    for (const piece of this.housing.placed) await this.spawnHomePiece(piece);
+  }
+
+  /** Build one furniture piece: holder + GLB + (solid) collider + bed sleep trigger. */
+  /* istanbul ignore next — browser-only GLB instancing */
+  private async spawnHomePiece(piece: import('@systems/housing/HousingState').PlacedFurniture): Promise<void> {
+    if (typeof document === 'undefined' || !this.interiorRoot) return;
+    const model = furnitureModel(piece.defId);
+    if (!model) return;
+    const scene = this.babylonScene;
+    const holder = new TransformNode(`home-${piece.key}`, scene);
+    holder.parent = this.interiorRoot;
+    const [px, py, pz] = interiorWorldPos(piece.position);
+    holder.position.set(px, py, pz);
+    holder.rotation.y = piece.rotationY;
+    holder.scaling.setAll(piece.scale ?? 1);
+    const inst = this.assetCache ? await this.assetCache.instantiate(model, scene) : null;
+    if (!inst) { holder.dispose(); return; }
+    inst.animationGroups.forEach((g) => g.stop());
+    inst.rootNodes.forEach((n) => { (n as TransformNode).parent = holder; });
+    // Pickable + tagged so the editor's click-select can resolve the instance key.
+    holder.getChildMeshes().forEach((m) => {
+      m.isPickable = true;
+      m.alwaysSelectAsActiveMesh = true;
+      m.metadata = { homeKey: piece.key };
+    });
+    this.homeFurnitureHolders.set(piece.key, holder);
+    if (isBedModel(model)) {
+      const { min, max } = holder.getHierarchyBoundingVectors(true);
+      if (Number.isFinite(min.x) && Number.isFinite(max.x)) {
+        this.homeSleepTriggers.push({
+          key: `home-bed-${piece.key}`,
+          position: [(min.x + max.x) / 2, min.y, (min.z + max.z) / 2],
+          size: [(max.x - min.x) + 3, (max.y - min.y) + 1, (max.z - min.z) + 3],
+        });
+      }
+    }
+    if (scene.isPhysicsEnabled()) {
+      const { min, max } = holder.getHierarchyBoundingVectors(true);
+      const size = max.subtract(min);
+      if (Number.isFinite(size.x) && size.x > 0.05 && size.y > 0.05 && size.z > 0.05) {
+        const box = MeshBuilder.CreateBox(`home-col-${piece.key}`, { width: size.x, height: size.y, depth: size.z }, scene);
+        box.position.copyFrom(min.add(max).scale(0.5));
+        box.isVisible = false;
+        box.parent = this.interiorRoot;
+        this.homeFurnitureAggregates.push(new PhysicsAggregate(box, PhysicsShapeType.BOX, { mass: 0 }, scene));
+      }
+    }
+  }
+
+  /** Dispose every placed-furniture mesh + collider (keeps the Furniture marker). */
+  /* istanbul ignore next — browser-only teardown */
+  private disposeHomeFurniture(): void {
+    this.homeFurnitureHolders.forEach((h) => h.dispose());
+    this.homeFurnitureHolders.clear();
+    this.homeFurnitureAggregates.forEach((a) => a.dispose());
+    this.homeFurnitureAggregates = [];
+    this.homeSleepTriggers = [];
+  }
+
+  /** Furniture-trigger volumes in reach: at home, the door doubles as the furniture
+   *  customize trigger ([E] opens edit mode; [F] still leaves through the door). */
+  /* istanbul ignore next — browser-only (interior exists at runtime) */
+  private currentFurnitureTriggers(): WorldSleepTrigger[] {
+    if (this.interiorId !== GameWorldScene.HOME_SCENE_ID) return [];
+    return this.interiorDoorTriggers.map((d) => ({ key: d.key, position: d.position, size: d.size }));
+  }
+
+  /** Buy + place a furniture piece (host callback for HousingEditor). */
+  /* istanbul ignore next — browser-only buy glue; Economy/HousingState are unit-tested */
+  private async buyFurniture(defId: string, at: [number, number, number]): Promise<string | null> {
+    const price = furniturePrice(defId);
+    if (creditBalance(this.playerInventory) < price) {
+      this.hud?.pushToast(t('housing.cantAfford'));
+      this.sfx('ui_error');
+      return null;
+    }
+    payCredits(this.playerInventory, price);
+    const key = this.housing.place(defId, at);
+    await this.spawnHomePiece(this.housing.byKey(key)!);
+    this.sfx('ui_click');
+    this.hud?.pushToast(t('housing.bought', { name: t(furnitureDef(defId)!.nameKey), n: String(price) }));
+    this.persistSession();
+    return key;
+  }
+
+  /** Sell the selected piece: refund + remove its mesh (host callback). */
+  /* istanbul ignore next — browser-only sell glue; HousingState is unit-tested */
+  private sellSelectedFurniture(): void {
+    const key = this.housing.selection;
+    if (!key) return;
+    const defId = this.housing.removeSelected();
+    if (!defId) return;
+    // Remove the mesh (its collider is cleared on edit-exit rebuild).
+    this.homeFurnitureHolders.get(key)?.dispose();
+    this.homeFurnitureHolders.delete(key);
+    // Cabinet contents are discarded with the cabinet (sold with it).
+    delete this.homeStorage[key];
+    const refund = refundFor(defId);
+    grantCredits(this.playerInventory, refund);
+    this.sfx('ui_click');
+    this.hud?.pushToast(t('housing.sold', { name: t(furnitureDef(defId)!.nameKey), n: String(refund) }));
+    this.persistSession();
+  }
+
+  /** On leaving edit mode: rebuild furniture (fixes colliders after moves) + persist. */
+  /* istanbul ignore next — browser-only teardown */
+  private async onExitHousingEditor(): Promise<void> {
+    await this.buildHomeFurniture();
+    this.persistSession();
+  }
+
+  /** Write the open cabinet's contents back into homeStorage (on every change). */
+  /* istanbul ignore next — browser-only overlay write-back glue */
+  private flushOpenCabinet(): void {
+    if (this.storageCabinetKey && this.storageCabinetInv) {
+      this.homeStorage[this.storageCabinetKey] = this.storageCabinetInv.toState();
+    }
+  }
+
+  /** Open a cabinet's storage overlay (deposit/withdraw), framing it. */
+  /* istanbul ignore next — browser-only overlay glue; Inventory/HousingState tested */
+  private openStorageCabinet(piece: import('@systems/housing/HousingState').PlacedFurniture): void {
+    const cap = storageCapacityOf(piece.defId);
+    const prev = this.homeStorage[piece.key];
+    const cabinet = new Inventory({ ...(prev ?? {}), capacityWeight: cap });
+    this.storageCabinetKey = piece.key;
+    this.storageCabinetInv = cabinet;
+    const name = t(furnitureDef(piece.defId)?.nameKey ?? 'housing.cabinet');
+    this.inventoryOverlay?.openStorage(this.playerInventory, cabinet, name);
+    const holder = this.homeFurnitureHolders.get(piece.key);
+    if (holder) this.cameraSystem?.enterConversationMode(holder);
   }
 
   /** Tear the interior down, merge its NPC memory back, teleport to `back` (world). */
@@ -1551,9 +1739,15 @@ export class GameWorldScene extends BaseScene {
   private exitInteriorTo(back: Vector3): void {
     const id = this.interiorId;
     if (!id) return;
+    this.housingEditor?.exit(); // close edit mode if leaving the home mid-edit
     this.despawnTileNpcs(`interior:${id}`);
     this.interiorAggregates.forEach((a) => a.dispose());
     this.interiorAggregates = [];
+    // Home furniture is parented to the interior root (disposed below); clear the
+    // tracking maps + colliders + the Furniture trigger so they don't leak.
+    this.disposeHomeFurniture();
+    this.storageCabinetKey = null;
+    this.storageCabinetInv = null;
     this.interiorRoot?.dispose();
     this.interiorRoot = null;
     // Interior seeded pickups stream out with the room.
@@ -1797,6 +1991,9 @@ export class GameWorldScene extends BaseScene {
     this.dialog?.dispose();
     this.pauseMenu?.dispose();
     this.inventoryOverlay?.dispose();
+    this.housingEditor?.dispose();
+    this.housingEditor = null;
+    this.disposeHomeFurniture();
     this.characterSheetOverlay?.hide();
     this.characterSheetOverlay = null;
     this.pdaOverlay?.dispose();
@@ -1917,6 +2114,16 @@ export class GameWorldScene extends BaseScene {
       this.stepNpcWalks(dt); // advance any in-progress combat move
       this.pinCombatFacings();
       this.cameraSystem?.update();
+      this.inputSystem?.endFrame();
+      return;
+    }
+
+    // Home Edit Mode (Housing): the editor owns its OWN orbit camera + gizmos, so
+    // freeze the world and do NOT drive the follow camera (it would fight). ESC /
+    // DONE close it (handled inside the editor via scene observables).
+    if (this.housingEditor?.isOpen()) {
+      this.hud?.setHudTextVisible(false); // the editor owns the screen; hide HUD/prompt
+      this.housingEditor.update(dt); // keyboard camera nav (mouse via attachControl)
       this.inputSystem?.endFrame();
       return;
     }
@@ -3235,6 +3442,20 @@ export class GameWorldScene extends BaseScene {
       // Don't close while the player is typing — the 'E' belongs to the field.
       if (!this.dialog.isInputFocused()) this.closeDialog();
       return;
+    }
+    // Housing (home only): the Furniture volume opens edit mode; a placed storage
+    // cabinet in reach opens its deposit/withdraw overlay. Checked first — these are
+    // distinct home interactables that won't overlap NPCs/pickups.
+    /* istanbul ignore next — browser-only housing triggers; HousingState is unit-tested */
+    if (this.interiorId === GameWorldScene.HOME_SCENE_ID) {
+      const pp = this.player.getPosition();
+      if (sleepTriggerHit(pp, this.currentFurnitureTriggers())) {
+        this.housingEditor?.enter();
+        return;
+      }
+      const [ox, , oz] = INTERIOR_ORIGIN;
+      const cabinet = this.housing.nearestStorage(pp.x - ox, pp.z - oz, 2.5);
+      if (cabinet) { this.openStorageCabinet(cabinet); return; }
     }
     // A bed in reach → sleep (once per 24h). Checked before NPCs/pickups since a
     // bed is a distinct interactable that rarely overlaps them.
@@ -5174,6 +5395,7 @@ export class GameWorldScene extends BaseScene {
       || (this.adjustOverlay?.isOpen() ?? false)
       || (this.pauseMenu?.isOpen() ?? false)
       || (this.gameOverMenu?.isOpen() ?? false)
+      || (this.housingEditor?.isOpen() ?? false)
       || this.gameOver
       || !!this.surpriseTargeting;
     this.actionRibbon.setVisible(!busy);
@@ -5199,7 +5421,17 @@ export class GameWorldScene extends BaseScene {
     // A door in reach takes the F prompt (quadrant prop-door / interior return).
     if (this.player && this.doorArmed
       && doorTriggerHit(this.player.getPosition(), this.currentDoorTriggers())) {
+      // At home, the door also customizes furniture ([E]); hint both keys.
+      /* istanbul ignore next — browser-only home-door hint */
+      if (this.interiorId === GameWorldScene.HOME_SCENE_ID) return t('hud.homeDoor');
       return t(this.interiorId ? 'hud.exitDoor' : 'hud.enterDoor');
+    }
+    // Home: a placed storage cabinet in reach offers [E] to open it.
+    /* istanbul ignore next — browser-only housing prompt; nearestStorage is unit-tested */
+    if (this.player && this.interiorId === GameWorldScene.HOME_SCENE_ID) {
+      const pp = this.player.getPosition();
+      const cab = this.housing.nearestStorage(pp.x - INTERIOR_ORIGIN[0], pp.z - INTERIOR_ORIGIN[2], 2.5);
+      if (cab) return t('hud.openStorage', { name: t(furnitureDef(cab.defId)?.nameKey ?? 'housing.cabinet') });
     }
     if (this.player && this.vehicle?.canEnter(this.player.getPosition())) return t('hud.enterCar');
     // A bed in reach offers [E] Sleep (or a "rested" note while on cooldown).

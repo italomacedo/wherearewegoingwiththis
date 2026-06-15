@@ -11,6 +11,7 @@ import type { Mission, PendingOffer } from '@systems/economy/Missions';
 import type { SpiceContract } from '@systems/economy/SpiceTrade';
 import type { GroundItem } from '@systems/world/GroundItems';
 import type { PdaEntry } from '@systems/pda/Pda';
+import type { PlacedFurniture } from '@systems/housing/HousingState';
 
 /**
  * Per-NPC persisted memory: conversation state, the dynamic disposition toward the
@@ -92,6 +93,12 @@ export interface SaveGame {
   collectedSceneItems: string[];
   /** Intel dossiers gathered by scanning/hacking NPCs (Fase 20 PDA). */
   pda: PdaEntry[];
+  /** Furniture the player bought + placed in their home (Housing). Per-save: it is
+   *  layered over the shared `myhouse.json` base, never mutating the scene doc. */
+  homeFurniture: PlacedFurniture[];
+  /** Per-storage-piece contents, keyed by the placed-furniture instance key
+   *  (Housing cabinets). Each is a weight-capped Inventory state. */
+  homeStorage: Record<string, InventoryState>;
   /** Game-time of the player's last sleep (gameTimeSeconds) — drives the once-per-24h
    *  cooldown. Undefined = never slept (Sleep feature). */
   lastSleepGameTime?: number;
@@ -203,6 +210,8 @@ export class SaveService {
       groundItems: [],
       collectedSceneItems: [],
       pda: [],
+      homeFurniture: [],
+      homeStorage: {},
       flags: {},
       npcMemory: {},
     };
@@ -250,6 +259,17 @@ export class SaveService {
     const save = SaveService.load(saveId);
     if (!save) return;
     SaveService.save({ ...save, spiceContracts });
+  }
+
+  /** Persist the player's home furniture layout + cabinet storage (Housing). */
+  static updateHome(
+    saveId: string,
+    homeFurniture: PlacedFurniture[],
+    homeStorage: Record<string, InventoryState>,
+  ): void {
+    const save = SaveService.load(saveId);
+    if (!save) return;
+    SaveService.save({ ...save, homeFurniture, homeStorage });
   }
 
   static save(saveGame: SaveGame): void {
@@ -388,6 +408,9 @@ export class SaveService {
     // Scene Editor: collected seeded-pickup keys. Legacy saves get an empty list.
     if (!save.collectedSceneItems) save.collectedSceneItems = [];
     if (!save.pda) save.pda = [];
+    // Housing: backfill the home furniture layout + cabinet storage.
+    if (!save.homeFurniture) save.homeFurniture = [];
+    if (!save.homeStorage) save.homeStorage = {};
     // Fase 17: backfill the procedural-world seed (derived stably from the saveId
     // so a legacy save always regenerates the same world) + the current tile.
     if (save.world) {

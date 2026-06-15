@@ -111,6 +111,21 @@ describe('GameSession', () => {
     expect(GameSession.fromSave(save).inventory).toEqual({ items: [], equipped: {}, equippedWeaponId: null, capacityWeight: 30 });
   });
 
+  it('carries home furniture + cabinet storage (empty on a legacy save)', () => {
+    expect(new GameSession('s', character).homeFurniture).toEqual([]);
+    expect(new GameSession('s', character).homeStorage).toEqual({});
+    const save = SaveService.createNewSave(character);
+    save.homeFurniture = [{ key: 'bed_single', defId: 'bed_single', position: [0, 0, 1], rotationY: 0, scale: 1 }];
+    save.homeStorage = { drawer_1: { items: [{ id: 'scrap', qty: 2 }], equippedWeaponId: null, capacityWeight: 40 } };
+    const session = GameSession.fromSave(save);
+    expect(session.homeFurniture).toHaveLength(1);
+    expect(session.homeStorage.drawer_1.items).toEqual([{ id: 'scrap', qty: 2 }]);
+    (save as { homeFurniture?: unknown }).homeFurniture = undefined;
+    (save as { homeStorage?: unknown }).homeStorage = undefined;
+    expect(GameSession.fromSave(save).homeFurniture).toEqual([]);
+    expect(GameSession.fromSave(save).homeStorage).toEqual({});
+  });
+
   it('fromSave tolerates a save with no npcMemory', () => {
     const save = SaveService.createNewSave(character);
     // simulate a legacy save missing npcMemory

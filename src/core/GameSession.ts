@@ -12,6 +12,7 @@ import type { Mission } from '@systems/economy/Missions';
 import type { SpiceContract } from '@systems/economy/SpiceTrade';
 import type { GroundItem } from '@systems/world/GroundItems';
 import type { PdaEntry } from '@systems/pda/Pda';
+import type { PlacedFurniture } from '@systems/housing/HousingState';
 
 export interface WorldState {
   zone: string;
@@ -67,6 +68,10 @@ export class GameSession {
     public lastSleepGameTime: number | undefined = undefined,
     /** Game-time the "Well Rested" buff expires. undefined = no buff. */
     public wellRestedUntilGameTime: number | undefined = undefined,
+    /** Furniture the player bought + placed at home (Housing). */
+    public homeFurniture: PlacedFurniture[] = [],
+    /** Per-cabinet storage contents, keyed by placed-furniture key (Housing). */
+    public homeStorage: Record<string, InventoryState> = {},
   ) {}
 
   /** Builds a session from a persisted save. */
@@ -90,6 +95,8 @@ export class GameSession {
       save.collectedSceneItems ?? [],
       save.lastSleepGameTime,
       save.wellRestedUntilGameTime,
+      save.homeFurniture ?? [],
+      save.homeStorage ?? {},
     );
   }
 }
