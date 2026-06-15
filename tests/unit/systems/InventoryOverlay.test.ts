@@ -229,4 +229,48 @@ describe('InventoryOverlay (pure state + actions)', () => {
     overlay.openManage(new Inventory());
     expect(overlay.sourceRows()).toEqual([]);
   });
+
+  describe('storage mode (home cabinet)', () => {
+    it('openStorage exposes both inventories; deposit/withdraw transfer bidirectionally', () => {
+      const player = new Inventory();
+      player.add('scrap', 3);
+      const cabinet = new Inventory({ capacityWeight: 60 });
+      cabinet.add('medkit', 1);
+      let changes = 0;
+      overlay.setHandlers({ onChange: () => { changes += 1; } });
+      overlay.openStorage(player, cabinet, 'Bookshelf');
+      expect(overlay.getMode()).toBe('storage');
+      expect(overlay.getSourceName()).toBe('Bookshelf');
+      expect(overlay.playerRows().map((r) => r.id)).toEqual(['scrap']);
+      expect(overlay.sourceRows().map((r) => r.id)).toEqual(['medkit']);
+
+      overlay.deposit('scrap');
+      expect(player.count('scrap')).toBe(2);
+      expect(cabinet.count('scrap')).toBe(1);
+
+      overlay.withdraw('medkit');
+      expect(player.count('medkit')).toBe(1);
+      expect(cabinet.count('medkit')).toBe(0);
+      expect(changes).toBe(2);
+    });
+
+    it('deposit respects the cabinet weight capacity (offload loop)', () => {
+      const player = new Inventory();
+      player.add('shovel', 1);       // 2.6 kg
+      const cabinet = new Inventory({ capacityWeight: 1 }); // too small for the shovel
+      overlay.openStorage(player, cabinet, 'Tiny Drawer');
+      overlay.deposit('shovel');
+      expect(cabinet.count('shovel')).toBe(0); // rejected — over capacity
+      expect(player.count('shovel')).toBe(1);
+    });
+
+    it('deposit / withdraw are no-ops outside storage mode (no source)', () => {
+      const inv = new Inventory();
+      inv.add('scrap', 1);
+      overlay.openManage(inv);
+      overlay.deposit('scrap');
+      overlay.withdraw('scrap');
+      expect(inv.count('scrap')).toBe(1);
+    });
+  });
 });

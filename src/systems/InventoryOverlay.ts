@@ -26,7 +26,7 @@ export interface InventoryOverlayHandlers {
   onDrop?: (itemId: string) => void;
 }
 
-export type InventoryMode = 'manage' | 'loot';
+export type InventoryMode = 'manage' | 'loot' | 'storage';
 
 export interface InventoryRow {
   id: string;
@@ -99,6 +99,20 @@ export class InventoryOverlay {
     this.refresh();
   }
 
+  /**
+   * Open a home storage cabinet: bidirectional transfer between the player's pack
+   * and the cabinet's (weight-capped) inventory. Deposit offloads kilos; withdraw
+   * pulls them back. The cabinet's own `capacityWeight` gates deposits.
+   */
+  openStorage(player: Inventory, cabinet: Inventory, cabinetName: string): void {
+    this.player = player;
+    this.source = cabinet;
+    this.sourceName = cabinetName;
+    this.mode = 'storage';
+    this.open = true;
+    this.refresh();
+  }
+
   close(): void {
     if (!this.open) return;
     this.open = false;
@@ -161,6 +175,20 @@ export class InventoryOverlay {
 
   /** Loot one of an item from the corpse into the player's pack (capacity-aware). */
   take(id: string): void {
+    if (!this.source) return;
+    if (this.source.transferTo(this.player, id, 1) > 0) { this.handlers.onChange?.(); this.refresh(); }
+  }
+
+  /** Storage: move one of an item from the player's pack INTO the cabinet
+   *  (gated by the cabinet's weight capacity). */
+  deposit(id: string): void {
+    if (!this.source) return;
+    if (this.player.transferTo(this.source, id, 1) > 0) { this.handlers.onChange?.(); this.refresh(); }
+  }
+
+  /** Storage: move one of an item OUT of the cabinet into the player's pack
+   *  (gated by the pack's weight capacity). */
+  withdraw(id: string): void {
     if (!this.source) return;
     if (this.source.transferTo(this.player, id, 1) > 0) { this.handlers.onChange?.(); this.refresh(); }
   }
@@ -321,7 +349,9 @@ export class InventoryOverlay {
     if (this.titleBlock) {
       this.titleBlock.text = this.mode === 'loot'
         ? t('inventory.lootTitle', { name: this.sourceName })
-        : t('inventory.title');
+        : this.mode === 'storage'
+          ? t('housing.storageTitle', { name: this.sourceName })
+          : t('inventory.title');
     }
     list.clearControls();
 
@@ -358,7 +388,34 @@ export class InventoryOverlay {
       list.addControl(line);
     };
 
-    if (this.mode === 'loot') {
+    if (this.mode === 'storage') {
+      // A weight readout for the offload loop: PACK then CABINET usage.
+      const cap = this.source?.effectiveCapacity() ?? 0;
+      const used = this.source?.totalWeight() ?? 0;
+      const info = new TextBlock('inv-storage-info',
+        `${t('housing.pack')}: ${this.player.totalWeight().toFixed(1)}/${this.player.effectiveCapacity().toFixed(0)} kg`
+        + `    ${t('housing.cabinet')}: ${used.toFixed(1)}/${cap.toFixed(0)} kg`);
+      info.color = UI.accent;
+      info.fontSize = 13;
+      info.fontFamily = '"Courier New", monospace';
+      info.height = '28px';
+      list.addControl(info);
+
+      const head = new TextBlock('inv-storage-pack', t('housing.yourPack').toUpperCase());
+      head.color = '#7FE9D8'; head.fontSize = 12; head.fontFamily = '"Courier New", monospace';
+      head.height = '22px'; head.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+      list.addControl(head);
+      for (const row of this.playerRows()) {
+        addRow(row, [{ key: 'dep', label: t('housing.deposit'), act: () => this.deposit(row.id) }]);
+      }
+      const head2 = new TextBlock('inv-storage-cab', t('housing.inCabinet').toUpperCase());
+      head2.color = '#7FE9D8'; head2.fontSize = 12; head2.fontFamily = '"Courier New", monospace';
+      head2.height = '22px'; head2.paddingTop = '8px'; head2.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+      list.addControl(head2);
+      for (const row of this.sourceRows()) {
+        addRow(row, [{ key: 'wd', label: t('housing.withdraw'), act: () => this.withdraw(row.id) }]);
+      }
+    } else if (this.mode === 'loot') {
       for (const row of this.sourceRows()) {
         addRow(row, [{ key: 'take', label: t('inventory.take'), act: () => this.take(row.id) }]);
       }
